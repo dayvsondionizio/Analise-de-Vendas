@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Backups
+*.bak
+*.tmp
+*.orig
+
+# Dados dos clientes (nunca subir XMLs ou planilhas)
+*.xml
+*.XML
+*.zip
+*.ZIP
+*.xlsx
+*.xls
+*.csv
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Ambiente virtual
+venv/
+.venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
