@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
-    page_title="BI Fiscal — Panificação",
+    page_title="Análise de Vendas CP",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -805,17 +805,44 @@ def carregar_pastas(caminhos: tuple):
     return df_nfce_p, df_nfe_p, len(xml_files), skipped
 
 
+def _is_cloud() -> bool:
+    """True quando rodando no Streamlit Cloud (sem display/tkinter disponível)."""
+    import os
+    if os.environ.get("STREAMLIT_SHARING_MODE") or os.environ.get("HOME") == "/home/appuser":
+        return True
+    try:
+        import tkinter as _tk
+        _r = _tk.Tk()
+        _r.destroy()
+        return False
+    except Exception:
+        return True
+
+
 def _abrir_seletor_pasta() -> str:
     """Abre o seletor nativo de pasta do Windows via tkinter."""
     try:
         import tkinter as tk
         from tkinter import filedialog
         root = tk.Tk()
-        root.withdraw()                        # esconde a janela principal
-        root.wm_attributes("-topmost", 1)      # dialog fica na frente
+        root.withdraw()
+        root.wm_attributes("-topmost", 1)
         pasta = filedialog.askdirectory(title="Selecione a pasta com os XMLs fiscais")
         root.destroy()
         return pasta or ""
+    except Exception:
+        return ""
+
+
+def _logo_base64() -> str:
+    """Retorna a logo em base64 para exibir em HTML, ou string vazia se não existir."""
+    import base64
+    from pathlib import Path
+    logo_path = Path(__file__).parent / "LOGO S FUNDO 2.png"
+    if not logo_path.exists():
+        return ""
+    try:
+        return base64.b64encode(logo_path.read_bytes()).decode()
     except Exception:
         return ""
 
@@ -2402,7 +2429,7 @@ def main():
 
     #  SIDEBAR 
     with st.sidebar:
-        st.markdown("## BI Fiscal — Panificação")
+        st.markdown("## Análise de Vendas CP")
         st.divider()
 
         st.subheader("Arquivos")
@@ -2416,14 +2443,16 @@ def main():
         f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx", "xls"],
                                    help="Planilha do NF-e — não necessário se usar XML/ZIP")
 
-        # ── Modo 2: Múltiplas pastas de XMLs ────────────
+        # ── Modo 2: Múltiplas pastas de XMLs (só no local) ──────────
         st.markdown("**Modo 2 — XMLs direto (sem converter)**")
 
         if "pastas_xml" not in st.session_state:
             st.session_state["pastas_xml"] = []
 
-        if st.button("+ Adicionar pasta de XMLs",
-                     use_container_width=True, key="btn_add_pasta"):
+        if _is_cloud():
+            st.caption("📁 Seleção de pasta disponível apenas na versão local. Use ZIP acima.")
+        elif st.button("+ Adicionar pasta de XMLs",
+                       use_container_width=True, key="btn_add_pasta"):
             _caminho = _abrir_seletor_pasta()
             if _caminho and _caminho not in st.session_state["pastas_xml"]:
                 st.session_state["pastas_xml"].append(_caminho)
@@ -2515,12 +2544,21 @@ def main():
 
     #  SEM DADOS / AGUARDANDO BOTÃO
     if not _tem_dados or (not _tem_cache and not btn_analisar):
-        st.markdown("""
+        _logo_b64 = _logo_base64()
+        _logo_html = (
+            f'<img src="data:image/png;base64,{_logo_b64}" '
+            f'style="height:80px;margin-bottom:12px;display:block;" />'
+            if _logo_b64 else ""
+        )
+        st.markdown(f"""
         <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);
-                    padding:32px;border-radius:12px;color:white;margin-bottom:20px">
-          <h1 style="margin:0;font-size:28px">BI Fiscal — Panificação</h1>
-          <p style="margin:8px 0 0;opacity:.8">
-            Carregue Excel/ZIP <b>ou selecione os XMLs da pasta</b> na barra lateral e clique em <b>Analisar</b>.
+                    padding:36px 40px;border-radius:16px;color:white;margin-bottom:20px">
+          {_logo_html}
+          <h1 style="margin:0;font-size:32px;font-weight:700;letter-spacing:-0.5px">
+            Análise de Vendas CP
+          </h1>
+          <p style="margin:10px 0 0;opacity:.8;font-size:15px">
+            Carregue um Excel/ZIP <b>ou selecione a pasta de XMLs</b> na barra lateral e clique em <b>Analisar</b>.
           </p>
         </div>
         """, unsafe_allow_html=True)
