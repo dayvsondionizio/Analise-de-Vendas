@@ -2982,19 +2982,25 @@ def main():
 
         col_e, col_r = st.columns(2)
 
+        # Ticket médio geral como referência no cabeçalho
+        if not df_elev.empty:
+            _tm_geral = df_elev["Ticket Médio Geral"].iloc[0]
+            st.caption(f"Ticket médio geral do período: **{brl(_tm_geral)}** — base de comparação para todos os produtos abaixo")
+
         with col_e:
             st.markdown("####  Elevam o Ticket Médio")
             st.caption("Quando presentes, o pedido tende a ser maior")
             if df_elev.empty:
                 st.info("Dados insuficientes.")
             else:
-                tbl = df_elev.copy()
+                tbl = df_elev[["Produto", "Categoria", "Nº Pedidos",
+                               "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
                 tbl["Ticket Médio c/ Produto"] = tbl["Ticket Médio c/ Produto"].apply(brl)
                 tbl["Diferença R$"] = tbl["Diferença R$"].apply(lambda v: f"+{brl(v)}")
-                tbl["Diferença %"]  = tbl["Diferença %"].apply(lambda v: f"+{v:.1f}".replace(".", ",") + "%")
+                tbl["Diferença %"]  = tbl["Diferença %"].apply(lambda v: f"+{v:.1f}%".replace(".", ","))
                 st.dataframe(tbl, use_container_width=True, hide_index=True, height=400)
                 top = df_elev.iloc[0]
-                st.success(f" **{top['Produto']}** — pedidos com esse produto têm ticket "
+                st.success(f"**{top['Produto']}** — pedidos com esse produto têm ticket "
                            f"{brl(top['Diferença R$'])} acima da média. Deixe-o visível e sugira sempre.")
 
         with col_r:
@@ -3003,14 +3009,20 @@ def main():
             if df_redu.empty:
                 st.info("Dados insuficientes.")
             else:
-                tbl2 = df_redu.copy()
+                tbl2 = df_redu[["Produto", "Categoria", "Nº Pedidos",
+                                "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
                 tbl2["Ticket Médio c/ Produto"] = tbl2["Ticket Médio c/ Produto"].apply(brl)
-                tbl2["Diferença R$"] = tbl2["Diferença R$"].apply(lambda v: f"{brl(v)}")
-                tbl2["Diferença %"]  = tbl2["Diferença %"].apply(lambda v: f"{v:.1f}".replace(".", ",") + "%")
-                st.dataframe(tbl2, use_container_width=True, hide_index=True, height=400)
-                bot = df_redu.iloc[0]
-                st.info(f"ℹ **{bot['Produto']}** — pedidos com esse produto têm ticket menor. "
-                        "Pode ser perfil de cliente diferente ou produto de compra rápida/solo.")
+                tbl2["Diferença R$"] = tbl2["Diferença R$"].apply(lambda v: brl(v) if v < 0 else f"+{brl(v)}")
+                tbl2["Diferença %"]  = tbl2["Diferença %"].apply(lambda v: f"{v:.1f}%".replace(".", ","))
+                # Filtra só os que realmente reduzem (diferença negativa)
+                tbl2_show = tbl2[df_redu["Diferença R$"] < 0]
+                if tbl2_show.empty:
+                    st.info("Nenhum produto com impacto negativo significativo no ticket.")
+                else:
+                    st.dataframe(tbl2_show, use_container_width=True, hide_index=True, height=400)
+                    bot = df_redu[df_redu["Diferença R$"] < 0].iloc[0]
+                    st.info(f"ℹ **{bot['Produto']}** — pedidos com esse produto têm ticket menor. "
+                            "Pode ser perfil de cliente diferente ou produto de compra rápida/solo.")
 
     #  TEMPORAL 
     if "Temporal" in tab_idx:
