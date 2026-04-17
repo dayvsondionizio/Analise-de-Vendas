@@ -2429,6 +2429,10 @@ def main():
 
     #  SIDEBAR 
     with st.sidebar:
+        from pathlib import Path as _PL
+        _logo_sidebar = _PL(__file__).parent / "LOGO S FUNDO 2.png"
+        if _logo_sidebar.exists():
+            st.image(str(_logo_sidebar), use_container_width=True)
         st.markdown("## Análise de Vendas CP")
         st.divider()
 
