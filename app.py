@@ -2427,106 +2427,87 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    #  SIDEBAR 
+    #  SIDEBAR
     with st.sidebar:
-        from pathlib import Path as _PL
-        _logo_sidebar = _PL(__file__).parent / "LOGO S FUNDO 2.png"
+        from pathlib import Path as _Path
+        _logo_sidebar = _Path(__file__).parent / "LOGO S FUNDO 2.png"
         if _logo_sidebar.exists():
             st.image(str(_logo_sidebar), use_container_width=True)
         st.markdown("## Análise de Vendas CP")
         st.divider()
 
-        st.subheader("Arquivos")
         cliente = st.text_input("Nome do cliente", placeholder="Ex: Rosarinho Delicatessen")
         periodo = st.text_input("Período", placeholder="Ex: Fevereiro 2026")
-
-        # ── Modo 1: Excel ──────────────────────────────────
-        st.markdown("**Modo 1 — Excel (planilha convertida)**")
-        f_nfce = st.file_uploader("NFC-e (Excel ou ZIP)", type=["xlsx", "xls", "zip"],
-                                   help="Planilha Excel do NFC-e, ou ZIP com todos os XMLs do mês")
-        f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx", "xls"],
-                                   help="Planilha do NF-e — não necessário se usar XML/ZIP")
-
-        # ── Modo 2: Múltiplas pastas de XMLs (só no local) ──────────
-        st.markdown("**Modo 2 — XMLs direto (sem converter)**")
-
-        if "pastas_xml" not in st.session_state:
-            st.session_state["pastas_xml"] = []
-
-        if _is_cloud():
-            st.caption("📁 Seleção de pasta disponível apenas na versão local. Use ZIP acima.")
-        elif st.button("+ Adicionar pasta de XMLs",
-                       use_container_width=True, key="btn_add_pasta"):
-            _caminho = _abrir_seletor_pasta()
-            if _caminho and _caminho not in st.session_state["pastas_xml"]:
-                st.session_state["pastas_xml"].append(_caminho)
-
-        # Lista de pastas selecionadas com botão de remoção
-        from pathlib import Path as _Path
-        _pastas_validas = []
-        _total_xmls_pastas = 0
-        for _idx, _p in enumerate(list(st.session_state["pastas_xml"])):
-            _n = _contar_xmls_pasta(_p)
-            _nome = _Path(_p).name
-            _cor  = "#D1FAE5" if _n > 0 else "#FEE2E2"
-            _txt_cor = "#065F46" if _n > 0 else "#991B1B"
-            _info = f"{_n} XMLs" if _n > 0 else "sem XMLs"
-            _col_info, _col_rm = st.columns([5, 1])
-            with _col_info:
-                st.markdown(
-                    f"<div style='background:{_cor};border-radius:6px;padding:5px 9px;"
-                    f"font-size:11px;color:{_txt_cor};margin:2px 0'>"
-                    f"<b>{_nome}</b> · {_info}</div>",
-                    unsafe_allow_html=True)
-            with _col_rm:
-                if st.button("X", key=f"rm_pasta_{_idx}", help=f"Remover {_nome}"):
-                    st.session_state["pastas_xml"].pop(_idx)
-                    st.rerun()
-            if _n > 0:
-                _pastas_validas.append(_p)
-                _total_xmls_pastas += _n
-
-        if _pastas_validas:
-            st.caption(f"Total: {_total_xmls_pastas} XMLs em {len(_pastas_validas)} pasta(s)")
-
-        # Determina fonte ativa
-        _usa_pasta = bool(_pastas_validas) and not f_nfce
-        _tem_dados = bool(f_nfce) or _usa_pasta
-
-        # Status dos arquivos
-        if f_nfce or f_nfe:
-            st.markdown("**Status:**")
-            if f_nfce:
-                _is_zip = f_nfce.name.lower().endswith(".zip")
-                _lbl = "ZIP — NFC-e + NF-e separados automaticamente" if _is_zip else "recebido"
-                st.markdown(
-                    f"<div style='background:#D1FAE5;border-radius:6px;padding:5px 10px;"
-                    f"margin:2px 0;font-size:12px;color:#065F46'>"
-                    f"<b>{'ZIP' if _is_zip else 'NFC-e'}</b> — {_lbl}</div>",
-                    unsafe_allow_html=True)
-            if f_nfe:
-                st.markdown(
-                    "<div style='background:#D1FAE5;border-radius:6px;padding:5px 10px;"
-                    "margin:2px 0;font-size:12px;color:#065F46'>"
-                    "<b>NF-e</b> — recebido</div>",
-                    unsafe_allow_html=True)
-            elif f_nfce and not f_nfce.name.lower().endswith(".zip"):
-                st.markdown(
-                    "<div style='background:#FEF3C7;border-radius:6px;padding:5px 10px;"
-                    "margin:2px 0;font-size:12px;color:#92400E'>"
-                    "<b>NF-e</b> — não carregado (opcional)</div>",
-                    unsafe_allow_html=True)
+        top_n   = st.slider("Itens no Market Basket", 5, 20, 10)
 
         st.divider()
-        top_n = st.slider("Itens no Market Basket", 5, 20, 10)
+
+        # ── Opção A: Excel ─────────────────────────────────
+        with st.expander("📊 Excel (planilha convertida)", expanded=False):
+            f_nfce = st.file_uploader("NFC-e (Excel ou 1 ZIP)", type=["xlsx", "xls", "zip"],
+                                       help="Planilha Excel do NFC-e, ou um ZIP com XMLs")
+            f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx", "xls"],
+                                       help="Planilha do NF-e — opcional")
+
+        # ── Opção B: Múltiplos ZIPs ─────────────────────────
+        with st.expander("🗜️ ZIPs de XMLs (NFC-e e/ou NF-e)", expanded=True):
+            zips_multi = st.file_uploader(
+                "Selecione um ou mais ZIPs",
+                type=["zip"],
+                accept_multiple_files=True,
+                help="Arraste vários ZIPs de uma vez — NFC-e e NF-e misturados, tudo bem",
+                key="zips_multi",
+            )
+
+        # ── Opção C: Pasta local (só no desktop) ────────────
+        if not _is_cloud():
+            with st.expander("📁 Pasta de XMLs (uso local)", expanded=False):
+                if "pastas_xml" not in st.session_state:
+                    st.session_state["pastas_xml"] = []
+
+                if st.button("+ Adicionar pasta", use_container_width=True, key="btn_add_pasta"):
+                    _caminho = _abrir_seletor_pasta()
+                    if _caminho and _caminho not in st.session_state["pastas_xml"]:
+                        st.session_state["pastas_xml"].append(_caminho)
+
+                _pastas_validas   = []
+                _total_xmls_pastas = 0
+                for _idx, _p in enumerate(list(st.session_state["pastas_xml"])):
+                    _n    = _contar_xmls_pasta(_p)
+                    _nome = _Path(_p).name
+                    _cor     = "#D1FAE5" if _n > 0 else "#FEE2E2"
+                    _txt_cor = "#065F46" if _n > 0 else "#991B1B"
+                    _col_info, _col_rm = st.columns([5, 1])
+                    with _col_info:
+                        st.markdown(
+                            f"<div style='background:{_cor};border-radius:6px;padding:5px 9px;"
+                            f"font-size:11px;color:{_txt_cor};margin:2px 0'>"
+                            f"<b>{_nome}</b> · {_n} XMLs</div>",
+                            unsafe_allow_html=True)
+                    with _col_rm:
+                        if st.button("✕", key=f"rm_pasta_{_idx}"):
+                            st.session_state["pastas_xml"].pop(_idx)
+                            st.rerun()
+                    if _n > 0:
+                        _pastas_validas.append(_p)
+                        _total_xmls_pastas += _n
+
+                if _pastas_validas:
+                    st.caption(f"Total: {_total_xmls_pastas} XMLs em {len(_pastas_validas)} pasta(s)")
+        else:
+            if "pastas_xml" not in st.session_state:
+                st.session_state["pastas_xml"] = []
+            _pastas_validas    = []
+            _total_xmls_pastas = 0
+
+        # ── Determina fonte ativa ────────────────────────────
+        _usa_zips  = bool(zips_multi)
+        _usa_pasta = bool(_pastas_validas) and not f_nfce and not _usa_zips
+        _tem_dados = bool(f_nfce) or _usa_pasta or _usa_zips
 
         st.divider()
-        _btn_label = (
-            "Analisar" if _tem_dados
-            else "Carregue arquivo ou selecione XMLs"
-        )
         btn_analisar = st.button(
-            _btn_label,
+            "▶ Analisar" if _tem_dados else "Carregue os arquivos acima",
             use_container_width=True,
             disabled=not _tem_dados,
             type="primary",
@@ -2535,6 +2516,8 @@ def main():
     # ── Fingerprint da fonte de dados (para detectar mudança) ──
     if _usa_pasta:
         _fp = ("pasta", tuple(sorted(_pastas_validas)), top_n)
+    elif _usa_zips:
+        _fp = ("zips", tuple(sorted((z.name, z.size) for z in zips_multi)), top_n)
     elif f_nfce:
         _fp = ("file", f_nfce.name, getattr(f_nfce, "size", 0), top_n)
     else:
@@ -2548,21 +2531,14 @@ def main():
 
     #  SEM DADOS / AGUARDANDO BOTÃO
     if not _tem_dados or (not _tem_cache and not btn_analisar):
-        _logo_b64 = _logo_base64()
-        _logo_html = (
-            f'<img src="data:image/png;base64,{_logo_b64}" '
-            f'style="height:80px;margin-bottom:12px;display:block;" />'
-            if _logo_b64 else ""
-        )
-        st.markdown(f"""
+        st.markdown("""
         <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);
                     padding:36px 40px;border-radius:16px;color:white;margin-bottom:20px">
-          {_logo_html}
           <h1 style="margin:0;font-size:32px;font-weight:700;letter-spacing:-0.5px">
             Análise de Vendas CP
           </h1>
           <p style="margin:10px 0 0;opacity:.8;font-size:15px">
-            Carregue um Excel/ZIP <b>ou selecione a pasta de XMLs</b> na barra lateral e clique em <b>Analisar</b>.
+            Carregue os arquivos na barra lateral e clique em <b>▶ Analisar</b>.
           </p>
         </div>
         """, unsafe_allow_html=True)
@@ -2660,16 +2636,30 @@ def main():
         _box_bar = st.empty()
 
         # ── Carregar dados ──
-        _n_arquivos = len(_pastas_validas) if _usa_pasta else 1
-        _aviso_leitura = (
-            "📂 Lendo arquivos XML... (primeira etapa — pode demorar alguns minutos)"
-        )
-        _render_prog(2, _aviso_leitura, _t0, _box_txt, _box_bar)
+        _render_prog(2, "📂 Lendo arquivos XML... (primeira etapa — pode demorar alguns minutos)", _t0, _box_txt, _box_bar)
+
         if _usa_pasta:
             df_nfce, df_nfe, _n_xml, _n_skip = carregar_pastas(tuple(_pastas_validas))
             if df_nfce.empty and df_nfe.empty:
                 st.error("Nenhum XML válido encontrado nas pastas selecionadas.")
                 return
+
+        elif _usa_zips:
+            # Processa múltiplos ZIPs e combina os resultados
+            _all_nfce, _all_nfe, _n_xml, _n_skip = [], [], 0, 0
+            for _zf in zips_multi:
+                _zb = _zf.read()
+                _zn, _ze, _zx, _zs = carregar_zip(_zb)
+                if not _zn.empty: _all_nfce.append(_zn)
+                if not _ze.empty: _all_nfe.append(_ze)
+                _n_xml  += _zx
+                _n_skip += _zs
+            df_nfce = pd.concat(_all_nfce, ignore_index=True) if _all_nfce else pd.DataFrame()
+            df_nfe  = pd.concat(_all_nfe,  ignore_index=True) if _all_nfe  else pd.DataFrame()
+            if df_nfce.empty and df_nfe.empty:
+                st.error(f"Nenhum XML válido encontrado nos ZIPs. {_n_skip} arquivo(s) ignorado(s).")
+                return
+
         elif f_nfce and f_nfce.name.lower().endswith(".zip"):
             df_nfce, _df_nfe_zip, _n_xml, _n_skip = carregar_zip(f_nfce.read())
             if f_nfe:
@@ -2680,6 +2670,7 @@ def main():
             if df_nfce.empty and df_nfe.empty:
                 st.error(f"Nenhum XML encontrado no ZIP. {_n_skip} arquivo(s) ignorado(s).")
                 return
+
         else:
             df_nfce = carregar_nfce(f_nfce.read())
             df_nfe  = carregar_nfe(f_nfe.read()) if f_nfe else pd.DataFrame()
