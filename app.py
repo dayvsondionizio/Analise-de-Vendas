@@ -819,6 +819,173 @@ def _is_cloud() -> bool:
         return True
 
 
+@st.cache_data(show_spinner=False)
+def processar_fontes_universal(arquivos: tuple, pastas: tuple):
+    """
+    Processador unificado: recebe (nome, bytes) de qualquer arquivo
+    (ZIP, RAR, 7z, XML) e caminhos de pastas locais.
+    Vasculha tudo recursivamente e retorna (df_nfce, df_nfe, n_xml, n_skip).
+    """
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    NS = "{http://www.portalfiscal.inf.br/nfe}"
+
+    def t(name): return f"{NS}{name}"
+    def gettxt(p, c):
+        el = p.find(t(c)); return el.text if el is not None and el.text else ""
+    def getfloat(p, c):
+        try: return float(gettxt(p, c) or 0)
+        except: return 0.0
+
+    def extrair_xml_bytes(data: bytes, nome: str) -> list:
+        """Extrai lista de bytes de XMLs de qualquer arquivo."""
+        ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
+        resultado = []
+        if ext == "xml":
+            return [data]
+        if ext == "zip":
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for entry in zf.namelist():
+                        eb = zf.read(entry)
+                        resultado.extend(extrair_xml_bytes(eb, entry))
+            except Exception:
+                pass
+        elif ext == "rar":
+            try:
+                import rarfile
+                with rarfile.RarFile(io.BytesIO(data)) as rf:
+                    for entry in rf.namelist():
+                        eb = rf.read(entry)
+                        resultado.extend(extrair_xml_bytes(eb, entry))
+            except Exception:
+                pass
+        elif ext in ("7z", "7zip"):
+            try:
+                import py7zr
+                with py7zr.SevenZipFile(io.BytesIO(data)) as szf:
+                    for nome_arq, bio in szf.read().items():
+                        resultado.extend(extrair_xml_bytes(bio.read(), nome_arq))
+            except Exception:
+                pass
+        return resultado
+
+    def parse_xml(xml_data: bytes):
+        try:
+            root = ET.fromstring(xml_data)
+            root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+            if root_local not in ("nfeProc", "NFe"):
+                return None, None, 1
+            nfe_el  = root.find(t("NFe")) if root_local == "nfeProc" else root
+            prot_el = root.find(t("protNFe")) if root_local == "nfeProc" else None
+            if nfe_el is None: return None, None, 0
+            infNFe = nfe_el.find(t("infNFe"))
+            if infNFe is None: return None, None, 0
+            inf_id = infNFe.get("Id", "")
+            chave  = inf_id[3:] if inf_id.startswith("NFe") else inf_id
+            ide    = infNFe.find(t("ide"))
+            if ide is None: return None, None, 0
+            mod   = gettxt(ide, "mod")
+            nNF   = gettxt(ide, "nNF")
+            dhEmi = gettxt(ide, "dhEmi") or None
+            situacao = "Autorizada"
+            if prot_el is not None:
+                infProt = prot_el.find(t("infProt"))
+                if infProt is not None:
+                    cStat = gettxt(infProt, "cStat")
+                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+            vNF = 0.0
+            tot = infNFe.find(t("total"))
+            if tot is not None:
+                icms = tot.find(t("ICMSTot"))
+                if icms is not None: vNF = getfloat(icms, "vNF")
+            dest_el = infNFe.find(t("dest"))
+            destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+            rows_n, rows_e = [], []
+            for det in infNFe.findall(t("det")):
+                numItem = det.get("nItem", "")
+                prod = det.find(t("prod"))
+                if prod is None: continue
+                row = {
+                    "chave": chave, "nNF": nNF, "numItem": numItem,
+                    "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
+                    "NCM": gettxt(prod, "NCM"), "CFOP": gettxt(prod, "CFOP"),
+                    "qCom": getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
+                    "vProd": getfloat(prod, "vProd"), "vNF": vNF,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
+                }
+                if mod == "65": rows_n.append(row)
+                elif mod == "55": rows_e.append(row)
+            return rows_n, rows_e, 0
+        except Exception:
+            return None, None, 1
+
+    # Coleta todos os bytes de XMLs
+    all_xml_bytes = []
+    for nome, data in arquivos:
+        all_xml_bytes.extend(extrair_xml_bytes(data, nome))
+
+    # Pastas locais
+    if pastas:
+        from pathlib import Path
+        vistos = set()
+        for caminho in pastas:
+            p = Path(caminho.strip())
+            if not p.exists(): continue
+            for xf in sorted(p.rglob("*")):
+                abs_p = str(xf.resolve())
+                if abs_p in vistos: continue
+                vistos.add(abs_p)
+                ext = xf.suffix.lower().lstrip(".")
+                if ext in ("xml",):
+                    try: all_xml_bytes.append(xf.read_bytes())
+                    except: pass
+                elif ext in ("zip", "rar", "7z"):
+                    try: all_xml_bytes.extend(extrair_xml_bytes(xf.read_bytes(), xf.name))
+                    except: pass
+
+    # Parseia em paralelo
+    from concurrent.futures import ThreadPoolExecutor
+    rows_nfce, rows_nfe, skipped = [], [], 0
+    with ThreadPoolExecutor(max_workers=min(16, max(4, len(all_xml_bytes) // 500 + 1))) as pool:
+        for r_n, r_e, sk in pool.map(parse_xml, all_xml_bytes):
+            if r_n: rows_nfce.extend(r_n)
+            if r_e: rows_nfe.extend(r_e)
+            skipped += sk
+
+    def montar_df(rows, fonte):
+        if not rows: return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        for col in ["qCom", "vUnCom", "vProd", "vNF"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
+        if "dhEmi" in df.columns:
+            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
+                df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
+        if "xProd" in df.columns:
+            df["categoria"] = categorizar_serie(df["xProd"])
+        df["fonte"] = fonte
+        return df
+
+    df_nfce = montar_df(rows_nfce, "NFC-e")
+    df_nfe  = montar_df(rows_nfe,  "NF-e")
+
+    if not df_nfce.empty and "dhEmi" in df_nfce.columns:
+        df_nfce["hora"]       = df_nfce["dhEmi"].dt.hour
+        df_nfce["dia_semana"] = df_nfce["dhEmi"].dt.day_name()
+        df_nfce["turno"]      = df_nfce["hora"].apply(
+            lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
+            if pd.notna(h) else None)
+
+    if not df_nfe.empty and "situacao" in df_nfe.columns:
+        df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
+
+    return df_nfce, df_nfe, len(all_xml_bytes), skipped
+
+
 def _abrir_seletor_pasta() -> str:
     """Abre o seletor nativo de pasta do Windows via tkinter."""
     try:
@@ -2439,71 +2606,67 @@ def main():
         cliente = st.text_input("Nome do cliente", placeholder="Ex: Rosarinho Delicatessen")
         periodo = st.text_input("Período", placeholder="Ex: Fevereiro 2026")
         top_n   = st.slider("Itens no Market Basket", 5, 20, 10)
-
         st.divider()
 
-        # ── Opção A: Excel ─────────────────────────────────
-        with st.expander("📊 Excel (planilha convertida)", expanded=False):
-            f_nfce = st.file_uploader("NFC-e (Excel ou 1 ZIP)", type=["xlsx", "xls", "zip"],
-                                       help="Planilha Excel do NFC-e, ou um ZIP com XMLs")
-            f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx", "xls"],
-                                       help="Planilha do NF-e — opcional")
+        # ── Área única de upload ─────────────────────────────
+        st.markdown("**📂 Arquivos de Notas Fiscais**")
+        st.caption("ZIP, RAR, 7z ou XMLs — misture à vontade, qualquer quantidade")
+        arquivos_upload = st.file_uploader(
+            "Arraste ou selecione os arquivos",
+            type=["zip", "rar", "7z", "xml"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
 
-        # ── Opção B: Múltiplos ZIPs ─────────────────────────
-        with st.expander("🗜️ ZIPs de XMLs (NFC-e e/ou NF-e)", expanded=True):
-            zips_multi = st.file_uploader(
-                "Selecione um ou mais ZIPs",
-                type=["zip"],
-                accept_multiple_files=True,
-                help="Arraste vários ZIPs de uma vez — NFC-e e NF-e misturados, tudo bem",
-                key="zips_multi",
-            )
+        # Resumo do que foi carregado
+        if arquivos_upload:
+            _n_zips = sum(1 for f in arquivos_upload if f.name.lower().endswith((".zip",".rar",".7z")))
+            _n_xmls = sum(1 for f in arquivos_upload if f.name.lower().endswith(".xml"))
+            _partes = []
+            if _n_zips: _partes.append(f"{_n_zips} arquivo(s) compactado(s)")
+            if _n_xmls: _partes.append(f"{_n_xmls} XML(s) avulso(s)")
+            st.success("✅ " + " · ".join(_partes))
 
-        # ── Opção C: Pasta local (só no desktop) ────────────
+        # ── Pasta local (só desktop) ──────────────────────────
         if not _is_cloud():
-            with st.expander("📁 Pasta de XMLs (uso local)", expanded=False):
-                if "pastas_xml" not in st.session_state:
-                    st.session_state["pastas_xml"] = []
-
-                if st.button("+ Adicionar pasta", use_container_width=True, key="btn_add_pasta"):
-                    _caminho = _abrir_seletor_pasta()
-                    if _caminho and _caminho not in st.session_state["pastas_xml"]:
-                        st.session_state["pastas_xml"].append(_caminho)
-
-                _pastas_validas   = []
-                _total_xmls_pastas = 0
-                for _idx, _p in enumerate(list(st.session_state["pastas_xml"])):
-                    _n    = _contar_xmls_pasta(_p)
-                    _nome = _Path(_p).name
-                    _cor     = "#D1FAE5" if _n > 0 else "#FEE2E2"
-                    _txt_cor = "#065F46" if _n > 0 else "#991B1B"
-                    _col_info, _col_rm = st.columns([5, 1])
-                    with _col_info:
-                        st.markdown(
-                            f"<div style='background:{_cor};border-radius:6px;padding:5px 9px;"
-                            f"font-size:11px;color:{_txt_cor};margin:2px 0'>"
-                            f"<b>{_nome}</b> · {_n} XMLs</div>",
-                            unsafe_allow_html=True)
-                    with _col_rm:
-                        if st.button("✕", key=f"rm_pasta_{_idx}"):
-                            st.session_state["pastas_xml"].pop(_idx)
-                            st.rerun()
-                    if _n > 0:
-                        _pastas_validas.append(_p)
-                        _total_xmls_pastas += _n
-
-                if _pastas_validas:
-                    st.caption(f"Total: {_total_xmls_pastas} XMLs em {len(_pastas_validas)} pasta(s)")
+            st.markdown("**📁 Ou selecione uma pasta**")
+            if "pastas_xml" not in st.session_state:
+                st.session_state["pastas_xml"] = []
+            if st.button("+ Adicionar pasta", use_container_width=True, key="btn_add_pasta"):
+                _caminho = _abrir_seletor_pasta()
+                if _caminho and _caminho not in st.session_state["pastas_xml"]:
+                    st.session_state["pastas_xml"].append(_caminho)
+            _pastas_validas = []
+            for _idx, _p in enumerate(list(st.session_state["pastas_xml"])):
+                _n    = _contar_xmls_pasta(_p)
+                _nome = _Path(_p).name
+                _cor     = "#D1FAE5" if _n > 0 else "#FEE2E2"
+                _txt_cor = "#065F46" if _n > 0 else "#991B1B"
+                _col_info, _col_rm = st.columns([5, 1])
+                with _col_info:
+                    st.markdown(
+                        f"<div style='background:{_cor};border-radius:6px;padding:5px 9px;"
+                        f"font-size:11px;color:{_txt_cor};margin:2px 0'>"
+                        f"<b>{_nome}</b> · {_n} XMLs</div>",
+                        unsafe_allow_html=True)
+                with _col_rm:
+                    if st.button("✕", key=f"rm_pasta_{_idx}"):
+                        st.session_state["pastas_xml"].pop(_idx)
+                        st.rerun()
+                if _n > 0:
+                    _pastas_validas.append(_p)
         else:
             if "pastas_xml" not in st.session_state:
                 st.session_state["pastas_xml"] = []
-            _pastas_validas    = []
-            _total_xmls_pastas = 0
+            _pastas_validas = []
 
-        # ── Determina fonte ativa ────────────────────────────
-        _usa_zips  = bool(zips_multi)
-        _usa_pasta = bool(_pastas_validas) and not f_nfce and not _usa_zips
-        _tem_dados = bool(f_nfce) or _usa_pasta or _usa_zips
+        # ── Excel (modo legado, expander fechado) ────────────
+        with st.expander("📊 Excel (planilha convertida)", expanded=False):
+            f_nfce = st.file_uploader("NFC-e (Excel)", type=["xlsx","xls"], key="xls_nfce")
+            f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx","xls"], key="xls_nfe")
+
+        # ── Determina fonte ativa ─────────────────────────────
+        _tem_dados = bool(arquivos_upload) or bool(_pastas_validas) or bool(f_nfce)
 
         st.divider()
         btn_analisar = st.button(
@@ -2513,13 +2676,13 @@ def main():
             type="primary",
         )
 
-    # ── Fingerprint da fonte de dados (para detectar mudança) ──
-    if _usa_pasta:
-        _fp = ("pasta", tuple(sorted(_pastas_validas)), top_n)
-    elif _usa_zips:
-        _fp = ("zips", tuple(sorted((z.name, z.size) for z in zips_multi)), top_n)
+    # ── Fingerprint da fonte de dados ──
+    if arquivos_upload:
+        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n)
+    elif _pastas_validas:
+        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n)
     elif f_nfce:
-        _fp = ("file", f_nfce.name, getattr(f_nfce, "size", 0), top_n)
+        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n)
     else:
         _fp = None
 
@@ -2636,44 +2799,30 @@ def main():
         _box_bar = st.empty()
 
         # ── Carregar dados ──
-        _render_prog(2, "📂 Lendo arquivos XML... (primeira etapa — pode demorar alguns minutos)", _t0, _box_txt, _box_bar)
+        _render_prog(2, "📂 Vasculhando arquivos e lendo XMLs... (pode demorar na primeira vez)", _t0, _box_txt, _box_bar)
 
-        if _usa_pasta:
-            df_nfce, df_nfe, _n_xml, _n_skip = carregar_pastas(tuple(_pastas_validas))
+        if arquivos_upload or _pastas_validas:
+            _arqs_tuple = tuple((f.name, f.read()) for f in arquivos_upload) if arquivos_upload else ()
+            df_nfce, df_nfe, _n_xml, _n_skip = processar_fontes_universal(
+                _arqs_tuple, tuple(_pastas_validas)
+            )
             if df_nfce.empty and df_nfe.empty:
-                st.error("Nenhum XML válido encontrado nas pastas selecionadas.")
+                st.error("Nenhum XML de NFC-e/NF-e encontrado nos arquivos enviados.")
                 return
-
-        elif _usa_zips:
-            # Processa múltiplos ZIPs e combina os resultados
-            _all_nfce, _all_nfe, _n_xml, _n_skip = [], [], 0, 0
-            for _zf in zips_multi:
-                _zb = _zf.read()
-                _zn, _ze, _zx, _zs = carregar_zip(_zb)
-                if not _zn.empty: _all_nfce.append(_zn)
-                if not _ze.empty: _all_nfe.append(_ze)
-                _n_xml  += _zx
-                _n_skip += _zs
-            df_nfce = pd.concat(_all_nfce, ignore_index=True) if _all_nfce else pd.DataFrame()
-            df_nfe  = pd.concat(_all_nfe,  ignore_index=True) if _all_nfe  else pd.DataFrame()
-            if df_nfce.empty and df_nfe.empty:
-                st.error(f"Nenhum XML válido encontrado nos ZIPs. {_n_skip} arquivo(s) ignorado(s).")
-                return
-
         elif f_nfce and f_nfce.name.lower().endswith(".zip"):
-            df_nfce, _df_nfe_zip, _n_xml, _n_skip = carregar_zip(f_nfce.read())
+            df_nfce, df_nfe, _n_xml, _n_skip = processar_fontes_universal(
+                ((f_nfce.name, f_nfce.read()),), ()
+            )
             if f_nfe:
                 _df_nfe_xls = carregar_nfe(f_nfe.read())
-                df_nfe = pd.concat([_df_nfe_zip, _df_nfe_xls], ignore_index=True) if not _df_nfe_zip.empty else _df_nfe_xls
-            else:
-                df_nfe = _df_nfe_zip
-            if df_nfce.empty and df_nfe.empty:
-                st.error(f"Nenhum XML encontrado no ZIP. {_n_skip} arquivo(s) ignorado(s).")
-                return
-
-        else:
+                df_nfe = pd.concat([df_nfe, _df_nfe_xls], ignore_index=True) if not df_nfe.empty else _df_nfe_xls
+        elif f_nfce:
             df_nfce = carregar_nfce(f_nfce.read())
             df_nfe  = carregar_nfe(f_nfe.read()) if f_nfe else pd.DataFrame()
+            _n_xml, _n_skip = 0, 0
+        else:
+            st.error("Nenhum arquivo carregado.")
+            return
 
         if df_nfce.empty:
             st.error("Nenhum dado de NFC-e encontrado. Verifique o arquivo ou pasta.")
