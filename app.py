@@ -2610,21 +2610,23 @@ def main():
 
         # ── Área única de upload ─────────────────────────────
         st.markdown("**📂 Arquivos de Notas Fiscais**")
-        st.caption("ZIP, RAR, 7z ou XMLs — misture à vontade, qualquer quantidade")
+        st.caption("ZIP, RAR, 7z, XML ou Excel — qualquer formato, qualquer quantidade")
         arquivos_upload = st.file_uploader(
             "Arraste ou selecione os arquivos",
-            type=["zip", "rar", "7z", "xml"],
+            type=["zip", "rar", "7z", "xml", "xlsx", "xls"],
             accept_multiple_files=True,
             label_visibility="collapsed",
         )
 
         # Resumo do que foi carregado
         if arquivos_upload:
-            _n_zips = sum(1 for f in arquivos_upload if f.name.lower().endswith((".zip",".rar",".7z")))
+            _n_comp = sum(1 for f in arquivos_upload if f.name.lower().endswith((".zip",".rar",".7z")))
             _n_xmls = sum(1 for f in arquivos_upload if f.name.lower().endswith(".xml"))
+            _n_xls  = sum(1 for f in arquivos_upload if f.name.lower().endswith((".xlsx",".xls")))
             _partes = []
-            if _n_zips: _partes.append(f"{_n_zips} arquivo(s) compactado(s)")
-            if _n_xmls: _partes.append(f"{_n_xmls} XML(s) avulso(s)")
+            if _n_comp: _partes.append(f"{_n_comp} compactado(s)")
+            if _n_xmls: _partes.append(f"{_n_xmls} XML(s)")
+            if _n_xls:  _partes.append(f"{_n_xls} Excel(s)")
             st.success("✅ " + " · ".join(_partes))
 
         # ── Pasta local (só desktop) ──────────────────────────
@@ -2660,13 +2662,9 @@ def main():
                 st.session_state["pastas_xml"] = []
             _pastas_validas = []
 
-        # ── Excel (modo legado, expander fechado) ────────────
-        with st.expander("📊 Excel (planilha convertida)", expanded=False):
-            f_nfce = st.file_uploader("NFC-e (Excel)", type=["xlsx","xls"], key="xls_nfce")
-            f_nfe  = st.file_uploader("NF-e (Excel, opcional)", type=["xlsx","xls"], key="xls_nfe")
-
         # ── Determina fonte ativa ─────────────────────────────
-        _tem_dados = bool(arquivos_upload) or bool(_pastas_validas) or bool(f_nfce)
+        f_nfce, f_nfe = None, None  # legado Excel não mais exposto na UI
+        _tem_dados = bool(arquivos_upload) or bool(_pastas_validas)
 
         st.divider()
         btn_analisar = st.button(
@@ -2801,27 +2799,36 @@ def main():
         # ── Carregar dados ──
         _render_prog(2, "📂 Vasculhando arquivos e lendo XMLs... (pode demorar na primeira vez)", _t0, _box_txt, _box_bar)
 
-        if arquivos_upload or _pastas_validas:
-            _arqs_tuple = tuple((f.name, f.read()) for f in arquivos_upload) if arquivos_upload else ()
+        # Separa Excels dos demais (XML/ZIP/RAR/7z)
+        _arqs_xml  = [f for f in (arquivos_upload or []) if not f.name.lower().endswith((".xlsx",".xls"))]
+        _arqs_xls  = [f for f in (arquivos_upload or []) if f.name.lower().endswith((".xlsx",".xls"))]
+
+        df_nfce, df_nfe, _n_xml, _n_skip = pd.DataFrame(), pd.DataFrame(), 0, 0
+
+        # Processa XMLs/ZIPs/RARs/7z + pastas
+        if _arqs_xml or _pastas_validas:
+            _arqs_tuple = tuple((f.name, f.read()) for f in _arqs_xml)
             df_nfce, df_nfe, _n_xml, _n_skip = processar_fontes_universal(
                 _arqs_tuple, tuple(_pastas_validas)
             )
-            if df_nfce.empty and df_nfe.empty:
-                st.error("Nenhum XML de NFC-e/NF-e encontrado nos arquivos enviados.")
-                return
-        elif f_nfce and f_nfce.name.lower().endswith(".zip"):
-            df_nfce, df_nfe, _n_xml, _n_skip = processar_fontes_universal(
-                ((f_nfce.name, f_nfce.read()),), ()
-            )
-            if f_nfe:
-                _df_nfe_xls = carregar_nfe(f_nfe.read())
-                df_nfe = pd.concat([df_nfe, _df_nfe_xls], ignore_index=True) if not df_nfe.empty else _df_nfe_xls
-        elif f_nfce:
-            df_nfce = carregar_nfce(f_nfce.read())
-            df_nfe  = carregar_nfe(f_nfe.read()) if f_nfe else pd.DataFrame()
-            _n_xml, _n_skip = 0, 0
-        else:
-            st.error("Nenhum arquivo carregado.")
+
+        # Processa Excels e combina
+        for _xf in _arqs_xls:
+            _xb = _xf.read()
+            try:
+                _df_x = carregar_nfce(_xb)
+                if not _df_x.empty:
+                    df_nfce = pd.concat([df_nfce, _df_x], ignore_index=True) if not df_nfce.empty else _df_x
+            except Exception:
+                try:
+                    _df_x = carregar_nfe(_xb)
+                    if not _df_x.empty:
+                        df_nfe = pd.concat([df_nfe, _df_x], ignore_index=True) if not df_nfe.empty else _df_x
+                except Exception:
+                    _n_skip += 1
+
+        if df_nfce.empty and df_nfe.empty:
+            st.error("Nenhum dado encontrado nos arquivos enviados. Verifique o formato.")
             return
 
         if df_nfce.empty:
