@@ -874,49 +874,69 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     def parse_xml(xml_data: bytes):
         try:
             root = ET.fromstring(xml_data)
+
+            # ── Detecta namespace dinamicamente (alguns XMLs não declaram) ──
+            _ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+            def _t(name): return f"{_ns}{name}"
+            def _gettxt(p, c):
+                el = p.find(_t(c)); return el.text if el is not None and el.text else ""
+            def _getfloat(p, c):
+                try: return float(_gettxt(p, c) or 0)
+                except: return 0.0
+
             root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
             if root_local not in ("nfeProc", "NFe"):
                 return None, None, 1
-            nfe_el  = root.find(t("NFe")) if root_local == "nfeProc" else root
-            prot_el = root.find(t("protNFe")) if root_local == "nfeProc" else None
+
+            nfe_el  = root.find(_t("NFe")) if root_local == "nfeProc" else root
+            prot_el = root.find(_t("protNFe")) if root_local == "nfeProc" else None
             if nfe_el is None: return None, None, 0
-            infNFe = nfe_el.find(t("infNFe"))
+            infNFe = nfe_el.find(_t("infNFe"))
             if infNFe is None: return None, None, 0
             inf_id = infNFe.get("Id", "")
             chave  = inf_id[3:] if inf_id.startswith("NFe") else inf_id
-            ide    = infNFe.find(t("ide"))
+            ide    = infNFe.find(_t("ide"))
             if ide is None: return None, None, 0
-            mod   = gettxt(ide, "mod")
-            nNF   = gettxt(ide, "nNF")
-            dhEmi = gettxt(ide, "dhEmi") or None
+            mod   = _gettxt(ide, "mod")
+            nNF   = _gettxt(ide, "nNF")
+            dhEmi = _gettxt(ide, "dhEmi") or None
             situacao = "Autorizada"
             if prot_el is not None:
-                infProt = prot_el.find(t("infProt"))
+                infProt = prot_el.find(_t("infProt"))
                 if infProt is not None:
-                    cStat = gettxt(infProt, "cStat")
+                    cStat = _gettxt(infProt, "cStat")
                     situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+            # vNF: tenta ICMSTot/vNF, fallback para soma dos vProd dos itens
             vNF = 0.0
-            tot = infNFe.find(t("total"))
+            tot = infNFe.find(_t("total"))
             if tot is not None:
-                icms = tot.find(t("ICMSTot"))
-                if icms is not None: vNF = getfloat(icms, "vNF")
-            dest_el = infNFe.find(t("dest"))
-            destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+                icms = tot.find(_t("ICMSTot"))
+                if icms is not None:
+                    vNF = _getfloat(icms, "vNF")
+            dest_el = infNFe.find(_t("dest"))
+            destinatario = _gettxt(dest_el, "xNome") if dest_el is not None else ""
             rows_n, rows_e = [], []
-            for det in infNFe.findall(t("det")):
+            soma_vprod = 0.0
+            for det in infNFe.findall(_t("det")):
                 numItem = det.get("nItem", "")
-                prod = det.find(t("prod"))
+                prod = det.find(_t("prod"))
                 if prod is None: continue
+                vp = _getfloat(prod, "vProd")
+                soma_vprod += vp
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
-                    "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
-                    "NCM": gettxt(prod, "NCM"), "CFOP": gettxt(prod, "CFOP"),
-                    "qCom": getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
-                    "vProd": getfloat(prod, "vProd"), "vNF": vNF,
+                    "cProd": _gettxt(prod, "cProd"), "xProd": _gettxt(prod, "xProd"),
+                    "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
+                    "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
+                    "vProd": vp, "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
                 }
                 if mod == "65": rows_n.append(row)
                 elif mod == "55": rows_e.append(row)
+            # Se vNF ficou 0 mas há itens, usa soma dos vProd como fallback
+            if vNF == 0.0 and soma_vprod > 0:
+                for r in rows_n: r["vNF"] = soma_vprod
+                for r in rows_e: r["vNF"] = soma_vprod
             return rows_n, rows_e, 0
         except Exception:
             return None, None, 1
