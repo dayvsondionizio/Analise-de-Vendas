@@ -980,8 +980,16 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
             if pd.notna(h) else None)
 
+    # Conta rejeitadas antes de filtrar (para exibir aviso)
+    n_rejeitadas_nfce = 0
+    n_rejeitadas_nfe  = 0
+    if not df_nfce.empty and "situacao" in df_nfce.columns:
+        n_rejeitadas_nfce = (df_nfce["situacao"] != "Autorizada").sum()
+        df_nfce = df_nfce[df_nfce["situacao"] == "Autorizada"].reset_index(drop=True)
     if not df_nfe.empty and "situacao" in df_nfe.columns:
+        n_rejeitadas_nfe = (df_nfe["situacao"] != "Autorizada").sum()
         df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
+    skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
     return df_nfce, df_nfe, len(all_xml_bytes), skipped
 
@@ -2705,17 +2713,16 @@ def main():
         """, unsafe_allow_html=True)
 
         if _tem_dados and not btn_analisar:
-            if _usa_pasta:
-                _nomes = " + ".join(_Path(p).name for p in _pastas_validas)
-                _src = f"{_nomes} ({_total_xmls_pastas} XMLs)"
-            elif f_nfce and f_nfce.name.lower().endswith(".zip"):
-                _src = "ZIP"
-            else:
-                _src = "NFC-e"
-            st.info(f"Fonte: **{_src}**. Clique em **Analisar** na barra lateral para iniciar.")
+            if arquivos_upload:
+                _nomes = ", ".join(f.name for f in arquivos_upload[:3])
+                if len(arquivos_upload) > 3:
+                    _nomes += f" +{len(arquivos_upload)-3} mais"
+                st.info(f"📎 **{_nomes}** carregado(s). Clique em **▶ Analisar** para iniciar.")
+            elif _pastas_validas:
+                st.info(f"📁 **{len(_pastas_validas)} pasta(s)** selecionada(s). Clique em **▶ Analisar** para iniciar.")
         else:
             col1, col2, col3 = st.columns(3)
-            col1.info("**Modos de entrada**\n\nExcel · ZIP · Seleção de XMLs")
+            col1.info("**Formatos aceitos**\n\nZIP · RAR · 7z · XML · Excel")
             col2.info("**Market Basket**\n\nPares e combos de 3 produtos mais frequentes")
             col3.info("**Exportação**\n\nPowerPoint completo + Excel com todas as abas")
         return
@@ -2910,10 +2917,14 @@ def main():
             n_nfce_notas = df_nfce["chave"].nunique() if not df_nfce.empty else 0
             n_nfe_notas  = df_nfe["chave"].nunique()  if not df_nfe.empty  else 0
             st.success(
-                f"**{_n_xml} XMLs** processados — "
-                f"**{n_nfce_notas} notas NFC-e** · **{n_nfe_notas} notas NF-e**"
-                + (f" · {_n_skip} ignorado(s)" if _n_skip else "")
+                f"**{_n_xml} XMLs** lidos — "
+                f"**{n_nfce_notas} notas NFC-e autorizadas** · **{n_nfe_notas} notas NF-e autorizadas**"
             )
+            if _n_skip > 0:
+                st.warning(
+                    f"⚠️ **{_n_skip} nota(s) descartada(s)** — canceladas, denegadas, inutilizadas ou de contingência não entram na análise. "
+                    f"A análise considera **somente notas autorizadas** (cStat 100)."
+                )
 
         # ── Salva tudo no cache de sessão ──
         st.session_state["_analise_fp"] = _fp
