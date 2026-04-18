@@ -2922,8 +2922,9 @@ def main():
             )
             if _n_skip > 0:
                 st.warning(
-                    f"⚠️ **{_n_skip} nota(s) descartada(s)** — canceladas, denegadas, inutilizadas ou de contingência não entram na análise. "
-                    f"A análise considera **somente notas autorizadas** (cStat 100)."
+                    f"⚠️ **{_n_skip} nota(s) descartada(s)** — canceladas, denegadas e inutilizadas foram excluídas automaticamente. "
+                    f"Notas de **contingência autorizadas** (emitidas offline e depois aprovadas pela SEFAZ) **entram normalmente** na análise, pois representam vendas reais. "
+                    f"A análise considera **somente notas com autorização da SEFAZ** (cStat 100)."
                 )
 
         # ── Salva tudo no cache de sessão ──
