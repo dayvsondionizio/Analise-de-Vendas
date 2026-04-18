@@ -2916,9 +2916,13 @@ def main():
         if _n_xml > 0:
             n_nfce_notas = df_nfce["chave"].nunique() if not df_nfce.empty else 0
             n_nfe_notas  = df_nfe["chave"].nunique()  if not df_nfe.empty  else 0
+            fat_nfce     = df_nfce.drop_duplicates("chave")["vNF"].sum() if not df_nfce.empty else 0
+            fat_nfe      = df_nfe.drop_duplicates("chave")["vNF"].sum()  if not df_nfe.empty  else 0
+
             st.success(
                 f"**{_n_xml} XMLs** lidos — "
-                f"**{n_nfce_notas} notas NFC-e autorizadas** · **{n_nfe_notas} notas NF-e autorizadas**"
+                f"**{n_nfce_notas} notas NFC-e** ({brl(fat_nfce)}) · "
+                f"**{n_nfe_notas} notas NF-e** ({brl(fat_nfe)})"
             )
             if _n_skip > 0:
                 st.warning(
@@ -2926,6 +2930,17 @@ def main():
                     f"Notas de **contingência autorizadas** (emitidas offline e depois aprovadas pela SEFAZ) **entram normalmente** na análise, pois representam vendas reais. "
                     f"A análise considera **somente notas com autorização da SEFAZ** (cStat 100)."
                 )
+
+            # Diagnóstico: notas com vNF=0 (possível erro de leitura)
+            if not df_nfce.empty:
+                _sem_valor = df_nfce.drop_duplicates("chave")
+                _sem_valor = _sem_valor[_sem_valor["vNF"] == 0]
+                if not _sem_valor.empty:
+                    st.info(
+                        f"ℹ️ **{len(_sem_valor)} nota(s) NFC-e com valor R$0,00** — "
+                        f"podem ser notas de entrada, devolução ou XMLs com estrutura diferente. "
+                        f"Se o faturamento estiver abaixo do esperado, verifique se há NF-e de vendas B2B para carregar também."
+                    )
 
         # ── Salva tudo no cache de sessão ──
         st.session_state["_analise_fp"] = _fp
