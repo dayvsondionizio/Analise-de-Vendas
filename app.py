@@ -829,22 +829,28 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     import xml.etree.ElementTree as ET
     import zipfile
 
-    # Palavras no nome do arquivo/pasta que indicam notas NÃO autorizadas
-    _PALAVRAS_EXCLUIR = ("CANCELAD", "INUTILIZAD", "DENEGAD", "NEGAD")
+    # Palavras que — no NOME DO ARQUIVO (sem o caminho) — indicam notas não autorizadas
+    _PALAVRAS_EXCLUIR = ("CANCELAD", "INUTILIZAD", "DENEGAD")
 
-    def _nome_excluido(nome: str) -> bool:
-        """True se o nome do arquivo/pasta indica notas que devem ser ignoradas."""
-        n = nome.upper()
-        return any(p in n for p in _PALAVRAS_EXCLUIR)
+    def _arquivo_excluido(nome_completo: str) -> bool:
+        """
+        Verifica só o ÚLTIMO componente do path (nome do arquivo/zip em si),
+        ignorando nomes de pastas ancestrais — evita falsos positivos quando a
+        pasta pai tem palavras como 'Canceladas' no nome.
+        """
+        # Pega apenas o filename, descartando qualquer caminho de diretório
+        nome_base = nome_completo.replace("\\", "/").split("/")[-1].upper()
+        return any(p in nome_base for p in _PALAVRAS_EXCLUIR)
 
     def extrair_xml_bytes(data: bytes, nome: str, herdou_exclusao: bool = False) -> list:
         """
         Extrai lista de bytes de XMLs de qualquer arquivo.
-        Se o nome do arquivo/pasta (ou de um ancestral) contiver palavras como
-        CANCELADAS, INUTILIZADAS ou DENEGADAS, os XMLs dentro são ignorados.
+        Arquivos/pastas cujo NOME (não o caminho) contenha CANCELADAS,
+        INUTILIZADAS ou DENEGADAS são ignorados — e a exclusão propaga para
+        todo o conteúdo interno.
         """
         ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
-        excluir = herdou_exclusao or _nome_excluido(nome)
+        excluir = herdou_exclusao or _arquivo_excluido(nome)
         resultado = []
         if ext == "xml":
             return [] if excluir else [data]
