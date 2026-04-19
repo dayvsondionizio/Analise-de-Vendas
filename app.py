@@ -829,15 +829,6 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     import xml.etree.ElementTree as ET
     import zipfile
 
-    NS = "{http://www.portalfiscal.inf.br/nfe}"
-
-    def t(name): return f"{NS}{name}"
-    def gettxt(p, c):
-        el = p.find(t(c)); return el.text if el is not None and el.text else ""
-    def getfloat(p, c):
-        try: return float(gettxt(p, c) or 0)
-        except: return 0.0
-
     def extrair_xml_bytes(data: bytes, nome: str) -> list:
         """Extrai lista de bytes de XMLs de qualquer arquivo."""
         ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
@@ -1000,14 +991,14 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
             if pd.notna(h) else None)
 
-    # Conta rejeitadas antes de filtrar (para exibir aviso)
+    # Conta rejeitadas antes de filtrar (por nota única, não por linha/item)
     n_rejeitadas_nfce = 0
     n_rejeitadas_nfe  = 0
     if not df_nfce.empty and "situacao" in df_nfce.columns:
-        n_rejeitadas_nfce = (df_nfce["situacao"] != "Autorizada").sum()
+        n_rejeitadas_nfce = df_nfce[df_nfce["situacao"] != "Autorizada"]["chave"].nunique()
         df_nfce = df_nfce[df_nfce["situacao"] == "Autorizada"].reset_index(drop=True)
     if not df_nfe.empty and "situacao" in df_nfe.columns:
-        n_rejeitadas_nfe = (df_nfe["situacao"] != "Autorizada").sum()
+        n_rejeitadas_nfe = df_nfe[df_nfe["situacao"] != "Autorizada"]["chave"].nunique()
         df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
     skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
@@ -2988,31 +2979,46 @@ def main():
     """, unsafe_allow_html=True)
 
     #  KPIs PRINCIPAIS
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Faturamento Total", brl(kpis["faturamento"]))
-    c2.metric("Pedidos",           fmt_num(kpis["n_pedidos"]))
-    c3.metric("Ticket Médio",      brl(kpis["ticket_medio"]))
-    c4.metric("IPC",               f"{kpis['ipc']:.2f} itens")
-    c5.metric("Total de Itens",    fmt_num(kpis["total_itens"]))
-
-    #  KPIs NF-e separado (se carregado) 
     if tem_nfe and "vNF" in df_nfe.columns and "chave" in df_nfe.columns:
-        notas_b2b  = df_nfe.drop_duplicates("chave")
-        fat_b2b    = notas_b2b["vNF"].sum()
-        n_b2b      = len(notas_b2b)
-        fat_nfce   = kpis_nfce["faturamento"]
-        pct_nfe    = fat_b2b / kpis["faturamento"] * 100 if kpis["faturamento"] else 0
-        pct_nfce   = fat_nfce / kpis["faturamento"] * 100 if kpis["faturamento"] else 0
+        # Com NF-e: mostra consolidado + breakdown NFC-e / NF-e
+        notas_b2b = df_nfe.drop_duplicates("chave")
+        fat_b2b   = notas_b2b["vNF"].sum()
+        n_b2b     = len(notas_b2b)
+        fat_nfce  = kpis_nfce["faturamento"]
+        pct_nfe   = fat_b2b  / kpis["faturamento"] * 100 if kpis["faturamento"] else 0
+        pct_nfce  = fat_nfce / kpis["faturamento"] * 100 if kpis["faturamento"] else 0
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Faturamento Consolidado (NFC-e + NF-e)", brl(kpis["faturamento"]))
+        c2.metric("Pedidos",       fmt_num(kpis["n_pedidos"]))
+        c3.metric("Ticket Médio",  brl(kpis["ticket_medio"]))
+        c4.metric("IPC",           f"{kpis['ipc']:.2f} itens")
+        c5.metric("Total de Itens",fmt_num(kpis["total_itens"]))
 
         st.markdown(
             f"""<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;
-            padding:10px 16px;margin-top:6px;display:flex;gap:32px;align-items:center">
-            <span style="font-size:13px;color:#0369A1;font-weight:600"> Composição do Faturamento</span>
-            <span style="font-size:13px;color:#374151"> <b>NFC-e (Consumidor Final):</b> {brl(fat_nfce)} &nbsp;·&nbsp; {pct_nfce:.1f}%</span>
-            <span style="font-size:13px;color:#374151"> <b>NF-e (B2B):</b> {brl(fat_b2b)} &nbsp;·&nbsp; {pct_nfe:.1f}%</span>
+            padding:10px 16px;margin-top:6px;display:flex;gap:32px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:13px;color:#0369A1;font-weight:600">📊 Composição do Faturamento</span>
+            <span style="font-size:13px;color:#374151">
+              <b>NFC-e (Consumidor Final):</b> {brl(fat_nfce)} &nbsp;·&nbsp; {pct_nfce:.1f}%
+            </span>
+            <span style="font-size:13px;color:#374151">
+              <b>NF-e (B2B / Empresas):</b> {brl(fat_b2b)} &nbsp;·&nbsp; {pct_nfe:.1f}%
+            </span>
+            <span style="font-size:12px;color:#6B7280">
+              ⚠️ O sistema fiscal pode exibir apenas NFC-e — compare {brl(fat_nfce)} com o relatório de NFC-e.
+            </span>
             </div>""",
             unsafe_allow_html=True,
         )
+    else:
+        # Só NFC-e: simples e direto
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Faturamento NFC-e", brl(kpis["faturamento"]))
+        c2.metric("Pedidos",           fmt_num(kpis["n_pedidos"]))
+        c3.metric("Ticket Médio",      brl(kpis["ticket_medio"]))
+        c4.metric("IPC",               f"{kpis['ipc']:.2f} itens")
+        c5.metric("Total de Itens",    fmt_num(kpis["total_itens"]))
 
     st.divider()
 
