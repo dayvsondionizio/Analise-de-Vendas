@@ -1691,9 +1691,288 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
     return buf.getvalue()
 
 
-# 
+def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
+                 df_remocao, df_elev, df_redu, df_sim_rec,
+                 tem_nfe, df_nfe,
+                 cliente: str, periodo: str, fonte_label: str) -> bytes:
+    """Gera relatório em PDF usando matplotlib (sem dependências extras)."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_pdf import PdfPages
+        import matplotlib.patches as mpatches
+        from pathlib import Path
+    except ImportError:
+        return None
+
+    # ── Paleta ──────────────────────────────────────────────────────
+    AZUL   = "#1e3a5f"
+    AZUL2  = "#2563eb"
+    VERDE  = "#10b981"
+    CINZA  = "#f8f9fa"
+    TEXTO  = "#1f2937"
+    SUBTXT = "#6b7280"
+
+    # ── Logo ────────────────────────────────────────────────────────
+    logo_path = Path(__file__).parent / "LOGO S FUNDO 2.png"
+    logo_img = None
+    if logo_path.exists():
+        try:
+            logo_img = plt.imread(str(logo_path))
+        except Exception:
+            logo_img = None
+
+    buf = io.BytesIO()
+
+    with PdfPages(buf) as pdf:
+
+        # ── helpers ────────────────────────────────────────────────
+        def new_slide(title_text=None, has_logo=True):
+            fig = plt.figure(figsize=(13.33, 7.5), facecolor="white")
+            # Barra de topo
+            ax_bar = fig.add_axes([0, 0.91, 1, 0.09])
+            ax_bar.set_facecolor(AZUL)
+            ax_bar.axis("off")
+
+            if title_text:
+                ax_bar.text(0.02, 0.5, title_text, color="white",
+                            fontsize=16, fontweight="bold", va="center",
+                            transform=ax_bar.transAxes)
+            if has_logo and logo_img is not None:
+                ax_logo = fig.add_axes([0.88, 0.91, 0.11, 0.09])
+                ax_logo.imshow(logo_img)
+                ax_logo.axis("off")
+
+            # Rodapé
+            ax_ft = fig.add_axes([0, 0, 1, 0.04])
+            ax_ft.set_facecolor(AZUL)
+            ax_ft.axis("off")
+            ax_ft.text(0.5, 0.5, f"{cliente}  ·  {periodo}  ·  Análise de Vendas CP",
+                       color="white", fontsize=8, va="center", ha="center",
+                       transform=ax_ft.transAxes)
+            return fig
+
+        def add_kpi_box(fig, x, y, w, h, label, value, sub="", color=AZUL2):
+            ax = fig.add_axes([x, y, w, h])
+            ax.set_facecolor(color)
+            ax.axis("off")
+            ax.text(0.5, 0.72, value, color="white", fontsize=18,
+                    fontweight="bold", ha="center", va="center",
+                    transform=ax.transAxes)
+            ax.text(0.5, 0.35, label, color="white", fontsize=8,
+                    ha="center", va="center", transform=ax.transAxes,
+                    fontweight="bold")
+            if sub:
+                ax.text(0.5, 0.12, sub, color="rgba(255,255,255,0.7)",
+                        fontsize=7, ha="center", va="center",
+                        transform=ax.transAxes)
+
+        def draw_table(fig, rect, data, col_headers, col_widths=None,
+                       title=None, row_colors=None):
+            ax = fig.add_axes(rect)
+            ax.axis("off")
+            if title:
+                ax.text(0, 1.04, title, fontsize=11, fontweight="bold",
+                        color=AZUL, transform=ax.transAxes, va="bottom")
+            n_rows = len(data)
+            n_cols = len(col_headers)
+            if col_widths is None:
+                col_widths = [1/n_cols] * n_cols
+            tbl = ax.table(
+                cellText=data,
+                colLabels=col_headers,
+                cellLoc="center",
+                loc="center",
+                colWidths=col_widths,
+            )
+            tbl.auto_set_font_size(False)
+            tbl.set_fontsize(8)
+            tbl.scale(1, 1.4)
+            for (r, c), cell in tbl.get_celld().items():
+                if r == 0:
+                    cell.set_facecolor(AZUL)
+                    cell.set_text_props(color="white", fontweight="bold")
+                    cell.set_edgecolor("white")
+                else:
+                    bg = "#eef2ff" if r % 2 == 0 else "white"
+                    if row_colors and r-1 < len(row_colors):
+                        bg = row_colors[r-1]
+                    cell.set_facecolor(bg)
+                    cell.set_edgecolor("#e5e7eb")
+
+        # ══════════════════════════════════════════════════════════
+        # Slide 1 — Capa
+        # ══════════════════════════════════════════════════════════
+        fig = plt.figure(figsize=(13.33, 7.5), facecolor=AZUL)
+        if logo_img is not None:
+            ax_logo = fig.add_axes([0.38, 0.58, 0.24, 0.22])
+            ax_logo.imshow(logo_img)
+            ax_logo.axis("off")
+        ax_c = fig.add_axes([0, 0.25, 1, 0.35])
+        ax_c.set_facecolor(AZUL)
+        ax_c.axis("off")
+        ax_c.text(0.5, 0.75, "ANÁLISE ESTRATÉGICA DE VENDAS",
+                  color="white", fontsize=24, fontweight="bold",
+                  ha="center", va="center", transform=ax_c.transAxes)
+        ax_c.text(0.5, 0.48, cliente.upper(),
+                  color="#60a5fa", fontsize=20, fontweight="bold",
+                  ha="center", va="center", transform=ax_c.transAxes)
+        ax_c.text(0.5, 0.24, periodo,
+                  color="white", fontsize=14, ha="center", va="center",
+                  transform=ax_c.transAxes, alpha=0.8)
+        ax_ft2 = fig.add_axes([0, 0, 1, 0.06])
+        ax_ft2.set_facecolor("#0f1f3a")
+        ax_ft2.axis("off")
+        ax_ft2.text(0.5, 0.5, "Análise de Vendas CP  ·  Dados Fiscais NFC-e",
+                    color="white", fontsize=9, ha="center", va="center",
+                    transform=ax_ft2.transAxes, alpha=0.7)
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ══════════════════════════════════════════════════════════
+        # Slide 2 — KPIs principais
+        # ══════════════════════════════════════════════════════════
+        fig = new_slide("INDICADORES GERAIS")
+        fat_nfce_v = kpis_nfce["faturamento"]
+        fat_total  = kpis["faturamento"]
+        fat_nfe_v  = fat_total - fat_nfce_v if tem_nfe else 0
+
+        kpi_items = [
+            (brl(fat_nfce_v),              "FATURAMENTO NFC-e",    fonte_label, AZUL),
+            (fmt_num(kpis["n_pedidos"]),   "PEDIDOS",              "",          AZUL2),
+            (brl(kpis["ticket_medio"]),    "TICKET MÉDIO",         "",          "#0369a1"),
+            (f"{kpis['ipc']:.2f}".replace(".", ","), "ITENS / PEDIDO", "", "#065f46"),
+        ]
+        if tem_nfe and fat_nfe_v > 0:
+            kpi_items[0] = (brl(fat_total), "FATURAMENTO TOTAL", "NFC-e + NF-e", AZUL)
+
+        n = len(kpi_items)
+        box_w = 0.22
+        gap   = (1 - n * box_w) / (n + 1)
+        for i, (val, lbl, sub, clr) in enumerate(kpi_items):
+            x = gap + i * (box_w + gap)
+            add_kpi_box(fig, x, 0.50, box_w, 0.32, lbl, val, sub, clr)
+
+        # Top categorias
+        if df_cat is not None and not df_cat.empty:
+            top5 = df_cat.head(5)
+            ax_b = fig.add_axes([0.05, 0.10, 0.52, 0.36])
+            ax_b.set_facecolor("white")
+            bars = ax_b.barh(top5["categoria"][::-1], top5["receita"][::-1],
+                             color=AZUL2, edgecolor="none", height=0.6)
+            ax_b.set_xlabel("Receita (R$)", fontsize=8, color=SUBTXT)
+            ax_b.tick_params(labelsize=8)
+            ax_b.spines[["top","right","left"]].set_visible(False)
+            ax_b.set_title("Top Categorias", fontsize=10, fontweight="bold",
+                           color=AZUL, pad=6)
+            for bar in bars:
+                w = bar.get_width()
+                ax_b.text(w * 1.01, bar.get_y() + bar.get_height()/2,
+                          brl(w), va="center", fontsize=7, color=TEXTO)
+
+            # Mini tabela ao lado
+            tbl_data = [
+                [c, brl(r), f"{p:.1f}%".replace(".", ",")]
+                for c, r, p in zip(df_cat["categoria"], df_cat["receita"], df_cat["pct"])
+            ][:8]
+            draw_table(fig, [0.60, 0.06, 0.38, 0.38], tbl_data,
+                       ["Categoria", "Receita", "%"],
+                       col_widths=[0.45, 0.33, 0.22],
+                       title="Receita por Categoria")
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ══════════════════════════════════════════════════════════
+        # Slide 3 — Top Produtos
+        # ══════════════════════════════════════════════════════════
+        fig = new_slide("TOP PRODUTOS")
+        # Top 20 produtos por receita
+        from collections import defaultdict
+        if df_bcg is not None and not df_bcg.empty:
+            top_prod = df_bcg.nlargest(20, "receita")[["xProd", "categoria", "BCG", "frequencia", "receita"]].copy()
+            tbl_data = [
+                [str(i+1),
+                 row["xProd"][:40] if len(row["xProd"]) > 40 else row["xProd"],
+                 row["categoria"],
+                 row["BCG"],
+                 fmt_num(int(row["frequencia"])),
+                 brl(row["receita"])]
+                for i, row in top_prod.iterrows()
+            ]
+            # Reset index for numbering
+            tbl_data = [
+                [str(i+1), d[1], d[2], d[3], d[4], d[5]]
+                for i, d in enumerate(tbl_data)
+            ]
+            draw_table(fig, [0.03, 0.07, 0.94, 0.80], tbl_data,
+                       ["#", "Produto", "Categoria", "BCG", "Frequência", "Receita"],
+                       col_widths=[0.04, 0.38, 0.16, 0.12, 0.14, 0.16],
+                       title="Top 20 Produtos por Receita")
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ══════════════════════════════════════════════════════════
+        # Slide 4 — Market Basket
+        # ══════════════════════════════════════════════════════════
+        fig = new_slide("MARKET BASKET — PARES MAIS COMPRADOS JUNTOS")
+        if df_pares is not None and not df_pares.empty:
+            top_pares = df_pares.head(20)
+            cols_pares = list(top_pares.columns)
+            tbl_data = [[str(i+1)] + [str(v) for v in row]
+                        for i, row in enumerate(top_pares.values.tolist())]
+            draw_table(fig, [0.03, 0.07, 0.94, 0.80], tbl_data,
+                       ["#"] + cols_pares,
+                       title="Top 20 Pares de Produtos")
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ══════════════════════════════════════════════════════════
+        # Slide 5 — Ticket Drivers + Simulações
+        # ══════════════════════════════════════════════════════════
+        fig = new_slide("TICKET DRIVERS E SIMULAÇÕES")
+
+        if df_elev is not None and not df_elev.empty:
+            top_elev = df_elev.head(12)
+            tbl_data = [[str(i+1)] + [str(v) for v in row]
+                        for i, row in enumerate(top_elev.values.tolist())]
+            draw_table(fig, [0.03, 0.50, 0.55, 0.37], tbl_data,
+                       ["#"] + list(top_elev.columns),
+                       title="Produtos que Elevam o Ticket")
+
+        if df_sim_rec is not None and not df_sim_rec.empty:
+            tbl_data = [[str(v) for v in row]
+                        for row in df_sim_rec.values.tolist()]
+            draw_table(fig, [0.62, 0.50, 0.35, 0.37], tbl_data,
+                       list(df_sim_rec.columns),
+                       title="Simulação de Crescimento")
+
+        if df_remocao is not None and not df_remocao.empty:
+            top_rem = df_remocao.head(12)
+            rem_data = [
+                [str(i+1),
+                 row.iloc[0][:35] if len(str(row.iloc[0])) > 35 else str(row.iloc[0]),
+                 str(row.iloc[1]), str(row.iloc[2]), brl(float(row.iloc[3])) if row.iloc[3] else ""]
+                for i, row in enumerate(top_rem.itertuples(index=False))
+            ]
+            draw_table(fig, [0.03, 0.07, 0.55, 0.37], rem_data,
+                       ["#", "Produto", "Categoria", "Freq.", "Receita"],
+                       col_widths=[0.05, 0.44, 0.22, 0.14, 0.15],
+                       title="Candidatos a Remoção do Cardápio")
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+    buf.seek(0)
+    return buf.getvalue()
+
+
+#
 # EXPORT PPTX
-# 
+#
 def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                   df_cesta, df_turno, df_bcg, df_cross,
                   df_elev, df_redu, df_sim_rec, df_sim_preco,
@@ -2988,44 +3267,50 @@ def main():
         )
         _box_bar.progress(100)
 
-        # Feedback XML — cards visuais
+        # Feedback XML — card visual
         if _n_xml > 0:
             n_nfce_notas = df_nfce["chave"].nunique() if not df_nfce.empty else 0
             n_nfe_notas  = df_nfe["chave"].nunique()  if not df_nfe.empty  else 0
             fat_nfce     = df_nfce.drop_duplicates("chave")["vNF"].sum() if not df_nfce.empty else 0
             fat_nfe      = df_nfe.drop_duplicates("chave")["vNF"].sum()  if not df_nfe.empty  else 0
+            n_notas_total = n_nfce_notas + n_nfe_notas
 
-            _nfe_html = (
-                f"""<div style="border-left:3px solid #6366f1;padding:0 0 0 10px;margin-left:16px">
-                  <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NF-e (B2B)</div>
-                  <div style="font-size:15px;font-weight:700;color:#4f46e5">{brl(fat_nfe)}</div>
-                  <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfe_notas)} notas</div>
-                </div>"""
-                if n_nfe_notas > 0 else ""
-            )
-            _skip_html = (
-                f"""<div style="border-left:3px solid #f59e0b;padding:0 0 0 10px;margin-left:16px">
-                  <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">DESCARTADAS</div>
-                  <div style="font-size:15px;font-weight:700;color:#d97706">{fmt_num(_n_skip)}</div>
-                  <div style="font-size:11px;color:#9ca3af">canceladas / denegadas</div>
-                </div>"""
-                if _n_skip > 0 else ""
-            )
+            # Build extra columns conditionally
+            _col_nfe = (
+                f"<td style='padding:0 20px;border-left:2px solid #86efac;'>"
+                f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>NF-e (B2B)</div>"
+                f"<div style='font-size:18px;font-weight:800;color:#4f46e5'>{brl(fat_nfe)}</div>"
+                f"<div style='font-size:11px;color:#9ca3af'>{fmt_num(n_nfe_notas)} notas</div>"
+                f"</td>"
+            ) if n_nfe_notas > 0 else ""
+
+            _col_skip = (
+                f"<td style='padding:0 20px;border-left:2px solid #86efac;'>"
+                f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>DESCARTADAS</div>"
+                f"<div style='font-size:18px;font-weight:800;color:#d97706'>{fmt_num(_n_skip)}</div>"
+                f"<div style='font-size:11px;color:#9ca3af'>canceladas / denegadas</div>"
+                f"</td>"
+            ) if _n_skip > 0 else ""
+
             st.markdown(
                 f"""<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;
-                              padding:14px 20px;display:flex;align-items:center;gap:0;flex-wrap:wrap;
-                              margin-bottom:4px">
-                  <div style="margin-right:20px">
-                    <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">XMLs LIDOS</div>
-                    <div style="font-size:22px;font-weight:800;color:#15803d">{fmt_num(_n_xml)}</div>
-                  </div>
-                  <div style="border-left:3px solid #16a34a;padding:0 0 0 10px;margin-left:4px">
-                    <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NFC-e (CONSUMIDOR)</div>
-                    <div style="font-size:22px;font-weight:800;color:#15803d">{brl(fat_nfce)}</div>
-                    <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfce_notas)} notas autorizadas</div>
-                  </div>
-                  {_nfe_html}
-                  {_skip_html}
+                               padding:14px 20px;margin-bottom:4px">
+                  <table style="border-collapse:collapse;width:auto">
+                    <tr>
+                      <td style="padding:0 20px 0 0">
+                        <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NOTAS NA ANÁLISE</div>
+                        <div style="font-size:22px;font-weight:800;color:#15803d">{fmt_num(n_notas_total)}</div>
+                        <div style="font-size:11px;color:#9ca3af">{fmt_num(_n_xml)} XMLs lidos</div>
+                      </td>
+                      <td style="padding:0 20px;border-left:2px solid #86efac">
+                        <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NFC-e (CONSUMIDOR)</div>
+                        <div style="font-size:22px;font-weight:800;color:#15803d">{brl(fat_nfce)}</div>
+                        <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfce_notas)} notas autorizadas</div>
+                      </td>
+                      {_col_nfe}
+                      {_col_skip}
+                    </tr>
+                  </table>
                 </div>""",
                 unsafe_allow_html=True,
             )
@@ -3582,7 +3867,7 @@ def main():
     #  EXPORTAÇÃO
     st.divider()
     st.subheader("Exportar Relatório")
-    col_xl, col_pp = st.columns(2)
+    col_xl, col_pp, col_pdf = st.columns(3)
 
     with col_xl:
         xlsx_bytes = exportar_excel(kpis, df_cat, df_pares, df_trios,
@@ -3593,7 +3878,7 @@ def main():
         st.download_button(
             label="Baixar Excel (.xlsx)",
             data=xlsx_bytes,
-            file_name=f"{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.xlsx",
+            file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
@@ -3615,12 +3900,32 @@ def main():
                 st.download_button(
                     label="Baixar PowerPoint (.pptx)",
                     data=pptx_bytes,
-                    file_name=f"{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.pptx",
+                    file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.pptx",
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     use_container_width=True,
                 )
         except ImportError:
             st.warning("Para exportar PPTX, instale: `pip install python-pptx matplotlib`")
+
+    with col_pdf:
+        try:
+            pdf_bytes = exportar_pdf(
+                kpis=kpis, kpis_nfce=kpis_nfce, df_cat=df_cat,
+                df_pares=df_pares, df_bcg=df_bcg,
+                df_remocao=df_remocao, df_elev=df_elev, df_redu=df_redu,
+                df_sim_rec=df_sim_rec, tem_nfe=tem_nfe, df_nfe=df_nfe,
+                cliente=cli_label, periodo=per_label, fonte_label=fonte_label,
+            )
+            if pdf_bytes:
+                st.download_button(
+                    label="Baixar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        except Exception:
+            st.info("PDF indisponível — matplotlib necessário")
 
 
 if __name__ == "__main__":
