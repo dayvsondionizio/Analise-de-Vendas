@@ -2988,35 +2988,47 @@ def main():
         )
         _box_bar.progress(100)
 
-        # Feedback XML
+        # Feedback XML — cards visuais
         if _n_xml > 0:
             n_nfce_notas = df_nfce["chave"].nunique() if not df_nfce.empty else 0
             n_nfe_notas  = df_nfe["chave"].nunique()  if not df_nfe.empty  else 0
             fat_nfce     = df_nfce.drop_duplicates("chave")["vNF"].sum() if not df_nfce.empty else 0
             fat_nfe      = df_nfe.drop_duplicates("chave")["vNF"].sum()  if not df_nfe.empty  else 0
 
-            st.success(
-                f"**{_n_xml} XMLs** lidos — "
-                f"**{n_nfce_notas} notas NFC-e** ({brl(fat_nfce)}) · "
-                f"**{n_nfe_notas} notas NF-e** ({brl(fat_nfe)})"
+            _nfe_html = (
+                f"""<div style="border-left:3px solid #6366f1;padding:0 0 0 10px;margin-left:16px">
+                  <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NF-e (B2B)</div>
+                  <div style="font-size:15px;font-weight:700;color:#4f46e5">{brl(fat_nfe)}</div>
+                  <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfe_notas)} notas</div>
+                </div>"""
+                if n_nfe_notas > 0 else ""
             )
-            if _n_skip > 0:
-                st.warning(
-                    f"⚠️ **{_n_skip} nota(s) descartada(s)** — canceladas, denegadas e inutilizadas foram excluídas automaticamente. "
-                    f"Notas de **contingência autorizadas** (emitidas offline e depois aprovadas pela SEFAZ) **entram normalmente** na análise, pois representam vendas reais. "
-                    f"A análise considera **somente notas com autorização da SEFAZ** (cStat 100)."
-                )
-
-            # Diagnóstico: notas com vNF=0 (possível erro de leitura)
-            if not df_nfce.empty:
-                _sem_valor = df_nfce.drop_duplicates("chave")
-                _sem_valor = _sem_valor[_sem_valor["vNF"] == 0]
-                if not _sem_valor.empty:
-                    st.info(
-                        f"ℹ️ **{len(_sem_valor)} nota(s) NFC-e com valor R$0,00** — "
-                        f"podem ser notas de entrada, devolução ou XMLs com estrutura diferente. "
-                        f"Se o faturamento estiver abaixo do esperado, verifique se há NF-e de vendas B2B para carregar também."
-                    )
+            _skip_html = (
+                f"""<div style="border-left:3px solid #f59e0b;padding:0 0 0 10px;margin-left:16px">
+                  <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">DESCARTADAS</div>
+                  <div style="font-size:15px;font-weight:700;color:#d97706">{fmt_num(_n_skip)}</div>
+                  <div style="font-size:11px;color:#9ca3af">canceladas / denegadas</div>
+                </div>"""
+                if _n_skip > 0 else ""
+            )
+            st.markdown(
+                f"""<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;
+                              padding:14px 20px;display:flex;align-items:center;gap:0;flex-wrap:wrap;
+                              margin-bottom:4px">
+                  <div style="margin-right:20px">
+                    <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">XMLs LIDOS</div>
+                    <div style="font-size:22px;font-weight:800;color:#15803d">{fmt_num(_n_xml)}</div>
+                  </div>
+                  <div style="border-left:3px solid #16a34a;padding:0 0 0 10px;margin-left:4px">
+                    <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NFC-e (CONSUMIDOR)</div>
+                    <div style="font-size:22px;font-weight:800;color:#15803d">{brl(fat_nfce)}</div>
+                    <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfce_notas)} notas autorizadas</div>
+                  </div>
+                  {_nfe_html}
+                  {_skip_html}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
         # ── Salva tudo no cache de sessão ──
         st.session_state["_analise_fp"] = _fp
@@ -3097,7 +3109,6 @@ def main():
         "Ticket Drivers",
         "Simulações",
         "Metas",
-        "🔍 Auditoria",
     ]
     if df_turno is not None or df_dia_tipo is not None or df_por_hora is not None:
         abas.insert(6, "Temporal")
@@ -3567,80 +3578,6 @@ def main():
                     st.markdown("#### Receita por Categoria (NF-e)")
                     cat_b2b = calc_categorias(df_nfe)
                     st.plotly_chart(fig_categorias(cat_b2b), use_container_width=True)
-
-    #  AUDITORIA
-    with tabs[tab_idx["🔍 Auditoria"]]:
-        st.subheader("🔍 Auditoria de Faturamento")
-        st.caption("Use esta aba para investigar diferenças entre o app e o sistema fiscal")
-
-        df_audit = df_nfce.copy()
-
-        # ── 1. Resumo comparativo ──────────────────────────────
-        notas_unicas = df_audit.drop_duplicates("chave")
-        fat_vnf  = notas_unicas["vNF"].sum()
-        fat_vprod = df_audit.groupby("chave")["vProd"].sum().sum()
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Faturamento pelo vNF (XML total)", brl(fat_vnf))
-        c2.metric("Faturamento pela soma dos itens (vProd)", brl(fat_vprod))
-        c3.metric("Diferença vNF vs vProd", brl(abs(fat_vnf - fat_vprod)),
-                  delta=f"{'vNF maior' if fat_vnf > fat_vprod else 'vProd maior'}")
-
-        st.divider()
-
-        # ── 2. Possíveis devoluções (CFOP começando com 1 ou 2 = entrada) ──
-        st.markdown("#### Possíveis Devoluções / Entradas")
-        st.caption("Notas NFC-e com CFOP de entrada (1xxx/2xxx) indicam possível devolução de venda")
-        if "CFOP" in df_audit.columns:
-            df_dev = df_audit[df_audit["CFOP"].astype(str).str.startswith(("1", "2"))].copy()
-            if df_dev.empty:
-                st.success("✅ Nenhuma nota com CFOP de entrada encontrada.")
-            else:
-                n_dev   = df_dev["chave"].nunique()
-                fat_dev = df_dev.groupby("chave")["vNF"].first().sum()
-                st.warning(f"⚠️ **{n_dev} nota(s)** com CFOP de entrada — total: **{brl(fat_dev)}**")
-                st.dataframe(
-                    df_dev[["chave", "nNF", "CFOP", "xProd", "vProd", "vNF", "dhEmi"]]
-                    .drop_duplicates("chave")
-                    .sort_values("dhEmi"),
-                    use_container_width=True, hide_index=True, height=300
-                )
-
-        st.divider()
-
-        # ── 3. Notas com vNF = 0 ──────────────────────────────
-        st.markdown("#### Notas com Valor Total = R$ 0,00")
-        st.caption("Podem ser notas de entrada, devolução ou XMLs com estrutura diferente")
-        notas_zero = notas_unicas[notas_unicas["vNF"] == 0]
-        if notas_zero.empty:
-            st.success("✅ Nenhuma nota com vNF zerado.")
-        else:
-            st.warning(f"⚠️ **{len(notas_zero)} nota(s)** com vNF = R$0,00")
-            st.dataframe(
-                notas_zero[["chave", "nNF", "vNF", "dhEmi", "situacao"]].sort_values("dhEmi"),
-                use_container_width=True, hide_index=True, height=300
-            )
-
-        st.divider()
-
-        # ── 4. Top 10 maiores diferenças vNF vs vProd por nota ──
-        st.markdown("#### Notas com Maior Divergência entre vNF e Soma dos Itens")
-        st.caption("Diferença esperada = descontos e acréscimos; valores altos merecem atenção")
-        soma_vprod_por_nota = df_audit.groupby("chave")["vProd"].sum().rename("soma_vProd")
-        comp = notas_unicas[["chave", "nNF", "vNF", "dhEmi"]].set_index("chave").join(soma_vprod_por_nota)
-        comp["divergência"] = (comp["vNF"] - comp["soma_vProd"]).round(2)
-        comp["divergência_abs"] = comp["divergência"].abs()
-        top_div = comp.nlargest(15, "divergência_abs").reset_index()
-        top_div["vNF"]        = top_div["vNF"].apply(brl)
-        top_div["soma_vProd"] = top_div["soma_vProd"].apply(brl)
-        top_div["divergência"] = top_div["divergência"].apply(lambda v: f"+{brl(v)}" if v > 0 else brl(v))
-        st.dataframe(
-            top_div[["chave", "nNF", "dhEmi", "vNF", "soma_vProd", "divergência"]].rename(columns={
-                "chave": "Chave NF-e", "nNF": "Nº Nota", "dhEmi": "Data",
-                "vNF": "Total XML (vNF)", "soma_vProd": "Soma Itens (vProd)",
-                "divergência": "Divergência"}),
-            use_container_width=True, hide_index=True, height=400
-        )
 
     #  EXPORTAÇÃO
     st.divider()
