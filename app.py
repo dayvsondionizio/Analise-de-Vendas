@@ -829,18 +829,31 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     import xml.etree.ElementTree as ET
     import zipfile
 
-    def extrair_xml_bytes(data: bytes, nome: str) -> list:
-        """Extrai lista de bytes de XMLs de qualquer arquivo."""
+    # Palavras no nome do arquivo/pasta que indicam notas NÃO autorizadas
+    _PALAVRAS_EXCLUIR = ("CANCELAD", "INUTILIZAD", "DENEGAD", "NEGAD")
+
+    def _nome_excluido(nome: str) -> bool:
+        """True se o nome do arquivo/pasta indica notas que devem ser ignoradas."""
+        n = nome.upper()
+        return any(p in n for p in _PALAVRAS_EXCLUIR)
+
+    def extrair_xml_bytes(data: bytes, nome: str, herdou_exclusao: bool = False) -> list:
+        """
+        Extrai lista de bytes de XMLs de qualquer arquivo.
+        Se o nome do arquivo/pasta (ou de um ancestral) contiver palavras como
+        CANCELADAS, INUTILIZADAS ou DENEGADAS, os XMLs dentro são ignorados.
+        """
         ext = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
+        excluir = herdou_exclusao or _nome_excluido(nome)
         resultado = []
         if ext == "xml":
-            return [data]
+            return [] if excluir else [data]
         if ext == "zip":
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as zf:
                     for entry in zf.namelist():
                         eb = zf.read(entry)
-                        resultado.extend(extrair_xml_bytes(eb, entry))
+                        resultado.extend(extrair_xml_bytes(eb, entry, excluir))
             except Exception:
                 pass
         elif ext == "rar":
@@ -849,7 +862,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 with rarfile.RarFile(io.BytesIO(data)) as rf:
                     for entry in rf.namelist():
                         eb = rf.read(entry)
-                        resultado.extend(extrair_xml_bytes(eb, entry))
+                        resultado.extend(extrair_xml_bytes(eb, entry, excluir))
             except Exception:
                 pass
         elif ext in ("7z", "7zip"):
@@ -857,7 +870,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 import py7zr
                 with py7zr.SevenZipFile(io.BytesIO(data)) as szf:
                     for nome_arq, bio in szf.read().items():
-                        resultado.extend(extrair_xml_bytes(bio.read(), nome_arq))
+                        resultado.extend(extrair_xml_bytes(bio.read(), nome_arq, excluir))
             except Exception:
                 pass
         return resultado
