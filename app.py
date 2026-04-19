@@ -863,10 +863,19 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         return resultado
 
     def parse_xml(xml_data: bytes):
+        """
+        Retorna (rows_nfce, rows_nfe, skipped, chave_cancelada).
+        - rows_*        : lista de dicts de itens (pode ser None)
+        - skipped       : 1 se parse falhou, 0 caso contrário
+        - chave_cancelada: chave de 44 dígitos se este XML é um evento de
+                           cancelamento aceito pela SEFAZ (procEventoNFe /
+                           retEnvEvento com tpEvento=110111 e cStat=135).
+                           None caso contrário.
+        """
         try:
             root = ET.fromstring(xml_data)
 
-            # ── Detecta namespace dinamicamente (alguns XMLs não declaram) ──
+            # ── Detecta namespace dinamicamente ──
             _ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
             def _t(name): return f"{_ns}{name}"
             def _gettxt(p, c):
@@ -876,18 +885,47 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 except: return 0.0
 
             root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+
+            # ── Evento de cancelamento (procEventoNFe ou retEnvEvento) ──
+            if root_local in ("procEventoNFe", "retEnvEvento"):
+                # Procura em qualquer profundidade por tpEvento=110111 + cStat=135
+                # (cancelamento aceito pela SEFAZ)
+                chave_canc = None
+                for el in root.iter():
+                    local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+                    if local == "tpEvento" and el.text == "110111":
+                        # Acha a chave da NF-e cancelada
+                        parent = root
+                        for candidate in root.iter():
+                            c_local = candidate.tag.split("}")[-1] if "}" in candidate.tag else candidate.tag
+                            if c_local == "chNFe" and candidate.text and len(candidate.text) == 44:
+                                chave_canc = candidate.text.strip()
+                                break
+                        break
+                if chave_canc:
+                    # Só registra como cancelada se a SEFAZ aceitou (cStat=135)
+                    cstat_aceito = False
+                    for el in root.iter():
+                        local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+                        if local == "cStat" and el.text in ("135", "155", "101"):
+                            cstat_aceito = True
+                            break
+                    if cstat_aceito:
+                        return None, None, 0, chave_canc
+                return None, None, 0, None
+
             if root_local not in ("nfeProc", "NFe"):
-                return None, None, 1
+                return None, None, 0, None   # ignora silenciosamente outros tipos
 
             nfe_el  = root.find(_t("NFe")) if root_local == "nfeProc" else root
             prot_el = root.find(_t("protNFe")) if root_local == "nfeProc" else None
-            if nfe_el is None: return None, None, 0
+            if nfe_el is None: return None, None, 0, None
             infNFe = nfe_el.find(_t("infNFe"))
-            if infNFe is None: return None, None, 0
+            if infNFe is None: return None, None, 0, None
             inf_id = infNFe.get("Id", "")
             chave  = inf_id[3:] if inf_id.startswith("NFe") else inf_id
             ide    = infNFe.find(_t("ide"))
-            if ide is None: return None, None, 0
+            if ide is None: return None, None, 0, None
             mod   = _gettxt(ide, "mod")
             nNF   = _gettxt(ide, "nNF")
             dhEmi = _gettxt(ide, "dhEmi") or None
@@ -928,9 +966,9 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             if vNF == 0.0 and soma_vprod > 0:
                 for r in rows_n: r["vNF"] = soma_vprod
                 for r in rows_e: r["vNF"] = soma_vprod
-            return rows_n, rows_e, 0
+            return rows_n, rows_e, 0, None
         except Exception:
-            return None, None, 1
+            return None, None, 1, None
 
     # Coleta todos os bytes de XMLs
     all_xml_bytes = []
@@ -959,11 +997,19 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     # Parseia em paralelo
     from concurrent.futures import ThreadPoolExecutor
     rows_nfce, rows_nfe, skipped = [], [], 0
+    chaves_canceladas: set = set()
     with ThreadPoolExecutor(max_workers=min(16, max(4, len(all_xml_bytes) // 500 + 1))) as pool:
-        for r_n, r_e, sk in pool.map(parse_xml, all_xml_bytes):
+        for r_n, r_e, sk, chave_canc in pool.map(parse_xml, all_xml_bytes):
             if r_n: rows_nfce.extend(r_n)
             if r_e: rows_nfe.extend(r_e)
             skipped += sk
+            if chave_canc: chaves_canceladas.add(chave_canc)
+
+    # Remove notas cujo evento de cancelamento foi detectado
+    if chaves_canceladas:
+        rows_nfce = [r for r in rows_nfce if r["chave"] not in chaves_canceladas]
+        rows_nfe  = [r for r in rows_nfe  if r["chave"] not in chaves_canceladas]
+        skipped  += len(chaves_canceladas)
 
     def montar_df(rows, fonte):
         if not rows: return pd.DataFrame()
