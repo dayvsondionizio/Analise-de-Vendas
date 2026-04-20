@@ -285,6 +285,9 @@ def carregar_zip(file_bytes: bytes):
                 prod    = det.find(t("prod"))
                 if prod is None:
                     continue
+                # CFOP 5929/001/002 = doc complementar de ECF, não é receita nova — ignora em NF-e
+                if mod == "55" and gettxt(prod, "CFOP").startswith("5929"):
+                    continue
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
                     "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
@@ -439,6 +442,8 @@ def carregar_xmls_multi(arquivos: tuple):
                 prod    = det.find(t("prod"))
                 if prod is None:
                     continue
+                if mod == "55" and gettxt(prod, "CFOP").startswith("5929"):
+                    continue
 
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
@@ -584,6 +589,8 @@ def carregar_pasta(caminho: str):
                 numItem = det.get("nItem", "")
                 prod    = det.find(t("prod"))
                 if prod is None:
+                    continue
+                if mod == "55" and gettxt(prod, "CFOP").startswith("5929"):
                     continue
 
                 row = {
@@ -754,6 +761,9 @@ def carregar_pastas(caminhos: tuple):
                 numItem = det.get("nItem", "")
                 prod    = det.find(t("prod"))
                 if prod is None:
+                    continue
+                # CFOP 5929/001/002 = doc complementar de ECF, não é receita nova — ignora em NF-e
+                if mod == "55" and gettxt(prod, "CFOP").startswith("5929"):
                     continue
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
@@ -987,6 +997,8 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 numItem = det.get("nItem", "")
                 prod = det.find(_t("prod"))
                 if prod is None: continue
+                if mod == "55" and _gettxt(prod, "CFOP").startswith("5929"):
+                    continue
                 vp = _getfloat(prod, "vProd")
                 soma_vprod += vp
                 row = {
