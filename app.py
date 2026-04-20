@@ -1691,7 +1691,7 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
     return buf.getvalue()
 
 
-def pptx_para_pdf(pptx_bytes: bytes) -> bytes | None:
+def pptx_para_pdf(pptx_bytes: bytes):
     """Converte bytes de PPTX para PDF usando LibreOffice (disponível no Streamlit Cloud)."""
     import subprocess, tempfile, os, shutil
     try:
