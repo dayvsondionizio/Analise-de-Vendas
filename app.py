@@ -2461,7 +2461,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                          col_w_t - Inches(0.2), Inches(0.25),
                          font_size=9, color=LARANJA)
 
-    #  SLIDE 8: PRODUTOS SOLO (ÂNCORA) 
+    #  SLIDE 8: PRODUTOS SOLO (ÂNCORA)
     if df_solo is not None and not df_solo.empty:
         sl = prs.slides.add_slide(blank)
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
@@ -2475,15 +2475,16 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
         hdrs_sl  = ["#", "Produto", "Categoria", "Pedidos Solo", "Receita Solo"]
         col_ws_sl = [Inches(0.5), Inches(5.5), Inches(2.0), Inches(2.0), Inches(2.8)]
         y_sl = Inches(1.5)
-        rh   = Inches(0.44)
+        rh   = Inches(0.46)   # altura ligeiramente maior para leitura
         x    = Inches(0.3)
         for hdr, ww in zip(hdrs_sl, col_ws_sl):
             add_rect(sl, x, y_sl, ww, rh, AZUL_ESC)
-            add_text(sl, hdr, x + Inches(0.05), y_sl + Inches(0.07),
+            add_text(sl, hdr, x + Inches(0.05), y_sl + Inches(0.08),
                      ww - Inches(0.1), rh - Inches(0.1),
                      font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             x += ww
-        for ri, (_, row) in enumerate(df_solo.head(10).iterrows()):
+        # Máx 9 linhas para caber o insight embaixo
+        for ri, (_, row) in enumerate(df_solo.head(9).iterrows()):
             y_r = y_sl + rh * (ri + 1)
             bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
             x   = Inches(0.3)
@@ -2492,17 +2493,19 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
             for vi, (val, ww) in enumerate(zip(vals_sl, col_ws_sl)):
                 add_rect(sl, x, y_r, ww, rh, bg)
                 al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
-                add_text(sl, val, x + Inches(0.05), y_r + Inches(0.07),
+                add_text(sl, val, x + Inches(0.05), y_r + Inches(0.08),
                          ww - Inches(0.1), rh - Inches(0.1),
                          font_size=9, color=TEXTO, align=al)
                 x += ww
 
+        # Insight abaixo da tabela (sem sobreposição)
+        insight_top = y_sl + rh * 10 + Inches(0.1)   # logo após a última linha
         top_solo = df_solo.iloc[0]
-        add_rect(sl, Inches(0.3), Inches(6.0), Inches(12.7), Inches(0.9), RGBColor(0xEB, 0xF5, 0xFF))
-        add_text(sl, f" {top_solo['xProd']} é o produto mais comprado sozinho — "
+        add_rect(sl, Inches(0.3), insight_top, Inches(12.7), Inches(0.8), RGBColor(0xEB, 0xF5, 0xFF))
+        add_text(sl, f"⭐ {top_solo['xProd']} é o produto mais comprado sozinho — "
                      f"{fmt_num(top_solo['frequencia'])} pedidos. "
                      "Sugira um complemento natural no momento da compra para elevar o ticket.",
-                 Inches(0.5), Inches(6.1), Inches(12.3), Inches(0.7),
+                 Inches(0.5), insight_top + Inches(0.08), Inches(12.3), Inches(0.65),
                  font_size=11, bold=True, color=AZUL_ESC)
 
     #  SLIDE 9: CANDIDATOS A REMOÇÃO 
@@ -2526,7 +2529,8 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                  ww - Inches(0.1), rh - Inches(0.1),
                  font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
         x += ww
-    for ri, (_, row) in enumerate(df_remocao.head(12).iterrows()):
+    # Máx 10 linhas para caber footer sem sobreposição
+    for ri, (_, row) in enumerate(df_remocao.head(10).iterrows()):
         y_r = y_rm + rh * (ri + 1)
         bg  = RGBColor(0xFF, 0xF0, 0xF0) if ri % 2 == 0 else BRANCO
         x   = Inches(0.3)
@@ -2540,9 +2544,11 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                      font_size=9, color=TEXTO, align=al)
             x += ww
 
-    add_rect(sl, Inches(0.3), Inches(7.0), Inches(12.7), Inches(0.3), RGBColor(0xFF, 0xF8, 0xE1))
-    add_text(sl, "Antes de remover: verifique custo de produção, sazonalidade e perfil de cliente fiel.",
-             Inches(0.5), Inches(7.02), Inches(12.3), Inches(0.26),
+    # Footer sempre abaixo da última linha da tabela
+    footer_top = y_rm + rh * 11 + Inches(0.08)
+    add_rect(sl, Inches(0.3), footer_top, Inches(12.7), Inches(0.32), RGBColor(0xFF, 0xF8, 0xE1))
+    add_text(sl, "⚠ Antes de remover: verifique custo de produção, sazonalidade e perfil de cliente fiel.",
+             Inches(0.5), footer_top + Inches(0.04), Inches(12.3), Inches(0.26),
              font_size=9, color=RGBColor(0x92, 0x40, 0x0E))
 
     #  SLIDE 9: CROSS-SELL 
@@ -2926,43 +2932,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                      Inches(9.4), Inches(6.33), Inches(3.5), Inches(0.55),
                      font_size=10, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
 
-    #  SLIDE 16: HORÁRIOS COM POTENCIAL INEXPLORADO
-    if df_horas is not None and not df_horas.empty:
-        sl = prs.slides.add_slide(blank)
-        add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
-        add_text(sl, "HORÁRIOS COM POTENCIAL INEXPLORADO",
-                 Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
-
-        fig_h2, ax_h = plt.subplots(figsize=(9, 5.0))
-        cores_h = df_horas["Status"].map({
-            "Ativo": "#10B981",
-            "Abaixo da média": "#F59E0B",
-            "Potencial inexplorado": "#EF4444",
-        }).fillna("#6B7280")
-        ax_h.bar(df_horas["hora"].astype(str) + "h", df_horas["notas"],
-                 color=cores_h, edgecolor="white", width=0.75)
-        ax_h.set_xlabel("Hora do dia", fontsize=11)
-        ax_h.set_ylabel("Nº de vendas", fontsize=11)
-        ax_h.tick_params(labelsize=10)
-        ax_h.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}".replace(",", ".")))
-        ax_h.spines[["top", "right"]].set_visible(False)
-        fig_h2.tight_layout()
-        plt_to_pptx_image(fig_h2, sl, Inches(0.4), Inches(1.2), Inches(9.0), Inches(5.5))
-
-        inexplorados = df_horas[df_horas["Status"] == "Potencial inexplorado"]
-        if not inexplorados.empty:
-            horas_str = ", ".join([f"{int(h):02d}h" for h in inexplorados["hora"]])
-            add_rect(sl, Inches(9.7), Inches(1.2), Inches(3.3), Inches(5.5), RGBColor(0xFE, 0xE2, 0xE2))
-            add_text(sl, "HORÁRIOS\nINEXPLORADOS",
-                     Inches(9.85), Inches(1.35), Inches(3.0), Inches(0.7),
-                     font_size=12, bold=True, color=RGBColor(0xEF, 0x44, 0x44))
-            add_text(sl, horas_str,
-                     Inches(9.85), Inches(2.2), Inches(3.0), Inches(0.5),
-                     font_size=14, bold=True, color=TEXTO)
-            add_text(sl, "Menos de 50% da\nmédia de vendas.\nConsidere promoções\nou produtos exclusivos\nnestes horários.",
-                     Inches(9.85), Inches(2.85), Inches(3.0), Inches(2.5),
-                     font_size=10, color=TEXTO)
+    # Slide "Horários Inexplorados" removido a pedido do usuário
 
     #  SLIDE NF-e B2B (se carregado) 
     if df_nfe is not None and not df_nfe.empty and "vNF" in df_nfe.columns and "chave" in df_nfe.columns:
@@ -3847,11 +3817,6 @@ f"{_col_nfe}{_col_skip}"
                     fig_h.update_layout(height=400)
                     st.plotly_chart(fig_h, use_container_width=True)
 
-                    inexplorados = df_horas[df_horas["Status"] == "Potencial inexplorado"]
-                    if not inexplorados.empty:
-                        horas_str = ", ".join([f"{int(h):02d}h" for h in inexplorados["hora"]])
-                        st.warning(f"Horários com menos de 50% da média: **{horas_str}** "
-                                   "— considere promoções ou produtos exclusivos nesses períodos.")
 
     #  SIMULAÇÕES 
     with tabs[tab_idx["Simulações"]]:
