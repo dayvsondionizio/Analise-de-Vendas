@@ -1692,28 +1692,117 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
 
 
 def pptx_para_pdf(pptx_bytes: bytes):
-    """Converte bytes de PPTX para PDF usando LibreOffice (disponível no Streamlit Cloud)."""
-    import subprocess, tempfile, os, shutil
+    """Converte cada slide do PPTX em imagem PNG e monta PDF via reportlab.
+    Funciona sem dependências de sistema (sem LibreOffice).
+    """
     try:
-        # Encontra o executável do LibreOffice
-        lo = shutil.which("libreoffice") or shutil.which("soffice")
-        if lo is None:
-            return None
-        with tempfile.TemporaryDirectory() as tmpdir:
-            pptx_path = os.path.join(tmpdir, "relatorio.pptx")
-            with open(pptx_path, "wb") as f:
-                f.write(pptx_bytes)
-            subprocess.run(
-                [lo, "--headless", "--convert-to", "pdf", "--outdir", tmpdir, pptx_path],
-                capture_output=True, timeout=120, check=True,
-            )
-            pdf_path = os.path.join(tmpdir, "relatorio.pdf")
-            if os.path.exists(pdf_path):
-                with open(pdf_path, "rb") as f:
-                    return f.read()
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from matplotlib.backends.backend_pdf import PdfPages
+        from pptx import Presentation
+        from pptx.util import Emu
+        import io as _io
+
+        prs = Presentation(_io.BytesIO(pptx_bytes))
+        slide_w = prs.slide_width.inches   # normalmente 13.33
+        slide_h = prs.slide_height.inches  # normalmente 7.5
+
+        buf_pdf = _io.BytesIO()
+        with PdfPages(buf_pdf) as pdf:
+            for slide in prs.slides:
+                # Renderiza o slide como imagem via thumbnail usando python-pptx + pillow
+                from pptx.util import Inches
+                dpi = 150
+                px_w = int(slide_w * dpi)
+                px_h = int(slide_h * dpi)
+
+                # Gera imagem do slide usando matplotlib para montar cada shape
+                fig = plt.figure(figsize=(slide_w, slide_h), facecolor="white")
+                ax = fig.add_axes([0, 0, 1, 1])
+                ax.set_xlim(0, slide_w)
+                ax.set_ylim(0, slide_h)
+                ax.set_aspect("equal")
+                ax.axis("off")
+                ax.invert_yaxis()
+
+                for shape in slide.shapes:
+                    left   = shape.left.inches   if shape.left   else 0
+                    top    = shape.top.inches    if shape.top    else 0
+                    width  = shape.width.inches  if shape.width  else 0
+                    height = shape.height.inches if shape.height else 0
+
+                    # Retângulo colorido
+                    if shape.shape_type == 1:  # MSO_SHAPE_TYPE.AUTO_SHAPE
+                        try:
+                            fill = shape.fill
+                            if fill.type == 1:  # SOLID
+                                rgb = fill.fore_color.rgb
+                                clr = (rgb[0]/255, rgb[1]/255, rgb[2]/255)
+                                rect = plt.Rectangle((left, top), width, height,
+                                                     facecolor=clr, edgecolor="none",
+                                                     transform=ax.transData)
+                                ax.add_patch(rect)
+                        except Exception:
+                            pass
+
+                    # Texto
+                    if shape.has_text_frame:
+                        try:
+                            tf = shape.text_frame
+                            full_text = tf.text.strip()
+                            if not full_text:
+                                continue
+                            # Cor do primeiro run
+                            p0 = tf.paragraphs[0]
+                            run0 = p0.runs[0] if p0.runs else None
+                            if run0 and run0.font.color and run0.font.color.type:
+                                rgb = run0.font.color.rgb
+                                txt_clr = (rgb[0]/255, rgb[1]/255, rgb[2]/255)
+                            else:
+                                txt_clr = (0, 0, 0)
+                            fs_pt = run0.font.size.pt if (run0 and run0.font.size) else 10
+                            bold = run0.font.bold if run0 else False
+                            # alinhamento
+                            from pptx.enum.text import PP_ALIGN
+                            align_map = {PP_ALIGN.CENTER: "center",
+                                         PP_ALIGN.RIGHT: "right"}
+                            ha = align_map.get(p0.alignment, "left")
+                            cx = left + width / 2 if ha == "center" else (
+                                 left + width     if ha == "right"  else left + 0.05)
+                            cy = top + height / 2
+                            ax.text(cx, cy, full_text,
+                                    color=txt_clr,
+                                    fontsize=fs_pt * 0.75,
+                                    fontweight="bold" if bold else "normal",
+                                    ha=ha, va="center",
+                                    wrap=True,
+                                    transform=ax.transData,
+                                    clip_on=True)
+                        except Exception:
+                            pass
+
+                    # Imagem (gráficos matplotlib embutidos)
+                    if shape.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
+                        try:
+                            from PIL import Image
+                            img_bytes = _io.BytesIO(shape.image.blob)
+                            img = Image.open(img_bytes)
+                            ax.imshow(img,
+                                      extent=[left, left + width,
+                                              top + height, top],
+                                      aspect="auto", zorder=5)
+                        except Exception:
+                            pass
+
+                pdf.savefig(fig, bbox_inches="tight", dpi=dpi)
+                plt.close(fig)
+
+        buf_pdf.seek(0)
+        return buf_pdf.getvalue()
     except Exception:
-        pass
-    return None
+        return None
 
 
 def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
