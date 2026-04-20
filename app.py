@@ -2722,9 +2722,11 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
 
         melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
         add_rect(sl, Inches(0.3), Inches(6.3), Inches(12.7), Inches(0.8), RGBColor(0xFE, 0xF3, 0xC7))
-        add_text(sl, f"Maior oportunidade: {melhor['Estratégia']} — "
-                     f"{brl(melhor['Impacto Mensal'])}/mês · {brl(melhor['Impacto Anual'])}/ano",
-                 Inches(0.5), Inches(6.4), Inches(12.3), Inches(0.6),
+        _melhor_txt = (f"Maior oportunidade: {melhor['Estratégia']}"
+                       f"  |  {brl(melhor['Impacto Mensal'])} por mes"
+                       f"  |  {brl(melhor['Impacto Anual'])} por ano")
+        add_text(sl, _melhor_txt,
+                 Inches(0.5), Inches(6.35), Inches(12.5), Inches(0.7),
                  font_size=12, bold=True, color=RGBColor(0x92, 0x40, 0x0E))
 
     #  SLIDE 12: SIMULAÇÃO DE PREÇOS 
@@ -3936,9 +3938,9 @@ f"{_col_nfe}{_col_skip}"
             st.dataframe(sim, use_container_width=True, hide_index=True)
 
             melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
-            st.success(f"Maior oportunidade: **{melhor['Estratégia']}** — "
-                       f"impacto de {brl(melhor['Impacto Mensal'])}/mês "
-                       f"({brl(melhor['Impacto Anual'])}/ano)")
+            st.success(f"Maior oportunidade: **{melhor['Estratégia']}**"
+                       f" — {brl(melhor['Impacto Mensal'])} por mês"
+                       f" — {brl(melhor['Impacto Anual'])} por ano")
 
         with subtab_sim[1]:
             st.markdown("#### Simulação de Ajuste de Preços")
