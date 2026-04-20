@@ -40,6 +40,9 @@ MAPA_CATEGORIAS = [
                        "PRESUNTO", "PEITO DE PERU", "MORTADELA", "SALAME",
                        "COPA ", "FRIOS", "EMBUTIDO", "APRESUNTADO", "BLANQUET",
                        "PEPERONI", "LINGUICA", "LINGUIÇA"]),
+    ("Massas",        ["MACARRAO", "MACARRÃO", "MASSA ", "ESPAGUETE", "TALHARIM",
+                       "RAVIOL", "NHOQUE", "LAMEN", "LÁMEN", "RAMEN",
+                       "FIDEOS", "FIDÉOS", "FIDEO", "INSTANTANEO", "INSTANTÂNEO"]),
     ("Bolos",         ["BOLO", "TORTA", "CHEESECAKE", "BROWNIE", "CUPCAKE",
                        "ROCAMBOLE", "BICHO DE PE", "PANETONE", "CHOCOTONE",
                        "PUDIM", "MOUSSE", "SEMIFRIO"]),
@@ -83,6 +86,7 @@ CORES_CATEGORIA = {
     "Bebidas":            "#2980B9",
     "Doces":              "#E91E63",
     "Doces/Chocolate":    "#C0392B",
+    "Massas":             "#E8A838",
     "Mercearia":          "#F39C12",
     "Embalagens":         "#AAB7B8",
     "Outros":             "#95A5A6",
@@ -96,12 +100,18 @@ MAPA_NCM = {
     "08": "Mercearia",          # frutas
     "09": "Cafés",              # café, chá, especiarias
     "10": "Mercearia",          # cereais
-    "11": "Pães",               # farinhas (insumo de panificação)
+    "11": "Mercearia",          # farinhas/amidos (insumos)
     "15": "Mercearia",          # gorduras/óleos
     "16": "Frios/Laticínios",   # conservas de carne/peixe
     "17": "Doces/Chocolate",    # açúcar, mel
     "18": "Doces/Chocolate",    # cacau, chocolate
-    "19": "Pães",               # preparações de cereais/panificação
+    # capítulo 19 refinado por subcapítulo (4 dígitos têm prioridade)
+    "1901": "Mercearia",        # preparações p/ bebidas infantis / misturas
+    "1902": "Massas",           # pastas alimentícias (macarrão, lamen, etc.)
+    "1903": "Mercearia",        # tapioca granulada
+    "1904": "Mercearia",        # cereais preparados (granola, cornflakes)
+    "1905": "Pães",             # pão, biscoitos, wafer, bolacha
+    "19":   "Pães",             # restante do cap. 19 → panificação
     "20": "Mercearia",          # preparações de frutas/legumes
     "21": "Mercearia",          # preparações alimentícias diversas
     "22": "Bebidas",            # bebidas, águas, sucos, álcool
@@ -131,14 +141,22 @@ def categorizar_serie(s: pd.Series, ncm: pd.Series = None) -> pd.Series:
             mask |= s_up.str.contains(p, regex=False, na=False)
         result[mask] = cat
 
-    # Fallback: itens ainda "Outros" recebem categoria pelo capítulo NCM
+    # Fallback: itens ainda "Outros" recebem categoria pelo NCM
+    # Entradas de 4 dígitos têm prioridade sobre as de 2 dígitos
     if ncm is not None:
         ainda_outros = result == "Outros"
         if ainda_outros.any():
-            ncm_str = ncm.astype(str).str.zfill(8)  # NCM tem 8 dígitos
-            capitulo = ncm_str.str[:2]
-            for cap, cat in MAPA_NCM.items():
-                mask_ncm = ainda_outros & (capitulo == cap)
+            ncm_str = ncm.astype(str).str.zfill(8)
+            sub4 = ncm_str.str[:4]   # subcapítulo (4 dígitos)
+            cap2 = ncm_str.str[:2]   # capítulo    (2 dígitos)
+            ncm4 = {k: v for k, v in MAPA_NCM.items() if len(k) == 4}
+            ncm2 = {k: v for k, v in MAPA_NCM.items() if len(k) == 2}
+            for cod, cat in ncm4.items():
+                mask_ncm = ainda_outros & (sub4 == cod)
+                result[mask_ncm] = cat
+                ainda_outros &= ~mask_ncm
+            for cod, cat in ncm2.items():
+                mask_ncm = ainda_outros & (cap2 == cod)
                 result[mask_ncm] = cat
 
     return result
