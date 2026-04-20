@@ -2214,7 +2214,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
         (brl(kpis["faturamento"]),  "FATURAMENTO TOTAL"),
         (fmt_num(kpis["n_pedidos"]), "PEDIDOS EMITIDOS"),
         (brl(kpis["ticket_medio"]), "TICKET MÉDIO"),
-        (f"{kpis['ipc']:.2f}".replace(".", ","), "ITENS POR PEDIDO"),
+        (f"{kpis['ipc']:.2f}".replace(".", ","), "ITENS POR PEDIDO EM MÉDIA"),
     ]
     card_w = Inches(2.8)
     card_h = Inches(2.2)
@@ -3540,7 +3540,7 @@ f"{_col_nfe}{_col_skip}"
         c1.metric("Faturamento Consolidado (NFC-e + NF-e)", brl(kpis["faturamento"]))
         c2.metric("Pedidos",       fmt_num(kpis["n_pedidos"]))
         c3.metric("Ticket Médio",  brl(kpis["ticket_medio"]))
-        c4.metric("IPC",           f"{kpis['ipc']:.2f} itens")
+        c4.metric("Itens por Pedido (Média)",           f"{kpis['ipc']:.2f} itens")
         c5.metric("Total de Itens",fmt_num(kpis["total_itens"]))
 
         st.markdown(
@@ -3565,7 +3565,7 @@ f"{_col_nfe}{_col_skip}"
         c1.metric("Faturamento NFC-e", brl(kpis["faturamento"]))
         c2.metric("Pedidos",           fmt_num(kpis["n_pedidos"]))
         c3.metric("Ticket Médio",      brl(kpis["ticket_medio"]))
-        c4.metric("IPC",               f"{kpis['ipc']:.2f} itens")
+        c4.metric("Itens por Pedido (Média)",               f"{kpis['ipc']:.2f} itens")
         c5.metric("Total de Itens",    fmt_num(kpis["total_itens"]))
 
     st.divider()
