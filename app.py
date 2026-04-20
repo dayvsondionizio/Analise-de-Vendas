@@ -3158,7 +3158,7 @@ def main():
         )
 
         # ── Botão Nova Análise ────────────────────────────────
-        if "_analise" in st.session_state:
+        if "_analise" in st.session_state or _tem_dados:
             if st.button("🔄 Nova Análise", use_container_width=True, key="btn_nova_analise"):
                 for _k in ["_analise", "_analise_fp", "pastas_xml"]:
                     if _k in st.session_state:
@@ -3492,6 +3492,9 @@ f"{_col_nfe}{_col_skip}"
             "df_combos": df_combos,  "df_metas": df_metas,
             "df_horas": df_horas,    "df_por_hora": df_por_hora, "df_por_turno": df_por_turno,
         }
+        # Força re-render para o painel lateral enxergar o cache
+        # (sidebar é renderizado antes da análise rodar)
+        st.rerun()
 
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);
