@@ -3098,6 +3098,7 @@ def main():
             type=["zip", "rar", "7z", "xml", "xlsx", "xls"],
             accept_multiple_files=True,
             label_visibility="collapsed",
+            key=f"uploader_{st.session_state.get('_upload_key', 0)}",
         )
 
         # Resumo do que foi carregado
@@ -3155,6 +3156,16 @@ def main():
             disabled=not _tem_dados,
             type="primary",
         )
+
+        # ── Botão Nova Análise ────────────────────────────────
+        if "_analise" in st.session_state:
+            if st.button("🔄 Nova Análise", use_container_width=True, key="btn_nova_analise"):
+                for _k in ["_analise", "_analise_fp", "pastas_xml"]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
+                # Incrementa chave do uploader para forçar limpeza dos arquivos
+                st.session_state["_upload_key"] = st.session_state.get("_upload_key", 0) + 1
+                st.rerun()
 
     # ── Fingerprint da fonte de dados ──
     if arquivos_upload:
@@ -3315,6 +3326,21 @@ def main():
         if df_nfce.empty:
             st.error("Nenhum dado de NFC-e encontrado. Verifique o arquivo ou pasta.")
             return
+
+        # ── Validação: apenas uma empresa por análise ─────────
+        if "emitente" in df_nfce.columns:
+            _em_check = df_nfce["emitente"].dropna()
+            _em_check = _em_check[_em_check != ""]
+            _em_unicas = sorted(_em_check.unique())
+            if len(_em_unicas) > 1:
+                st.error(
+                    f"⚠️ **{len(_em_unicas)} empresas diferentes** foram detectadas nos arquivos enviados. "
+                    "Cada análise deve conter notas fiscais de **uma única empresa**. "
+                    "Remova os arquivos da empresa incorreta e tente novamente.\n\n"
+                    "**Empresas encontradas:**\n" +
+                    "\n".join(f"- {_e}" for _e in _em_unicas)
+                )
+                return
 
         df     = df_nfce.copy()
         df_all = pd.concat([df_nfce, df_nfe], ignore_index=True) if not df_nfe.empty else df_nfce.copy()
