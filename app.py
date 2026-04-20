@@ -1691,6 +1691,31 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
     return buf.getvalue()
 
 
+def pptx_para_pdf(pptx_bytes: bytes) -> bytes | None:
+    """Converte bytes de PPTX para PDF usando LibreOffice (disponível no Streamlit Cloud)."""
+    import subprocess, tempfile, os, shutil
+    try:
+        # Encontra o executável do LibreOffice
+        lo = shutil.which("libreoffice") or shutil.which("soffice")
+        if lo is None:
+            return None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pptx_path = os.path.join(tmpdir, "relatorio.pptx")
+            with open(pptx_path, "wb") as f:
+                f.write(pptx_bytes)
+            subprocess.run(
+                [lo, "--headless", "--convert-to", "pdf", "--outdir", tmpdir, pptx_path],
+                capture_output=True, timeout=120, check=True,
+            )
+            pdf_path = os.path.join(tmpdir, "relatorio.pdf")
+            if os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f:
+                    return f.read()
+    except Exception:
+        pass
+    return None
+
+
 def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
                  df_remocao, df_elev, df_redu, df_sim_rec,
                  tem_nfe, df_nfe,
@@ -3895,6 +3920,27 @@ f"{_col_nfe}{_col_skip}"
 
     st.divider()
     st.subheader("Exportar Relatório")
+
+    # Gera PPTX uma vez e reutiliza para PPTX e PDF
+    _nome_base = f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
+    _pptx_bytes = None
+    try:
+        from pptx import Presentation  # noqa: F401
+        import matplotlib  # noqa: F401
+        _pptx_bytes = exportar_pptx(
+            kpis, df_cat, df_pares, df_trios,
+            df_cesta, df_turno, df_bcg, df_cross,
+            df_elev, df_redu, df_sim_rec, df_sim_preco,
+            df_combos, df_metas, df_horas,
+            df_solo, df_remocao, df_dia_tipo,
+            df_nfe, kpis_nfce,
+            fonte_label, cli_label, per_label,
+            df_por_hora=df_por_hora,
+            df_por_turno=df_por_turno,
+        )
+    except ImportError:
+        pass
+
     col_xl, col_pp, col_pdf = st.columns(3)
 
     with col_xl:
@@ -3906,56 +3952,50 @@ f"{_col_nfe}{_col_skip}"
         st.download_button(
             label="Baixar Excel (.xlsx)",
             data=xlsx_bytes,
-            file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.xlsx",
+            file_name=f"{_nome_base}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
     with col_pp:
-        try:
-            from pptx import Presentation  # noqa: F401
-            import matplotlib  # noqa: F401
-            pptx_bytes = exportar_pptx(kpis, df_cat, df_pares, df_trios,
-                                       df_cesta, df_turno, df_bcg, df_cross,
-                                       df_elev, df_redu, df_sim_rec, df_sim_preco,
-                                       df_combos, df_metas, df_horas,
-                                       df_solo, df_remocao, df_dia_tipo,
-                                       df_nfe, kpis_nfce,
-                                       fonte_label, cli_label, per_label,
-                                       df_por_hora=df_por_hora,
-                                       df_por_turno=df_por_turno)
-            if pptx_bytes:
-                st.download_button(
-                    label="Baixar PowerPoint (.pptx)",
-                    data=pptx_bytes,
-                    file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True,
-                )
-        except ImportError:
-            st.warning("Para exportar PPTX, instale: `pip install python-pptx matplotlib`")
+        if _pptx_bytes:
+            st.download_button(
+                label="Baixar PowerPoint (.pptx)",
+                data=_pptx_bytes,
+                file_name=f"{_nome_base}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+            )
+        else:
+            st.warning("Instale: `pip install python-pptx matplotlib`")
 
     with col_pdf:
-        # Botão que dispara window.parent.print() para imprimir a página principal
-        import streamlit.components.v1 as _components
-        _components.html(
-            """
-<style>
-  body { margin: 0; padding: 0; }
-  .btn-print {
-    display: block; width: 100%; padding: 5px 16px;
-    background: white; color: #4f46e5;
-    border: 1px solid #d1d5db; border-radius: 6px;
-    font-size: 14px; font-weight: 500; cursor: pointer;
-    font-family: sans-serif; text-align: center;
-    box-sizing: border-box;
-  }
-  .btn-print:hover { background: #f5f3ff; border-color: #4f46e5; }
+        if _pptx_bytes:
+            _pdf_bytes = pptx_para_pdf(_pptx_bytes)
+            if _pdf_bytes:
+                st.download_button(
+                    label="Baixar PDF (.pdf)",
+                    data=_pdf_bytes,
+                    file_name=f"{_nome_base}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            else:
+                # LibreOffice não disponível — fallback: botão de impressão
+                import streamlit.components.v1 as _components
+                _components.html(
+                    """<style>
+  body{margin:0;padding:0}
+  .bp{display:block;width:100%;padding:5px 16px;background:white;color:#4f46e5;
+      border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:500;
+      cursor:pointer;font-family:sans-serif;text-align:center;box-sizing:border-box}
+  .bp:hover{background:#f5f3ff;border-color:#4f46e5}
 </style>
-<button class="btn-print" onclick="window.parent.print()">🖨️ Imprimir / Salvar PDF</button>
-""",
-            height=40,
-        )
+<button class="bp" onclick="window.parent.print()">🖨️ Imprimir / Salvar PDF</button>""",
+                    height=40,
+                )
+        else:
+            st.info("Gere o PPTX primeiro para habilitar o PDF.")
 
 
 if __name__ == "__main__":
