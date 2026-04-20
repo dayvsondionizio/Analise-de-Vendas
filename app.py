@@ -3065,6 +3065,11 @@ def main():
     <style>
     .block-container { padding-top: 1.2rem; }
     .metric-label { font-size: 12px !important; }
+    /* Remove bordas arredondadas da logo no painel lateral */
+    section[data-testid="stSidebar"] img {
+        border-radius: 0 !important;
+        -webkit-border-radius: 0 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
