@@ -3284,8 +3284,16 @@ def main():
         df     = df_nfce.copy()
         df_all = pd.concat([df_nfce, df_nfe], ignore_index=True) if not df_nfe.empty else df_nfce.copy()
 
+        _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
+                     7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
         cli_label   = cliente or "Cliente"
-        per_label   = periodo or (df["dhEmi"].dt.strftime("%B %Y").mode()[0] if "dhEmi" in df.columns and df["dhEmi"].notna().any() else "Período")
+        if periodo:
+            per_label = periodo
+        elif "dhEmi" in df.columns and df["dhEmi"].notna().any():
+            _moda = df["dhEmi"].dt.to_period("M").mode()[0]
+            per_label = f"{_MESES_PT[_moda.month]} {_moda.year}"
+        else:
+            per_label = "Período"
         tem_nfe     = not df_nfe.empty
         fonte_label = "NFC-e + NF-e" if tem_nfe else "NFC-e"
 
