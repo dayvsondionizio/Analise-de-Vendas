@@ -18,21 +18,9 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
-# Favicon: usa a imagem da pasta se existir, senão emoji fallback
-def _load_favicon():
-    for _fname in ("favicon.png", "LOGO S FUNDO 2.png"):
-        _p = Path(__file__).parent / _fname
-        if _p.exists():
-            try:
-                from PIL import Image
-                return Image.open(_p)
-            except Exception:
-                pass
-    return "🌾"
-
 st.set_page_config(
     page_title="Análise de Vendas CP",
-    page_icon=_load_favicon(),
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
