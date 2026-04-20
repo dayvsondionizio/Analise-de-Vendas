@@ -274,6 +274,8 @@ def carregar_zip(file_bytes: bytes):
 
             dest_el      = infNFe.find(t("dest"))
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+            emit_el      = infNFe.find(t("emit"))
+            emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
 
             r_nfce, r_nfe = [], []
             for det in infNFe.findall(t("det")):
@@ -287,7 +289,7 @@ def carregar_zip(file_bytes: bytes):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -426,6 +428,8 @@ def carregar_xmls_multi(arquivos: tuple):
 
             dest_el      = infNFe.find(t("dest"))
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+            emit_el      = infNFe.find(t("emit"))
+            emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
 
             for det in infNFe.findall(t("det")):
                 numItem = det.get("nItem", "")
@@ -439,7 +443,7 @@ def carregar_xmls_multi(arquivos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
                 }
 
                 if mod == "65":
@@ -569,6 +573,8 @@ def carregar_pasta(caminho: str):
 
             dest_el      = infNFe.find(t("dest"))
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+            emit_el      = infNFe.find(t("emit"))
+            emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
 
             for det in infNFe.findall(t("det")):
                 numItem = det.get("nItem", "")
@@ -590,6 +596,7 @@ def carregar_pasta(caminho: str):
                     "vNF":          vNF,
                     "dhEmi":        dhEmi,
                     "destinatario": destinatario,
+                    "emitente":     emitente,
                     "situacao":     situacao,
                 }
 
@@ -733,6 +740,8 @@ def carregar_pastas(caminhos: tuple):
 
             dest_el      = infNFe.find(t("dest"))
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
+            emit_el      = infNFe.find(t("emit"))
+            emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
 
             r_nfce, r_nfe = [], []
             for det in infNFe.findall(t("det")):
@@ -746,7 +755,7 @@ def carregar_pastas(caminhos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -963,6 +972,8 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     vNF = _getfloat(icms, "vNF")
             dest_el = infNFe.find(_t("dest"))
             destinatario = _gettxt(dest_el, "xNome") if dest_el is not None else ""
+            emit_el = infNFe.find(_t("emit"))
+            emitente = _gettxt(emit_el, "xNome") if emit_el is not None else ""
             rows_n, rows_e = [], []
             soma_vprod = 0.0
             for det in infNFe.findall(_t("det")):
@@ -977,7 +988,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
                 }
                 if mod == "65": rows_n.append(row)
                 elif mod == "55": rows_e.append(row)
@@ -3050,8 +3061,32 @@ def main():
         st.markdown("## Análise de Vendas CP")
         st.divider()
 
-        cliente = st.text_input("Nome do cliente", placeholder="Ex: Rosarinho Delicatessen")
-        periodo = st.text_input("Período", placeholder="Ex: Fevereiro 2026")
+        # Auto-detectar empresa e período dos XMLs já processados
+        _auto_empresa = ""
+        _auto_periodo = ""
+        if "_analise" in st.session_state:
+            _R = st.session_state["_analise"]
+            _df_tmp = _R.get("df_nfce")
+            if _df_tmp is not None and not _df_tmp.empty and "emitente" in _df_tmp.columns:
+                _vals = _df_tmp["emitente"].dropna()
+                _vals = _vals[_vals != ""]
+                if not _vals.empty:
+                    _auto_empresa = _vals.mode()[0]
+            if _df_tmp is not None and not _df_tmp.empty and "dhEmi" in _df_tmp.columns:
+                _MESES_PT_s = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
+                               7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
+                _meses = sorted(_df_tmp["dhEmi"].dropna().dt.to_period("M").unique())
+                if len(_meses) == 1:
+                    _auto_periodo = f"{_MESES_PT_s[_meses[0].month]} {_meses[0].year}"
+                elif len(_meses) >= 2:
+                    _m1, _m2 = _meses[0], _meses[-1]
+                    if _m1.year == _m2.year:
+                        _auto_periodo = f"{_MESES_PT_s[_m1.month]} - {_MESES_PT_s[_m2.month]} {_m1.year}"
+                    else:
+                        _auto_periodo = f"{_MESES_PT_s[_m1.month]} {_m1.year} - {_MESES_PT_s[_m2.month]} {_m2.year}"
+
+        cliente = st.text_input("Nome do cliente", value=_auto_empresa, placeholder="Detectado automaticamente")
+        periodo = st.text_input("Período", value=_auto_periodo, placeholder="Detectado automaticamente")
         top_n   = st.slider("Itens no Market Basket", 5, 20, 10)
         st.divider()
 
@@ -3286,12 +3321,27 @@ def main():
 
         _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
-        cli_label   = cliente or "Cliente"
+        # Auto-detectar nome da empresa a partir das notas
+        _auto_cli = ""
+        if "emitente" in df.columns:
+            _em_vals = df["emitente"].dropna()
+            _em_vals = _em_vals[_em_vals != ""]
+            if not _em_vals.empty:
+                _auto_cli = _em_vals.mode()[0]
+        cli_label = cliente or _auto_cli or "Cliente"
+
         if periodo:
             per_label = periodo
         elif "dhEmi" in df.columns and df["dhEmi"].notna().any():
-            _moda = df["dhEmi"].dt.to_period("M").mode()[0]
-            per_label = f"{_MESES_PT[_moda.month]} {_moda.year}"
+            _meses = sorted(df["dhEmi"].dropna().dt.to_period("M").unique())
+            if len(_meses) == 1:
+                per_label = f"{_MESES_PT[_meses[0].month]} {_meses[0].year}"
+            elif len(_meses) >= 2:
+                _m1, _m2 = _meses[0], _meses[-1]
+                if _m1.year == _m2.year:
+                    per_label = f"{_MESES_PT[_m1.month]} - {_MESES_PT[_m2.month]} {_m1.year}"
+                else:
+                    per_label = f"{_MESES_PT[_m1.month]} {_m1.year} - {_MESES_PT[_m2.month]} {_m2.year}"
         else:
             per_label = "Período"
         tem_nfe     = not df_nfe.empty
