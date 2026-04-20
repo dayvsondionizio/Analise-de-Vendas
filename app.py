@@ -3858,6 +3858,41 @@ f"{_col_nfe}{_col_skip}"
                     st.plotly_chart(fig_categorias(cat_b2b), use_container_width=True)
 
     #  EXPORTAÇÃO
+    # CSS de impressão injetado na página principal (não no iframe)
+    st.markdown("""
+<style>
+@media print {
+  /* Oculta elementos de navegação e controle */
+  section[data-testid="stSidebar"],
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  [data-testid="stDecoration"],
+  [data-testid="stStatusWidget"],
+  .stDeployButton,
+  footer,
+  #exportar-relatorio,
+  #exportar-relatorio ~ div { display: none !important; }
+
+  /* Remove margens do Streamlit para aproveitar a folha */
+  .main .block-container {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Força impressão colorida */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Evita quebra de página no meio de gráficos e tabelas */
+  .stPlotlyChart, .stDataFrame, [data-testid="stTable"] {
+    page-break-inside: avoid;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
     st.divider()
     st.subheader("Exportar Relatório")
     col_xl, col_pp, col_pdf = st.columns(3)
@@ -3901,33 +3936,25 @@ f"{_col_nfe}{_col_skip}"
             st.warning("Para exportar PPTX, instale: `pip install python-pptx matplotlib`")
 
     with col_pdf:
+        # Botão que dispara window.parent.print() para imprimir a página principal
         import streamlit.components.v1 as _components
         _components.html(
             """
 <style>
+  body { margin: 0; padding: 0; }
   .btn-print {
-    display: block; width: 100%; padding: 6px 16px;
+    display: block; width: 100%; padding: 5px 16px;
     background: white; color: #4f46e5;
     border: 1px solid #d1d5db; border-radius: 6px;
     font-size: 14px; font-weight: 500; cursor: pointer;
     font-family: sans-serif; text-align: center;
-    transition: background .15s;
+    box-sizing: border-box;
   }
   .btn-print:hover { background: #f5f3ff; border-color: #4f46e5; }
-  @media print {
-    /* Oculta sidebar e botões ao imprimir */
-    section[data-testid="stSidebar"],
-    .stButton, .stDownloadButton,
-    [data-testid="stToolbar"],
-    footer { display: none !important; }
-    /* Garante impressão colorida */
-    * { -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important; }
-  }
 </style>
-<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+<button class="btn-print" onclick="window.parent.print()">🖨️ Imprimir / Salvar PDF</button>
 """,
-            height=42,
+            height=40,
         )
 
 
