@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(
     page_title="Análise de Vendas CP",
-    page_icon="📊",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
