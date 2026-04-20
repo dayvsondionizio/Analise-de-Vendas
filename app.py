@@ -70,18 +70,45 @@ DAYS_MAP = {
 }
 
 CORES_CATEGORIA = {
-    "Pães":          "#E67E22",
-    "Lanchonete":    "#E74C3C",
-    "Frios/Queijos": "#3498DB",
-    "Bolos":         "#9B59B6",
-    "Salgados":      "#F1C40F",
-    "Tapiocas":      "#1ABC9C",
-    "Cafés":         "#795548",
-    "Refeições":     "#27AE60",
-    "Sopas/Caldos":  "#5D6D7E",
-    "Bebidas":       "#2980B9",
-    "Doces":         "#E91E63",
-    "Outros":        "#95A5A6",
+    "Pães":               "#E67E22",
+    "Lanchonete":         "#E74C3C",
+    "Frios/Queijos":      "#3498DB",
+    "Frios/Laticínios":   "#5DADE2",
+    "Bolos":              "#9B59B6",
+    "Salgados":           "#F1C40F",
+    "Tapiocas":           "#1ABC9C",
+    "Cafés":              "#795548",
+    "Refeições":          "#27AE60",
+    "Sopas/Caldos":       "#5D6D7E",
+    "Bebidas":            "#2980B9",
+    "Doces":              "#E91E63",
+    "Doces/Chocolate":    "#C0392B",
+    "Mercearia":          "#F39C12",
+    "Embalagens":         "#AAB7B8",
+    "Outros":             "#95A5A6",
+}
+
+# Mapeamento NCM capítulo → categoria (fallback quando xProd não bate keywords)
+MAPA_NCM = {
+    "02": "Frios/Laticínios",   # carnes
+    "04": "Frios/Laticínios",   # laticínios, ovos, mel
+    "07": "Mercearia",          # legumes/vegetais
+    "08": "Mercearia",          # frutas
+    "09": "Cafés",              # café, chá, especiarias
+    "10": "Mercearia",          # cereais
+    "11": "Pães",               # farinhas (insumo de panificação)
+    "15": "Mercearia",          # gorduras/óleos
+    "16": "Frios/Laticínios",   # conservas de carne/peixe
+    "17": "Doces/Chocolate",    # açúcar, mel
+    "18": "Doces/Chocolate",    # cacau, chocolate
+    "19": "Pães",               # preparações de cereais/panificação
+    "20": "Mercearia",          # preparações de frutas/legumes
+    "21": "Mercearia",          # preparações alimentícias diversas
+    "22": "Bebidas",            # bebidas, águas, sucos, álcool
+    "23": "Mercearia",          # resíduos industriais / rações
+    "35": "Mercearia",          # albuminas/colas (gelatinas)
+    "39": "Embalagens",         # plásticos e embalagens
+    "48": "Embalagens",         # papel/papelão/embalagens
 }
 
 
@@ -94,16 +121,26 @@ def categorizar(nome: str) -> str:
     return "Outros"
 
 
-def categorizar_serie(s: pd.Series) -> pd.Series:
-    """Versão vetorizada de categorizar — opera sobre toda a coluna de uma vez."""
+def categorizar_serie(s: pd.Series, ncm: pd.Series = None) -> pd.Series:
+    """Categoriza por keyword no xProd; usa NCM como fallback para 'Outros'."""
     s_up  = s.str.upper().fillna("")
     result = pd.Series("Outros", index=s.index, dtype="object")
-    # Percorre em ordem inversa para que o primeiro match (maior prioridade) vença
     for cat, palavras in reversed(MAPA_CATEGORIAS):
         mask = pd.Series(False, index=s.index)
         for p in palavras:
             mask |= s_up.str.contains(p, regex=False, na=False)
         result[mask] = cat
+
+    # Fallback: itens ainda "Outros" recebem categoria pelo capítulo NCM
+    if ncm is not None:
+        ainda_outros = result == "Outros"
+        if ainda_outros.any():
+            ncm_str = ncm.astype(str).str.zfill(8)  # NCM tem 8 dígitos
+            capitulo = ncm_str.str[:2]
+            for cap, cat in MAPA_NCM.items():
+                mask_ncm = ainda_outros & (capitulo == cap)
+                result[mask_ncm] = cat
+
     return result
 
 
@@ -162,7 +199,7 @@ def carregar_nfce(file_bytes: bytes) -> pd.DataFrame:
 
     # Categoria
     if "xProd" in df.columns:
-        df["categoria"] = categorizar_serie(df["xProd"])
+        df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
 
     df["fonte"] = "NFC-e"
     return df
@@ -202,7 +239,7 @@ def carregar_nfe(file_bytes: bytes) -> pd.DataFrame:
         df = df[df["situacao"].astype(str).str.lower().str.contains("autoriza", na=False)]
 
     if "xProd" in df.columns:
-        df["categoria"] = categorizar_serie(df["xProd"])
+        df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
 
     df["fonte"] = "NF-e"
     return df
@@ -335,7 +372,7 @@ def carregar_zip(file_bytes: bytes):
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
-            df["categoria"] = categorizar_serie(df["xProd"])
+            df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
         return df
 
@@ -476,7 +513,7 @@ def carregar_xmls_multi(arquivos: tuple):
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
-            df["categoria"] = categorizar_serie(df["xProd"])
+            df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
         return df
 
@@ -634,7 +671,7 @@ def carregar_pasta(caminho: str):
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
-            df["categoria"] = categorizar_serie(df["xProd"])
+            df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
         return df
 
@@ -809,7 +846,7 @@ def carregar_pastas(caminhos: tuple):
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
-            df["categoria"] = categorizar_serie(df["xProd"])
+            df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
         return df
 
@@ -1072,7 +1109,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
-            df["categoria"] = categorizar_serie(df["xProd"])
+            df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
         return df
 
