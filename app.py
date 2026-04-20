@@ -2382,10 +2382,15 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
             x += w
 
     # Insights
+    def _trunc(txt, n=28):
+        return txt if len(txt) <= n else txt[:n].rstrip() + "…"
+
     insights = []
     if not df_pares.empty:
         top1 = df_pares.iloc[0]
-        insights.append(f" {top1['Produto A']} + {top1['Produto B']}: par mais frequente com {fmt_num(top1['Frequência'])} ocorrências")
+        pa = _trunc(top1['Produto A'])
+        pb = _trunc(top1['Produto B'])
+        insights.append(f"{pa} + {pb}: par mais frequente com {fmt_num(top1['Frequência'])} ocorrências")
     insights.append("Identifique o produto âncora — aquele que aparece na maioria dos pares")
     insights.append("Crie kits e combos baseados nos pares mais frequentes")
 
@@ -2396,7 +2401,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
              font_size=12, bold=True, color=AZUL_ESC)
     for k, ins in enumerate(insights):
         add_text(sl, ins,
-                 Inches(8.85), Inches(1.95 + k * 1.6), Inches(4.1), Inches(1.4),
+                 Inches(8.85), Inches(1.9 + k * 1.75), Inches(4.1), Inches(1.6),
                  font_size=10, color=TEXTO)
 
     #  SLIDE 5: COMBOS DE 3 
