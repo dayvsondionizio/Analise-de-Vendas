@@ -1692,111 +1692,131 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
 
 
 def pptx_para_pdf(pptx_bytes: bytes):
-    """Converte cada slide do PPTX em imagem PNG e monta PDF via reportlab.
-    Funciona sem dependências de sistema (sem LibreOffice).
+    """Converte PPTX para PDF renderizando cada slide via matplotlib.
+    Renderiza retângulos, texto e imagens embutidas (gráficos).
     """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
         from matplotlib.backends.backend_pdf import PdfPages
+        from matplotlib.patches import FancyBboxPatch
         from pptx import Presentation
-        from pptx.util import Emu
+        from pptx.enum.text import PP_ALIGN
         import io as _io
 
+        def _rgb_clr(rgb_obj):
+            """Converte RGBColor do python-pptx para tupla (r,g,b) 0-1."""
+            return (rgb_obj.red / 255, rgb_obj.green / 255, rgb_obj.blue / 255)
+
         prs = Presentation(_io.BytesIO(pptx_bytes))
-        slide_w = prs.slide_width.inches   # normalmente 13.33
-        slide_h = prs.slide_height.inches  # normalmente 7.5
+        sw = prs.slide_width.inches    # 13.33
+        sh = prs.slide_height.inches   # 7.5
 
         buf_pdf = _io.BytesIO()
         with PdfPages(buf_pdf) as pdf:
             for slide in prs.slides:
-                # Renderiza o slide como imagem via thumbnail usando python-pptx + pillow
-                from pptx.util import Inches
-                dpi = 150
-                px_w = int(slide_w * dpi)
-                px_h = int(slide_h * dpi)
-
-                # Gera imagem do slide usando matplotlib para montar cada shape
-                fig = plt.figure(figsize=(slide_w, slide_h), facecolor="white")
-                ax = fig.add_axes([0, 0, 1, 1])
-                ax.set_xlim(0, slide_w)
-                ax.set_ylim(0, slide_h)
+                fig = plt.figure(figsize=(sw, sh), dpi=150, facecolor="white")
+                ax  = fig.add_axes([0, 0, 1, 1])
+                # Eixo y=0 no topo, y=sh na base (igual ao sistema de coordenadas do PPTX)
+                ax.set_xlim(0, sw)
+                ax.set_ylim(sh, 0)
                 ax.set_aspect("equal")
                 ax.axis("off")
-                ax.invert_yaxis()
 
                 for shape in slide.shapes:
-                    left   = shape.left.inches   if shape.left   else 0
-                    top    = shape.top.inches    if shape.top    else 0
-                    width  = shape.width.inches  if shape.width  else 0
-                    height = shape.height.inches if shape.height else 0
+                    try:
+                        lf = shape.left.inches   if shape.left   else 0
+                        tp = shape.top.inches    if shape.top    else 0
+                        wd = shape.width.inches  if shape.width  else 0
+                        ht = shape.height.inches if shape.height else 0
+                    except Exception:
+                        continue
 
-                    # Retângulo colorido
-                    if shape.shape_type == 1:  # MSO_SHAPE_TYPE.AUTO_SHAPE
-                        try:
-                            fill = shape.fill
-                            if fill.type == 1:  # SOLID
-                                rgb = fill.fore_color.rgb
-                                clr = (rgb[0]/255, rgb[1]/255, rgb[2]/255)
-                                rect = plt.Rectangle((left, top), width, height,
-                                                     facecolor=clr, edgecolor="none",
-                                                     transform=ax.transData)
-                                ax.add_patch(rect)
-                        except Exception:
-                            pass
+                    # ── Retângulo preenchido ────────────────────────────
+                    try:
+                        fill = shape.fill
+                        if fill.type is not None and int(fill.type) == 1:  # SOLID
+                            clr = _rgb_clr(fill.fore_color.rgb)
+                            ax.add_patch(plt.Rectangle(
+                                (lf, tp), wd, ht,
+                                facecolor=clr, edgecolor="none", zorder=1
+                            ))
+                    except Exception:
+                        pass
 
-                    # Texto
+                    # ── Texto ────────────────────────────────────────────
                     if shape.has_text_frame:
-                        try:
-                            tf = shape.text_frame
-                            full_text = tf.text.strip()
-                            if not full_text:
-                                continue
-                            # Cor do primeiro run
-                            p0 = tf.paragraphs[0]
-                            run0 = p0.runs[0] if p0.runs else None
-                            if run0 and run0.font.color and run0.font.color.type:
-                                rgb = run0.font.color.rgb
-                                txt_clr = (rgb[0]/255, rgb[1]/255, rgb[2]/255)
-                            else:
-                                txt_clr = (0, 0, 0)
-                            fs_pt = run0.font.size.pt if (run0 and run0.font.size) else 10
-                            bold = run0.font.bold if run0 else False
-                            # alinhamento
-                            from pptx.enum.text import PP_ALIGN
-                            align_map = {PP_ALIGN.CENTER: "center",
-                                         PP_ALIGN.RIGHT: "right"}
-                            ha = align_map.get(p0.alignment, "left")
-                            cx = left + width / 2 if ha == "center" else (
-                                 left + width     if ha == "right"  else left + 0.05)
-                            cy = top + height / 2
-                            ax.text(cx, cy, full_text,
-                                    color=txt_clr,
-                                    fontsize=fs_pt * 0.75,
-                                    fontweight="bold" if bold else "normal",
-                                    ha=ha, va="center",
-                                    wrap=True,
-                                    transform=ax.transData,
-                                    clip_on=True)
-                        except Exception:
-                            pass
+                        tf = shape.text_frame
+                        # Filtra parágrafos com conteúdo
+                        paras = [p for p in tf.paragraphs if p.text.strip()]
+                        if not paras:
+                            continue
+                        n = len(paras)
+                        for pi, para in enumerate(paras):
+                            run = para.runs[0] if para.runs else None
 
-                    # Imagem (gráficos matplotlib embutidos)
-                    if shape.shape_type == 13:  # MSO_SHAPE_TYPE.PICTURE
+                            # Cor: tenta direto, default branco (maioria é branco neste relatório)
+                            try:
+                                txt_clr = _rgb_clr(run.font.color.rgb)
+                            except Exception:
+                                txt_clr = (1, 1, 1)
+
+                            # Tamanho da fonte
+                            try:
+                                fs = run.font.size.pt if (run and run.font.size) else 10
+                                fs = max(fs * 0.72, 6)   # converte pt → pontos matplotlib
+                            except Exception:
+                                fs = 8
+
+                            # Negrito
+                            try:
+                                fw = "bold" if (run and run.font.bold) else "normal"
+                            except Exception:
+                                fw = "normal"
+
+                            # Alinhamento horizontal
+                            try:
+                                ha_map = {PP_ALIGN.CENTER: "center", PP_ALIGN.RIGHT: "right"}
+                                ha = ha_map.get(para.alignment, "left")
+                            except Exception:
+                                ha = "left"
+
+                            # Posição X
+                            if ha == "center":
+                                cx = lf + wd / 2
+                            elif ha == "right":
+                                cx = lf + wd - 0.05
+                            else:
+                                cx = lf + 0.08
+
+                            # Posição Y: distribui parágrafos verticalmente na caixa
+                            cy = tp + ht * (pi + 0.5) / n
+
+                            ax.text(
+                                cx, cy, para.text.strip(),
+                                color=txt_clr,
+                                fontsize=fs,
+                                fontweight=fw,
+                                ha=ha, va="center",
+                                clip_on=False,   # nunca cortar o texto
+                                zorder=10,
+                            )
+
+                    # ── Imagem embutida (gráficos matplotlib) ───────────
+                    if shape.shape_type == 13:   # MSO_SHAPE_TYPE.PICTURE
                         try:
                             from PIL import Image
-                            img_bytes = _io.BytesIO(shape.image.blob)
-                            img = Image.open(img_bytes)
-                            ax.imshow(img,
-                                      extent=[left, left + width,
-                                              top + height, top],
-                                      aspect="auto", zorder=5)
+                            img = Image.open(_io.BytesIO(shape.image.blob))
+                            ax.imshow(
+                                img,
+                                extent=[lf, lf + wd, tp + ht, tp],
+                                aspect="auto", zorder=5,
+                            )
                         except Exception:
                             pass
 
-                pdf.savefig(fig, bbox_inches="tight", dpi=dpi)
+                pdf.savefig(fig, bbox_inches="tight")
                 plt.close(fig)
 
         buf_pdf.seek(0)
