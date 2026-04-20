@@ -1764,7 +1764,7 @@ def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
                     ha="center", va="center", transform=ax.transAxes,
                     fontweight="bold")
             if sub:
-                ax.text(0.5, 0.12, sub, color="rgba(255,255,255,0.7)",
+                ax.text(0.5, 0.12, sub, color=(1, 1, 1, 0.75),
                         fontsize=7, ha="center", va="center",
                         transform=ax.transAxes)
 
@@ -3292,28 +3292,21 @@ def main():
                 f"</td>"
             ) if _n_skip > 0 else ""
 
-            st.markdown(
-                f"""<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;
-                               padding:14px 20px;margin-bottom:4px">
-                  <table style="border-collapse:collapse;width:auto">
-                    <tr>
-                      <td style="padding:0 20px 0 0">
-                        <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NOTAS NA ANÁLISE</div>
-                        <div style="font-size:22px;font-weight:800;color:#15803d">{fmt_num(n_notas_total)}</div>
-                        <div style="font-size:11px;color:#9ca3af">{fmt_num(_n_xml)} XMLs lidos</div>
-                      </td>
-                      <td style="padding:0 20px;border-left:2px solid #86efac">
-                        <div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px">NFC-e (CONSUMIDOR)</div>
-                        <div style="font-size:22px;font-weight:800;color:#15803d">{brl(fat_nfce)}</div>
-                        <div style="font-size:11px;color:#9ca3af">{fmt_num(n_nfce_notas)} notas autorizadas</div>
-                      </td>
-                      {_col_nfe}
-                      {_col_skip}
-                    </tr>
-                  </table>
-                </div>""",
-                unsafe_allow_html=True,
+            _html_card = (
+"<div style='background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 20px;margin-bottom:4px'>"
+"<table style='border-collapse:collapse;width:auto'><tr>"
+f"<td style='padding:0 20px 0 0'>"
+f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>NOTAS NA ANÁLISE</div>"
+f"<div style='font-size:22px;font-weight:800;color:#15803d'>{fmt_num(n_notas_total)}</div>"
+f"<div style='font-size:11px;color:#9ca3af'>{fmt_num(_n_xml)} XMLs lidos</div></td>"
+f"<td style='padding:0 20px;border-left:2px solid #86efac'>"
+f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>NFC-e (CONSUMIDOR)</div>"
+f"<div style='font-size:22px;font-weight:800;color:#15803d'>{brl(fat_nfce)}</div>"
+f"<div style='font-size:11px;color:#9ca3af'>{fmt_num(n_nfce_notas)} notas autorizadas</div></td>"
+f"{_col_nfe}{_col_skip}"
+"</tr></table></div>"
             )
+            st.markdown(_html_card, unsafe_allow_html=True)
 
         # ── Salva tudo no cache de sessão ──
         st.session_state["_analise_fp"] = _fp
@@ -3908,24 +3901,34 @@ def main():
             st.warning("Para exportar PPTX, instale: `pip install python-pptx matplotlib`")
 
     with col_pdf:
-        try:
-            pdf_bytes = exportar_pdf(
-                kpis=kpis, kpis_nfce=kpis_nfce, df_cat=df_cat,
-                df_pares=df_pares, df_bcg=df_bcg,
-                df_remocao=df_remocao, df_elev=df_elev, df_redu=df_redu,
-                df_sim_rec=df_sim_rec, tem_nfe=tem_nfe, df_nfe=df_nfe,
-                cliente=cli_label, periodo=per_label, fonte_label=fonte_label,
-            )
-            if pdf_bytes:
-                st.download_button(
-                    label="Baixar PDF",
-                    data=pdf_bytes,
-                    file_name=f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-        except Exception:
-            st.info("PDF indisponível — matplotlib necessário")
+        import streamlit.components.v1 as _components
+        _components.html(
+            """
+<style>
+  .btn-print {
+    display: block; width: 100%; padding: 6px 16px;
+    background: white; color: #4f46e5;
+    border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    font-family: sans-serif; text-align: center;
+    transition: background .15s;
+  }
+  .btn-print:hover { background: #f5f3ff; border-color: #4f46e5; }
+  @media print {
+    /* Oculta sidebar e botões ao imprimir */
+    section[data-testid="stSidebar"],
+    .stButton, .stDownloadButton,
+    [data-testid="stToolbar"],
+    footer { display: none !important; }
+    /* Garante impressão colorida */
+    * { -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important; }
+  }
+</style>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+""",
+            height=42,
+        )
 
 
 if __name__ == "__main__":
