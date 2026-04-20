@@ -263,7 +263,7 @@ def carregar_zip(file_bytes: bytes):
                 infProt = prot_el.find(t("infProt"))
                 if infProt is not None:
                     cStat    = gettxt(infProt, "cStat")
-                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+                    situacao = "Autorizada" if cStat in ("100", "150") else f"cStat:{cStat}"
 
             vNF      = 0.0
             total_el = infNFe.find(t("total"))
@@ -418,7 +418,7 @@ def carregar_xmls_multi(arquivos: tuple):
                 infProt = prot_el.find(t("infProt"))
                 if infProt is not None:
                     cStat    = gettxt(infProt, "cStat")
-                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+                    situacao = "Autorizada" if cStat in ("100", "150") else f"cStat:{cStat}"
 
             vNF      = 0.0
             total_el = infNFe.find(t("total"))
@@ -564,7 +564,7 @@ def carregar_pasta(caminho: str):
                 infProt = prot_el.find(t("infProt"))
                 if infProt is not None:
                     cStat    = gettxt(infProt, "cStat")
-                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+                    situacao = "Autorizada" if cStat in ("100", "150") else f"cStat:{cStat}"
 
             vNF = 0.0
             total_el = infNFe.find(t("total"))
@@ -733,7 +733,7 @@ def carregar_pastas(caminhos: tuple):
                 infProt = prot_el.find(t("infProt"))
                 if infProt is not None:
                     cStat    = gettxt(infProt, "cStat")
-                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+                    situacao = "Autorizada" if cStat in ("100", "150") else f"cStat:{cStat}"
 
             vNF      = 0.0
             total_el = infNFe.find(t("total"))
@@ -967,7 +967,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 infProt = prot_el.find(_t("infProt"))
                 if infProt is not None:
                     cStat = _gettxt(infProt, "cStat")
-                    situacao = "Autorizada" if cStat == "100" else f"cStat:{cStat}"
+                    situacao = "Autorizada" if cStat in ("100", "150") else f"cStat:{cStat}"
             # vNF: tenta ICMSTot/vNF, fallback para soma dos vProd dos itens
             vNF = 0.0
             tot = infNFe.find(_t("total"))
