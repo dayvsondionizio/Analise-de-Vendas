@@ -276,6 +276,7 @@ def carregar_zip(file_bytes: bytes):
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
             emit_el      = infNFe.find(t("emit"))
             emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit    = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
             r_nfce, r_nfe = [], []
             for det in infNFe.findall(t("det")):
@@ -289,7 +290,7 @@ def carregar_zip(file_bytes: bytes):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -430,6 +431,7 @@ def carregar_xmls_multi(arquivos: tuple):
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
             emit_el      = infNFe.find(t("emit"))
             emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit    = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
             for det in infNFe.findall(t("det")):
                 numItem = det.get("nItem", "")
@@ -443,7 +445,7 @@ def carregar_xmls_multi(arquivos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
                 }
 
                 if mod == "65":
@@ -575,6 +577,7 @@ def carregar_pasta(caminho: str):
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
             emit_el      = infNFe.find(t("emit"))
             emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit    = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
             for det in infNFe.findall(t("det")):
                 numItem = det.get("nItem", "")
@@ -597,6 +600,7 @@ def carregar_pasta(caminho: str):
                     "dhEmi":        dhEmi,
                     "destinatario": destinatario,
                     "emitente":     emitente,
+                    "cnpj_emit":    cnpj_emit,
                     "situacao":     situacao,
                 }
 
@@ -742,6 +746,7 @@ def carregar_pastas(caminhos: tuple):
             destinatario = gettxt(dest_el, "xNome") if dest_el is not None else ""
             emit_el      = infNFe.find(t("emit"))
             emitente     = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit    = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
             r_nfce, r_nfe = [], []
             for det in infNFe.findall(t("det")):
@@ -755,7 +760,7 @@ def carregar_pastas(caminhos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -974,6 +979,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             destinatario = _gettxt(dest_el, "xNome") if dest_el is not None else ""
             emit_el = infNFe.find(_t("emit"))
             emitente = _gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit = _gettxt(emit_el, "CNPJ") if emit_el is not None else ""
             rows_n, rows_e = [], []
             soma_vprod = 0.0
             for det in infNFe.findall(_t("det")):
@@ -988,7 +994,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
                 }
                 if mod == "65": rows_n.append(row)
                 elif mod == "55": rows_e.append(row)
@@ -3221,6 +3227,7 @@ def main():
         df_all       = _R["df_all"]
         cli_label    = _R["cli_label"]
         per_label    = _R["per_label"]
+        cnpj_label   = _R.get("cnpj_label", "")
         tem_nfe      = _R["tem_nfe"]
         fonte_label  = _R["fonte_label"]
         kpis         = _R["kpis"]
@@ -3347,13 +3354,25 @@ def main():
 
         _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
-        # Auto-detectar nome da empresa a partir das notas
+        # Auto-detectar nome e CNPJ da empresa a partir das notas
         _auto_cli = ""
+        cnpj_label = ""
         if "emitente" in df.columns:
             _em_vals = df["emitente"].dropna()
             _em_vals = _em_vals[_em_vals != ""]
             if not _em_vals.empty:
                 _auto_cli = _em_vals.mode()[0]
+        if "cnpj_emit" in df.columns:
+            _cn_vals = df["cnpj_emit"].dropna()
+            _cn_vals = _cn_vals[_cn_vals != ""]
+            if not _cn_vals.empty:
+                _raw_cnpj = _cn_vals.mode()[0]
+                # Formata: 00.000.000/0000-00
+                _d = "".join(c for c in str(_raw_cnpj) if c.isdigit())
+                if len(_d) == 14:
+                    cnpj_label = f"{_d[:2]}.{_d[2:5]}.{_d[5:8]}/{_d[8:12]}-{_d[12:]}"
+                else:
+                    cnpj_label = _raw_cnpj
         cli_label = cliente or _auto_cli or "Cliente"
 
         if periodo:
@@ -3480,7 +3499,7 @@ f"{_col_nfe}{_col_skip}"
         st.session_state["_analise_fp"] = _fp
         st.session_state["_analise"] = {
             "df_nfce": df_nfce,      "df_nfe": df_nfe,        "df_all": df_all,
-            "cli_label": cli_label,  "per_label": per_label,
+            "cli_label": cli_label,  "per_label": per_label,  "cnpj_label": cnpj_label,
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
             "df_cat": df_cat,        "df_pares": df_pares,    "df_trios": df_trios,
@@ -3496,13 +3515,16 @@ f"{_col_nfe}{_col_skip}"
         # (sidebar é renderizado antes da análise rodar)
         st.rerun()
 
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);
-                padding:20px 28px;border-radius:10px;color:white;margin-bottom:16px">
-      <h2 style="margin:0">{cli_label} — Análise Estratégica de Vendas</h2>
-      <p style="margin:4px 0 0;opacity:.75;font-size:14px">{per_label} &nbsp;·&nbsp; {fonte_label}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    _cnpj_line = (f'<p style="margin:2px 0 0;opacity:.6;font-size:12px;letter-spacing:.4px">CNPJ {cnpj_label}</p>'
+                  if cnpj_label else "")
+    st.markdown(
+        '<div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);'
+        'padding:20px 28px;border-radius:10px;color:white;margin-bottom:16px">'
+        f'<h2 style="margin:0">{cli_label} — Análise Estratégica de Vendas</h2>'
+        + _cnpj_line +
+        f'<p style="margin:6px 0 0;opacity:.75;font-size:14px">{per_label} &nbsp;·&nbsp; {fonte_label}</p>'
+        '</div>',
+        unsafe_allow_html=True)
 
     #  KPIs PRINCIPAIS
     if tem_nfe and "vNF" in df_nfe.columns and "chave" in df_nfe.columns:
