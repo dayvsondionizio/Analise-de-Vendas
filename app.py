@@ -1411,16 +1411,11 @@ def calc_simulacao_receita(kpis: dict, df: pd.DataFrame) -> pd.DataFrame:
          "Impacto Mensal": fat * 0.20,
          "Impacto Anual": fat * 0.20 * 12,
          "Complexidade": "Média"},
-        {"Estratégia": "+1 item por pedido (IPC)",
+        {"Estratégia": "+1 item por pedido (Média)",
          "Como": "Sugestão ativa no balcão para complementar",
          "Impacto Mensal": valor_por_item * n,
          "Impacto Anual": valor_por_item * n * 12,
          "Complexidade": "Baixa"},
-        {"Estratégia": "Reativar Dias Fracos",
-         "Como": "Promoções e ações nos dias abaixo da média",
-         "Impacto Mensal": pot_dias,
-         "Impacto Anual": pot_dias * 12,
-         "Complexidade": "Média"},
     ])
 
 
@@ -2344,14 +2339,14 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
     insights.append("Identifique o produto âncora — aquele que aparece na maioria dos pares")
     insights.append("Crie kits e combos baseados nos pares mais frequentes")
 
-    add_rect(sl, Inches(8.7), Inches(1.15), Inches(4.2), Inches(5.8),
+    add_rect(sl, Inches(8.7), Inches(1.15), Inches(4.4), Inches(5.8),
              RGBColor(0xEB, 0xF5, 0xFF))
     add_text(sl, "INSIGHTS DE CROSS-SELL",
-             Inches(8.85), Inches(1.3), Inches(3.9), Inches(0.5),
+             Inches(8.85), Inches(1.3), Inches(4.1), Inches(0.5),
              font_size=12, bold=True, color=AZUL_ESC)
     for k, ins in enumerate(insights):
         add_text(sl, ins,
-                 Inches(8.85), Inches(1.9 + k * 1.0), Inches(3.9), Inches(0.8),
+                 Inches(8.85), Inches(1.95 + k * 1.6), Inches(4.1), Inches(1.4),
                  font_size=10, color=TEXTO)
 
     #  SLIDE 5: COMBOS DE 3 
@@ -2700,11 +2695,11 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
              font_size=20, bold=True, color=BRANCO)
 
     cores_sim = [RGBColor(0x10, 0xB9, 0x81), RGBColor(0x25, 0x63, 0xEB),
-                 RGBColor(0x8E, 0x44, 0xAD), RGBColor(0xD3, 0x54, 0x00)]
+                 RGBColor(0x8E, 0x44, 0xAD)]
     if not df_sim_rec.empty:
-        card_w_s = Inches(3.0)
+        card_w_s = Inches(4.1)
         for si, (_, row) in enumerate(df_sim_rec.iterrows()):
-            left_s = Inches(0.2 + si * 3.3)
+            left_s = Inches(0.2 + si * 4.35)
             add_rect(sl, left_s, Inches(1.2), card_w_s, Inches(4.8), cores_sim[si % 4])
             add_text(sl, str(row["Estratégia"]),
                      left_s + Inches(0.12), Inches(1.35), card_w_s - Inches(0.24), Inches(0.8),
