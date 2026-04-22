@@ -1917,7 +1917,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
 
             if title_text:
                 ax_bar.text(0.02, 0.5, title_text, color="white",
-                            fontsize=16, fontweight="bold", va="center",
+                            fontsize=18, fontweight="bold", va="center",
                             transform=ax_bar.transAxes)
             if has_logo and logo_img is not None:
                 ax_logo = fig.add_axes([0.88, 0.91, 0.11, 0.09])
@@ -1929,7 +1929,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             ax_ft.set_facecolor(AZUL)
             ax_ft.axis("off")
             ax_ft.text(0.5, 0.5, f"{cliente}  ·  {periodo}  ·  Análise de Vendas CP",
-                       color="white", fontsize=8, va="center", ha="center",
+                       color="white", fontsize=12, va="center", ha="center",
                        transform=ax_ft.transAxes)
             return fig
 
@@ -1940,12 +1940,12 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             ax.text(0.5, 0.72, value, color="white", fontsize=18,
                     fontweight="bold", ha="center", va="center",
                     transform=ax.transAxes)
-            ax.text(0.5, 0.35, label, color="white", fontsize=8,
+            ax.text(0.5, 0.35, label, color="white", fontsize=12,
                     ha="center", va="center", transform=ax.transAxes,
                     fontweight="bold")
             if sub:
                 ax.text(0.5, 0.12, sub, color=(1, 1, 1, 0.75),
-                        fontsize=7, ha="center", va="center",
+                        fontsize=11, ha="center", va="center",
                         transform=ax.transAxes)
 
         def draw_table(fig, rect, data, col_headers, col_widths=None,
@@ -1953,7 +1953,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             ax = fig.add_axes(rect)
             ax.axis("off")
             if title:
-                ax.text(0, 1.04, title, fontsize=11, fontweight="bold",
+                ax.text(0, 1.04, title, fontsize=13, fontweight="bold",
                         color=AZUL, transform=ax.transAxes, va="bottom")
             n_rows = len(data)
             n_cols = len(col_headers)
@@ -1967,7 +1967,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
                 colWidths=col_widths,
             )
             tbl.auto_set_font_size(False)
-            tbl.set_fontsize(8)
+            tbl.set_fontsize(12)
             tbl.scale(1, 1.4)
             for (r, c), cell in tbl.get_celld().items():
                 if r == 0:
@@ -1999,13 +1999,13 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
                   color="#60a5fa", fontsize=20, fontweight="bold",
                   ha="center", va="center", transform=ax_c.transAxes)
         ax_c.text(0.5, 0.24, periodo,
-                  color="white", fontsize=14, ha="center", va="center",
+                  color="white", fontsize=18, ha="center", va="center",
                   transform=ax_c.transAxes, alpha=0.8)
         ax_ft2 = fig.add_axes([0, 0, 1, 0.06])
         ax_ft2.set_facecolor("#0f1f3a")
         ax_ft2.axis("off")
         ax_ft2.text(0.5, 0.5, "Análise de Vendas CP  ·  Dados Fiscais NFC-e",
-                    color="white", fontsize=9, ha="center", va="center",
+                    color="white", fontsize=13, ha="center", va="center",
                     transform=ax_ft2.transAxes, alpha=0.7)
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
@@ -2041,15 +2041,15 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             ax_b.set_facecolor("white")
             bars = ax_b.barh(top5_r["xProd"].str[:22][::-1], top5_r["receita"][::-1],
                              color=AZUL2, edgecolor="none", height=0.6)
-            ax_b.set_xlabel("Receita (R$)", fontsize=8, color=SUBTXT)
-            ax_b.tick_params(labelsize=7)
+            ax_b.set_xlabel("Receita (R$)", fontsize=12, color=SUBTXT)
+            ax_b.tick_params(labelsize=9)
             ax_b.spines[["top","right","left"]].set_visible(False)
-            ax_b.set_title("Top 5 Produtos", fontsize=10, fontweight="bold",
+            ax_b.set_title("Top 5 Produtos", fontsize=12, fontweight="bold",
                            color=AZUL, pad=6)
             for bar in bars:
                 w = bar.get_width()
                 ax_b.text(w * 1.01, bar.get_y() + bar.get_height()/2,
-                          brl(w), va="center", fontsize=7, color=TEXTO)
+                          brl(w), va="center", fontsize=11, color=TEXTO)
 
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
@@ -2262,7 +2262,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  font_size=28, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
         add_text(sl, lbl, left + Inches(0.1), card_top + Inches(1.3),
                  card_w - Inches(0.2), Inches(0.6),
-                 font_size=11, color=BRANCO, align=PP_ALIGN.CENTER)
+                 font_size=15, color=BRANCO, align=PP_ALIGN.CENTER)
 
     sub_cards = [
         (fmt_num(kpis["total_itens"]), "TOTAL DE ITENS"),
@@ -2278,19 +2278,19 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  font_size=22, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
         add_text(sl, lbl, left + Inches(0.1), Inches(5.1),
                  Inches(3.0), Inches(0.5),
-                 font_size=10, color=RGBColor(0x7F, 0x8C, 0x8D),
+                 font_size=14, color=RGBColor(0x7F, 0x8C, 0x8D),
                  align=PP_ALIGN.CENTER)
 
     add_text(sl, f"Fonte: {fonte_label} — {periodo}",
              Inches(0.5), Inches(6.9), Inches(12), Inches(0.4),
-             font_size=9, color=RGBColor(0x9E, 0x9E, 0x9E))
+             font_size=13, color=RGBColor(0x9E, 0x9E, 0x9E))
 
     #  SLIDE 3: PARES DE PRODUTOS
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "TOP 10 PARES DE PRODUTOS MAIS COMPRADOS JUNTOS",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
 
     # Tabela
     rows_tbl = df_pares.head(10)
@@ -2306,7 +2306,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, x, y_start, w, row_h, AZUL_ESC)
         add_text(sl, hdr, x + Inches(0.05), y_start + Inches(0.07),
                  w - Inches(0.1), row_h - Inches(0.1),
-                 font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                 font_size=14, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
         x += w
 
     for i, row in enumerate(rows_tbl.itertuples()):
@@ -2319,7 +2319,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             al = PP_ALIGN.CENTER if j in (0, 3) else PP_ALIGN.LEFT
             add_text(sl, val, x + Inches(0.06), y + Inches(0.07),
                      w - Inches(0.12), row_h - Inches(0.1),
-                     font_size=9, color=TEXTO, align=al)
+                     font_size=13, color=TEXTO, align=al)
             x += w
 
     # Insights
@@ -2339,18 +2339,18 @@ def exportar_pptx(kpis, df_pares, df_trios,
              RGBColor(0xEB, 0xF5, 0xFF))
     add_text(sl, "INSIGHTS DE CROSS-SELL",
              Inches(8.85), Inches(1.3), Inches(4.1), Inches(0.5),
-             font_size=12, bold=True, color=AZUL_ESC)
+             font_size=14, bold=True, color=AZUL_ESC)
     for k, ins in enumerate(insights):
         add_text(sl, ins,
                  Inches(8.85), Inches(1.9 + k * 1.75), Inches(4.1), Inches(1.6),
-                 font_size=10, color=TEXTO)
+                 font_size=14, color=TEXTO)
 
     #  SLIDE 5: COMBOS DE 3 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "TOP 10 COMBINAÇÕES DE 3 PRODUTOS",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
 
     rows_t = df_trios.head(10)
     col_w2  = [Inches(0.5), Inches(2.8), Inches(2.8), Inches(2.8), Inches(1.0), Inches(2.0)]
@@ -2360,7 +2360,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, x, Inches(1.15), w, row_h, AZUL_ESC)
         add_text(sl, hdr, x + Inches(0.05), Inches(1.22),
                  w - Inches(0.1), row_h - Inches(0.1),
-                 font_size=9, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                 font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
         x += w
 
     for i, row in enumerate(rows_t.itertuples()):
@@ -2374,19 +2374,19 @@ def exportar_pptx(kpis, df_pares, df_trios,
             al = PP_ALIGN.CENTER if j in (0, 4) else PP_ALIGN.LEFT
             add_text(sl, val, x + Inches(0.05), y + Inches(0.07),
                      w - Inches(0.1), row_h - Inches(0.1),
-                     font_size=8, color=TEXTO, align=al)
+                     font_size=12, color=TEXTO, align=al)
             x += w
 
     add_text(sl, "Estes combos ocorrem naturalmente — crie promoções formais para ampliar a recorrência e elevar o ticket médio",
              Inches(0.3), Inches(6.9), Inches(12), Inches(0.4),
-             font_size=9, color=RGBColor(0x7F, 0x8C, 0x8D))
+             font_size=13, color=RGBColor(0x7F, 0x8C, 0x8D))
 
     #  SLIDE 6: DISTRIBUIÇÃO DA CESTA 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "DISTRIBUIÇÃO DO TAMANHO DA CESTA DE COMPRAS",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
 
     fig_m2, ax2 = plt.subplots(figsize=(7.5, 5.0))
     dc = df_cesta.head(10)
@@ -2421,18 +2421,18 @@ def exportar_pptx(kpis, df_pares, df_trios,
              font_size=18, bold=True, color=AZUL_ESC)
     add_text(sl, "Enorme potencial de upsell.",
              Inches(8.6), Inches(3.0), Inches(4.2), Inches(0.5),
-             font_size=12, color=TEXTO)
+             font_size=14, color=TEXTO)
     add_rect(sl, Inches(8.4), Inches(3.65), Inches(4.6), Inches(1.0),
              RGBColor(0xFE, 0xF3, 0xC7))
     add_text(sl, f"Cada +1 item =",
              Inches(8.6), Inches(3.72), Inches(4.2), Inches(0.35),
-             font_size=11, color=TEXTO)
+             font_size=15, color=TEXTO)
     add_text(sl, f"+{brl(tm)} de ticket",
              Inches(8.6), Inches(4.07), Inches(4.2), Inches(0.45),
              font_size=16, bold=True, color=RGBColor(0x10, 0xB9, 0x81))
     add_text(sl, "→ Sugestão no balcão e\ncombos prontos são\nas principais alavancas.",
              Inches(8.6), Inches(4.85), Inches(4.2), Inches(1.2),
-             font_size=12, color=TEXTO)
+             font_size=14, color=TEXTO)
 
     #  SLIDE 7: TURNO (se disponível) 
     if df_turno is not None:
@@ -2440,7 +2440,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "PRODUTOS MAIS VENDIDOS POR TURNO",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
 
         turnos = ["Manhã", "Tarde", "Noite"]
         col_w_t = Inches(4.0)
@@ -2455,7 +2455,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_text(sl, f"{icon} {turno.upper()}",
                      left_t + Inches(0.1), Inches(1.17),
                      col_w_t - Inches(0.2), Inches(0.4),
-                     font_size=13, bold=True, color=BRANCO)
+                     font_size=15, bold=True, color=BRANCO)
             for k, row in enumerate(sub.itertuples()):
                 y_r = Inches(1.65 + k * 0.73)
                 add_rect(sl, left_t, y_r, col_w_t, Inches(0.65),
@@ -2463,11 +2463,11 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 add_text(sl, f"{k+1}. {row.xProd}",
                          left_t + Inches(0.1), y_r + Inches(0.05),
                          col_w_t - Inches(0.2), Inches(0.3),
-                         font_size=9, bold=True, color=TEXTO)
+                         font_size=13, bold=True, color=TEXTO)
                 add_text(sl, brl(row.receita),
                          left_t + Inches(0.1), y_r + Inches(0.33),
                          col_w_t - Inches(0.2), Inches(0.25),
-                         font_size=9, color=LARANJA)
+                         font_size=13, color=LARANJA)
 
     #  SLIDE 8: PRODUTOS SOLO (ÂNCORA)
     if df_solo is not None and not df_solo.empty:
@@ -2475,10 +2475,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "PRODUTOS ÂNCORA — COMPRADOS COMO ÚNICO ITEM",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
         add_text(sl, "Clientes que vêm especificamente por esses produtos — máxima oportunidade de upsell",
                  Inches(0.5), Inches(1.05), Inches(12), Inches(0.35),
-                 font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
+                 font_size=14, color=RGBColor(0x6B, 0x72, 0x80))
 
         hdrs_sl  = ["#", "Produto", "Pedidos Solo", "Receita Solo"]
         col_ws_sl = [Inches(0.5), Inches(7.5), Inches(2.0), Inches(2.8)]
@@ -2489,7 +2489,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_rect(sl, x, y_sl, ww, rh, AZUL_ESC)
             add_text(sl, hdr, x + Inches(0.05), y_sl + Inches(0.08),
                      ww - Inches(0.1), rh - Inches(0.1),
-                     font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=14, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             x += ww
         # Máx 9 linhas para caber o insight embaixo
         for ri, (_, row) in enumerate(df_solo.head(9).iterrows()):
@@ -2503,7 +2503,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
                 add_text(sl, val, x + Inches(0.05), y_r + Inches(0.08),
                          ww - Inches(0.1), rh - Inches(0.1),
-                         font_size=9, color=TEXTO, align=al)
+                         font_size=13, color=TEXTO, align=al)
                 x += ww
 
         # Insight abaixo da tabela (sem sobreposição)
@@ -2514,17 +2514,17 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      f"{fmt_num(top_solo['frequencia'])} pedidos. "
                      "Sugira um complemento natural no momento da compra para elevar o ticket.",
                  Inches(0.5), insight_top + Inches(0.08), Inches(12.3), Inches(0.65),
-                 font_size=11, bold=True, color=AZUL_ESC)
+                 font_size=15, bold=True, color=AZUL_ESC)
 
     #  SLIDE 9: CANDIDATOS A REMOÇÃO 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "CANDIDATOS A REMOÇÃO DO CARDÁPIO",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
     add_text(sl, "Produtos com menor receita e baixa frequência — avalie custo antes de remover",
              Inches(0.5), Inches(1.05), Inches(12), Inches(0.35),
-             font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
+             font_size=14, color=RGBColor(0x6B, 0x72, 0x80))
 
     hdrs_rem  = ["#", "Produto", "Frequência", "Receita"]
     col_ws_rem = [Inches(0.5), Inches(7.8), Inches(1.8), Inches(2.8)]
@@ -2535,7 +2535,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, x, y_rm, ww, rh, RGBColor(0xEF, 0x44, 0x44))
         add_text(sl, hdr, x + Inches(0.05), y_rm + Inches(0.07),
                  ww - Inches(0.1), rh - Inches(0.1),
-                 font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                 font_size=14, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
         x += ww
     # Máx 10 linhas para caber footer sem sobreposição
     for ri, (_, row) in enumerate(df_remocao.head(10).iterrows()):
@@ -2549,7 +2549,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
             add_text(sl, val, x + Inches(0.05), y_r + Inches(0.07),
                      ww - Inches(0.1), rh - Inches(0.1),
-                     font_size=9, color=TEXTO, align=al)
+                     font_size=13, color=TEXTO, align=al)
             x += ww
 
     # Footer sempre abaixo da última linha da tabela
@@ -2557,7 +2557,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
     add_rect(sl, Inches(0.3), footer_top, Inches(12.7), Inches(0.32), RGBColor(0xFF, 0xF8, 0xE1))
     add_text(sl, "⚠ Antes de remover: verifique custo de produção, sazonalidade e perfil de cliente fiel.",
              Inches(0.5), footer_top + Inches(0.04), Inches(12.3), Inches(0.26),
-             font_size=9, color=RGBColor(0x92, 0x40, 0x0E))
+             font_size=13, color=RGBColor(0x92, 0x40, 0x0E))
 
     #  SLIDE DIA DA SEMANA (se disponível)
     if df_dia_tipo is not None and not df_dia_tipo.empty:
@@ -2565,7 +2565,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "VENDAS POR DIA DA SEMANA",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
 
         col_w_dia = Inches(6.1)
         tipos = [("Dia Útil", "", AZUL_MED), ("Final de Semana", "", RGBColor(0x8E, 0x44, 0xAD))]
@@ -2576,7 +2576,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_text(sl, f"{icon} {tipo.upper()}",
                      left_d + Inches(0.1), Inches(1.17),
                      col_w_dia - Inches(0.2), Inches(0.4),
-                     font_size=13, bold=True, color=BRANCO)
+                     font_size=15, bold=True, color=BRANCO)
             for ki, (_, r) in enumerate(sub_d.iterrows()):
                 y_r = Inches(1.65 + ki * 0.68)
                 add_rect(sl, left_d, y_r, col_w_dia, Inches(0.62),
@@ -2584,29 +2584,29 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 add_text(sl, f"{ki+1}. {str(r['xProd'])[:52]}",
                          left_d + Inches(0.1), y_r + Inches(0.05),
                          col_w_dia - Inches(1.8), Inches(0.3),
-                         font_size=9, bold=True, color=TEXTO)
+                         font_size=13, bold=True, color=TEXTO)
                 add_text(sl, brl(r["receita"]),
                          left_d + Inches(0.1), y_r + Inches(0.33),
                          col_w_dia - Inches(0.2), Inches(0.24),
-                         font_size=9, color=LARANJA)
+                         font_size=13, color=LARANJA)
                 add_text(sl, fmt_num(r["frequencia"]) + " pedidos",
                          left_d + col_w_dia - Inches(1.7), y_r + Inches(0.18),
                          Inches(1.6), Inches(0.26),
-                         font_size=9, color=RGBColor(0x6B, 0x72, 0x80), align=PP_ALIGN.RIGHT)
+                         font_size=13, color=RGBColor(0x6B, 0x72, 0x80), align=PP_ALIGN.RIGHT)
 
     #  SLIDE 10: TICKET DRIVERS 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "PRODUTOS QUE INFLUENCIAM O TICKET MÉDIO",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
 
     # Esquerda: elevadores
     add_rect(sl, Inches(0.3), Inches(1.15), Inches(6.1), Inches(0.5),
              RGBColor(0x10, 0xB9, 0x81))
     add_text(sl, "ELEVAM O TICKET",
              Inches(0.4), Inches(1.22), Inches(5.9), Inches(0.38),
-             font_size=12, bold=True, color=BRANCO)
+             font_size=14, bold=True, color=BRANCO)
     for ki, row in enumerate(df_elev.head(7).iterrows()):
         _, r = row
         y_r = Inches(1.65 + ki * 0.63)
@@ -2614,21 +2614,21 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  RGBColor(0xD1, 0xFA, 0xE5) if ki % 2 == 0 else BRANCO)
         add_text(sl, str(r["Produto"])[:40],
                  Inches(0.4), y_r + Inches(0.04), Inches(3.5), Inches(0.28),
-                 font_size=9, bold=True, color=TEXTO)
+                 font_size=13, bold=True, color=TEXTO)
         diff_r = r.get("Diferença R$", 0)
         add_text(sl, f"+{brl(abs(diff_r))} vs média",
                  Inches(0.4), y_r + Inches(0.3), Inches(3.5), Inches(0.24),
-                 font_size=8, color=RGBColor(0x10, 0xB9, 0x81))
+                 font_size=12, color=RGBColor(0x10, 0xB9, 0x81))
         add_text(sl, brl(r.get("Ticket Médio c/ Produto", 0)),
                  Inches(3.9), y_r + Inches(0.15), Inches(2.4), Inches(0.28),
-                 font_size=10, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
+                 font_size=14, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
 
     # Direita: redutores
     add_rect(sl, Inches(6.8), Inches(1.15), Inches(6.1), Inches(0.5),
              RGBColor(0xEF, 0x44, 0x44))
     add_text(sl, "REDUZEM O TICKET",
              Inches(6.9), Inches(1.22), Inches(5.9), Inches(0.38),
-             font_size=12, bold=True, color=BRANCO)
+             font_size=14, bold=True, color=BRANCO)
     for ki, row in enumerate(df_redu.head(7).iterrows()):
         _, r = row
         y_r = Inches(1.65 + ki * 0.63)
@@ -2636,21 +2636,30 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  RGBColor(0xFE, 0xE2, 0xE2) if ki % 2 == 0 else BRANCO)
         add_text(sl, str(r["Produto"])[:40],
                  Inches(6.9), y_r + Inches(0.04), Inches(3.5), Inches(0.28),
-                 font_size=9, bold=True, color=TEXTO)
+                 font_size=13, bold=True, color=TEXTO)
         add_text(sl, "Ticket médio menor que a média geral",
                  Inches(6.9), y_r + Inches(0.3), Inches(3.5), Inches(0.24),
-                 font_size=8, color=RGBColor(0xEF, 0x44, 0x44))
+                 font_size=12, color=RGBColor(0xEF, 0x44, 0x44))
 
-    add_text(sl, f"Ticket médio geral: {brl(df_elev['Ticket Médio Geral'].iloc[0]) if not df_elev.empty else '—'}",
-             Inches(0.3), Inches(6.9), Inches(12), Inches(0.4),
-             font_size=9, color=RGBColor(0x9E, 0x9E, 0x9E))
+    _tm_nfce_str  = brl(df_elev["Ticket Médio Geral"].iloc[0]) if not df_elev.empty else "—"
+    _tm_total_str = brl(kpis["ticket_medio"])
+    add_text(sl,
+             f"Ticket médio NFC-e (consumidor final): {_tm_nfce_str}",
+             Inches(0.3), Inches(6.2), Inches(12.7), Inches(0.38),
+             font_size=13, bold=True, color=RGBColor(0x1E, 0x3A, 0x5F))
+    add_text(sl,
+             (f"Nota: o ticket médio exibido no banner do relatorio ({_tm_total_str}) considera "
+              f"NFC-e + NF-e (vendas B2B). Esta analise de drivers usa apenas NFC-e — "
+              f"compras do consumidor final — excluindo pedidos corporativos que distorcem o perfil de consumo."),
+             Inches(0.3), Inches(6.6), Inches(12.7), Inches(0.72),
+             font_size=11, color=RGBColor(0x6B, 0x72, 0x80))
 
     #  SLIDE 11: SIMULAÇÃO DE RECEITA 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "SIMULAÇÕES DE CRESCIMENTO DE RECEITA",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
+             font_size=22, bold=True, color=BRANCO)
 
     cores_sim = [RGBColor(0x10, 0xB9, 0x81), RGBColor(0x25, 0x63, 0xEB),
                  RGBColor(0x8E, 0x44, 0xAD)]
@@ -2661,22 +2670,22 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_rect(sl, left_s, Inches(1.2), card_w_s, Inches(4.8), cores_sim[si % 4])
             add_text(sl, str(row["Estratégia"]),
                      left_s + Inches(0.12), Inches(1.35), card_w_s - Inches(0.24), Inches(0.8),
-                     font_size=13, bold=True, color=BRANCO)
+                     font_size=15, bold=True, color=BRANCO)
             add_text(sl, brl(row["Impacto Mensal"]),
                      left_s + Inches(0.12), Inches(2.35), card_w_s - Inches(0.24), Inches(0.65),
                      font_size=22, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             add_text(sl, "por mês",
                      left_s + Inches(0.12), Inches(2.95), card_w_s - Inches(0.24), Inches(0.3),
-                     font_size=10, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
+                     font_size=14, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
             add_text(sl, f"Anual: {brl(row['Impacto Anual'])}",
                      left_s + Inches(0.12), Inches(3.35), card_w_s - Inches(0.24), Inches(0.35),
-                     font_size=10, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
+                     font_size=14, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
             add_text(sl, str(row["Complexidade"]),
                      left_s + Inches(0.12), Inches(3.85), card_w_s - Inches(0.24), Inches(0.3),
-                     font_size=10, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
+                     font_size=14, color=RGBColor(0xFF, 0xFF, 0xFF), align=PP_ALIGN.CENTER)
             add_text(sl, str(row["Como"]),
                      left_s + Inches(0.12), Inches(4.3), card_w_s - Inches(0.24), Inches(0.7),
-                     font_size=9, color=RGBColor(0xFF, 0xFF, 0xFF))
+                     font_size=13, color=RGBColor(0xFF, 0xFF, 0xFF))
 
         melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
         add_rect(sl, Inches(0.3), Inches(6.3), Inches(12.7), Inches(0.8), RGBColor(0xFE, 0xF3, 0xC7))
@@ -2685,17 +2694,17 @@ def exportar_pptx(kpis, df_pares, df_trios,
                        f"  |  {brl(melhor['Impacto Anual'])} por ano")
         add_text(sl, _melhor_txt,
                  Inches(0.5), Inches(6.35), Inches(12.5), Inches(0.7),
-                 font_size=12, bold=True, color=RGBColor(0x92, 0x40, 0x0E))
+                 font_size=14, bold=True, color=RGBColor(0x92, 0x40, 0x0E))
 
     #  SLIDE 12: SIMULAÇÃO DE PREÇOS 
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "SIMULAÇÃO DE AJUSTE DE PREÇOS (+10% / +15% / +20%)",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=19, bold=True, color=BRANCO)
+             font_size=21, bold=True, color=BRANCO)
     add_text(sl, "Estimativa com queda de 5% no volume — top produtos por receita",
              Inches(0.5), Inches(1.08), Inches(12), Inches(0.35),
-             font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
+             font_size=14, color=RGBColor(0x6B, 0x72, 0x80))
 
     if not df_sim_preco.empty:
         hdrs_sp  = ["Produto", "Receita Atual", "+10% (−5% vol)", "Δ+10%", "+15%", "Δ+15%", "+20%", "Δ+20%"]
@@ -2708,7 +2717,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         for hdr, ww in zip(hdrs_sp, col_ws_p):
             add_rect(sl, x, y_s, ww, rh, AZUL_ESC)
             add_text(sl, hdr, x + Inches(0.04), y_s + Inches(0.06), ww - Inches(0.08), rh - Inches(0.1),
-                     font_size=8, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=12, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             x += ww
 
         for ri, (_, row) in enumerate(df_sim_preco.head(12).iterrows()):
@@ -2731,7 +2740,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 col_v = RGBColor(0x10, 0xB9, 0x81) if vi in (3, 5, 7) else TEXTO
                 add_text(sl, val, x + Inches(0.04), y_r + Inches(0.06),
                          ww - Inches(0.08), rh - Inches(0.1),
-                         font_size=8, color=col_v, align=al)
+                         font_size=12, color=col_v, align=al)
                 x += ww
 
     #  SLIDE 13: COMBOS PRECIFICADOS 
@@ -2740,10 +2749,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "PRECIFICAÇÃO DE COMBOS",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
         add_text(sl, "Baseado nos pares mais frequentes — desconto de 5% e 10%",
                  Inches(0.5), Inches(1.05), Inches(12), Inches(0.35),
-                 font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
+                 font_size=14, color=RGBColor(0x6B, 0x72, 0x80))
 
         hdrs_cb  = ["Combo", "Total Individual", "5% desc.", "10% desc.", "Freq."]
         col_ws_c = [Inches(5.5), Inches(2.0), Inches(1.8), Inches(1.8), Inches(1.2)]
@@ -2754,7 +2763,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_rect(sl, x, y_c, ww, rh, AZUL_ESC)
             add_text(sl, hdr, x + Inches(0.05), y_c + Inches(0.07),
                      ww - Inches(0.1), rh - Inches(0.1),
-                     font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=14, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             x += ww
         for ri, row in enumerate(df_combos.head(10).itertuples()):
             y_r = y_c + rh * (ri + 1)
@@ -2768,13 +2777,13 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 col_v = RGBColor(0x10, 0xB9, 0x81) if vi in (2, 3) else TEXTO
                 add_text(sl, val, x + Inches(0.05), y_r + Inches(0.07),
                          ww - Inches(0.1), rh - Inches(0.1),
-                         font_size=9, color=col_v, align=al)
+                         font_size=13, color=col_v, align=al)
                 x += ww
 
         add_rect(sl, Inches(0.3), Inches(6.35), Inches(12.7), Inches(0.75), RGBColor(0xD1, 0xFA, 0xE5))
         add_text(sl, "O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor para o cliente",
                  Inches(0.5), Inches(6.45), Inches(12.3), Inches(0.55),
-                 font_size=11, color=RGBColor(0x06, 0x5F, 0x46))
+                 font_size=15, color=RGBColor(0x06, 0x5F, 0x46))
 
     #  SLIDE 14: METAS 
     if not df_metas.empty:
@@ -2782,7 +2791,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "METAS MENSAIS POR PRODUTO",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
 
         hdrs_mt  = ["Produto", "Receita Atual", "Meta +10%", "Meta +20%"]
         col_ws_m = [Inches(5.5), Inches(2.5), Inches(2.5), Inches(2.5)]
@@ -2793,7 +2802,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_rect(sl, x, y_m, ww, rh, AZUL_ESC)
             add_text(sl, hdr, x + Inches(0.05), y_m + Inches(0.05),
                      ww - Inches(0.1), rh - Inches(0.08),
-                     font_size=9, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             x += ww
         for ri, (_, row) in enumerate(df_metas.head(9).iterrows()):
             y_r = y_m + rh * (ri + 1)
@@ -2808,14 +2817,14 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          else (RGBColor(0x8E, 0x44, 0xAD) if vi == 3 else TEXTO))
                 add_text(sl, val, x + Inches(0.05), y_r + Inches(0.06),
                          ww - Inches(0.1), rh - Inches(0.1),
-                         font_size=8, color=col_v, align=al)
+                         font_size=12, color=col_v, align=al)
                 x += ww
 
         fat_top10 = df_metas["receita"].sum()
         add_rect(sl, Inches(0.2), Inches(4.9), Inches(4.0), Inches(1.0), RGBColor(0xEC, 0xF0, 0xF1))
         add_text(sl, "Top 10 Atual",
                  Inches(0.3), Inches(4.97), Inches(3.8), Inches(0.3),
-                 font_size=9, color=RGBColor(0x6B, 0x72, 0x80))
+                 font_size=13, color=RGBColor(0x6B, 0x72, 0x80))
         add_text(sl, brl(fat_top10),
                  Inches(0.3), Inches(5.27), Inches(3.8), Inches(0.55),
                  font_size=16, bold=True, color=AZUL_ESC)
@@ -2823,7 +2832,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, Inches(4.5), Inches(4.9), Inches(4.0), Inches(1.0), RGBColor(0xD1, 0xFA, 0xE5))
         add_text(sl, "Meta +10%",
                  Inches(4.6), Inches(4.97), Inches(3.8), Inches(0.3),
-                 font_size=9, color=RGBColor(0x6B, 0x72, 0x80))
+                 font_size=13, color=RGBColor(0x6B, 0x72, 0x80))
         add_text(sl, brl(fat_top10 * 1.10),
                  Inches(4.6), Inches(5.27), Inches(3.8), Inches(0.55),
                  font_size=16, bold=True, color=RGBColor(0x10, 0xB9, 0x81))
@@ -2831,7 +2840,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, Inches(8.8), Inches(4.9), Inches(4.0), Inches(1.0), RGBColor(0xDB, 0xEA, 0xFE))
         add_text(sl, "Meta +20%",
                  Inches(8.9), Inches(4.97), Inches(3.8), Inches(0.3),
-                 font_size=9, color=RGBColor(0x6B, 0x72, 0x80))
+                 font_size=13, color=RGBColor(0x6B, 0x72, 0x80))
         add_text(sl, brl(fat_top10 * 1.20),
                  Inches(8.9), Inches(5.27), Inches(3.8), Inches(0.55),
                  font_size=16, bold=True, color=AZUL_MED)
@@ -2842,7 +2851,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "FLUXO DE VENDAS POR HORÁRIO DO DIA",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
 
         CORES_TURNO_H = {"Manhã": "#2563EB", "Tarde": "#E67E22", "Noite": "#1A234E"}
 
@@ -2878,7 +2887,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      RGBColor(0xF0, 0xF9, 0xFF))
             add_text(sl, "RESUMO POR TURNO",
                      Inches(9.45), Inches(1.25), Inches(3.4), Inches(0.4),
-                     font_size=12, bold=True, color=AZUL_ESC)
+                     font_size=14, bold=True, color=AZUL_ESC)
 
             for ti2, (_, tr) in enumerate(df_por_turno.iterrows()):
                 cor_t = RGBColor(*[int(CORES_TURNO_H.get(tr["turno"], "#2563EB").lstrip("#")[i:i+2], 16) for i in (0, 2, 4)])
@@ -2887,13 +2896,13 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 pct_t = f"{tr['pct']:.1f}".replace(".", ",") + "%"
                 add_text(sl, tr["turno"].upper(),
                          Inches(9.4), y_t + Inches(0.07), Inches(3.5), Inches(0.3),
-                         font_size=11, bold=True, color=BRANCO)
+                         font_size=15, bold=True, color=BRANCO)
                 add_text(sl, pct_t,
                          Inches(9.4), y_t + Inches(0.36), Inches(3.5), Inches(0.5),
                          font_size=22, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
                 add_text(sl, f"{fmt_num(tr['transacoes'])} pedidos  ·  {brl(tr['receita'])}",
                          Inches(9.4), y_t + Inches(0.88), Inches(3.5), Inches(0.3),
-                         font_size=9, color=BRANCO, align=PP_ALIGN.CENTER)
+                         font_size=13, color=BRANCO, align=PP_ALIGN.CENTER)
 
             add_rect(sl, Inches(9.3), Inches(6.25), Inches(3.7), Inches(0.75),
                      RGBColor(0xDB, 0xEA, 0xFE))
@@ -2901,7 +2910,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      f"Pico: {int(hora_pico['hora']):02d}h  ·  "
                      f"Turno líder: {turno_lider['turno']}",
                      Inches(9.4), Inches(6.33), Inches(3.5), Inches(0.55),
-                     font_size=10, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
+                     font_size=14, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
 
     # Slide "Horários Inexplorados" removido a pedido do usuário
 
@@ -2911,7 +2920,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_rect(sl, 0, 0, W, Inches(1.0), RGBColor(0x1A, 0x23, 0x4E))
         add_text(sl, "NF-e — VENDAS PARA EMPRESAS (B2B)",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-                 font_size=20, bold=True, color=BRANCO)
+                 font_size=22, bold=True, color=BRANCO)
 
         notas_b2b = df_nfe.drop_duplicates("chave")
         fat_b2b   = notas_b2b["vNF"].sum()
@@ -2931,10 +2940,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_rect(sl, lx, Inches(1.2), Inches(3.0), Inches(1.6), cor_c)
             add_text(sl, val, lx + Inches(0.1), Inches(1.35),
                      Inches(2.8), Inches(0.8),
-                     font_size=20, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=22, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
             add_text(sl, lbl, lx + Inches(0.1), Inches(2.1),
                      Inches(2.8), Inches(0.5),
-                     font_size=10, color=BRANCO, align=PP_ALIGN.CENTER)
+                     font_size=14, color=BRANCO, align=PP_ALIGN.CENTER)
 
         # Top produtos NF-e
         if "xProd" in df_nfe.columns and "vProd" in df_nfe.columns:
@@ -2944,7 +2953,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
             add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(0.3), Inches(3.0), Inches(7.5), Inches(0.45),
-                     font_size=12, bold=True, color=AZUL_ESC)
+                     font_size=14, bold=True, color=AZUL_ESC)
             hdrs_b2b  = ["#", "Produto", "Notas"]
             col_ws_b2b = [Inches(0.5), Inches(6.4), Inches(0.8)]
             y_b = Inches(3.5)
@@ -2954,7 +2963,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 add_rect(sl, x, y_b, ww, rh, RGBColor(0x1A, 0x23, 0x4E))
                 add_text(sl, hdr, x + Inches(0.04), y_b + Inches(0.05),
                          ww - Inches(0.08), rh - Inches(0.08),
-                         font_size=9, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                         font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
                 x += ww
             for ri, (_, row) in enumerate(top_b2b.head(8).iterrows()):
                 y_r = y_b + rh * (ri + 1)
@@ -2967,7 +2976,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                     al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
                     add_text(sl, val, x + Inches(0.04), y_r + Inches(0.05),
                              ww - Inches(0.08), rh - Inches(0.08),
-                             font_size=9, color=TEXTO, align=al)
+                             font_size=13, color=TEXTO, align=al)
                     x += ww
 
         # Top produtos NF-e à direita
@@ -2976,7 +2985,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                        .nlargest(8).reset_index().sort_values("vProd"))
             add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(8.0), Inches(3.0), Inches(5.1), Inches(0.4),
-                     font_size=11, bold=True, color=AZUL_ESC)
+                     font_size=15, bold=True, color=AZUL_ESC)
             fig_cb2, ax_cb2 = plt.subplots(figsize=(4.8, 3.8))
             ax_cb2.barh(top_nfe["xProd"].str[:25], top_nfe["vProd"],
                         color="#2563EB", height=0.6)
