@@ -2247,7 +2247,23 @@ def exportar_pptx(kpis, df_pares, df_trios,
              Inches(0.8), Inches(5.6), Inches(11), Inches(0.6),
              font_size=14, color=BRANCO, align=PP_ALIGN.CENTER)
 
-    #  SLIDE 2: PANORAMA GERAL 
+    # Logo centralizada na parte inferior da capa
+    try:
+        from pathlib import Path as _PL
+        _logo_p = _PL(__file__).parent / "LOGO S FUNDO 2.png"
+        if _logo_p.exists():
+            _lw = Inches(2.8)
+            _lh = Inches(1.1)
+            sl.shapes.add_picture(
+                str(_logo_p),
+                (W - _lw) / 2,   # centralizada horizontalmente
+                Inches(6.15),    # parte inferior do slide
+                _lw, _lh,
+            )
+    except Exception:
+        pass
+
+    #  SLIDE 2: PANORAMA GERAL
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.2), AZUL_ESC)
     add_text(sl, f"PANORAMA GERAL  |  {periodo.upper()}",
