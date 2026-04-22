@@ -1267,7 +1267,7 @@ def calc_basket_trios(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 
 def calc_cesta(df: pd.DataFrame) -> pd.DataFrame:
-    ipc = df.groupby("chave")["numItem"].max().reset_index(name="itens")
+    ipc = df.groupby("chave")["numItem"].count().reset_index(name="itens")
     dist = ipc["itens"].value_counts().sort_index().reset_index()
     dist.columns = ["Itens/Pedido", "Nº Pedidos"]
     dist["% do Total"] = (dist["Nº Pedidos"] / dist["Nº Pedidos"].sum() * 100).round(1)
@@ -1280,7 +1280,6 @@ def calc_bcg(df: pd.DataFrame) -> pd.DataFrame:
         .agg(
             frequencia=("chave", "nunique"),
             receita=("vProd", "sum"),
-            categoria=("categoria", "first"),
         )
         .reset_index()
     )
@@ -1311,7 +1310,7 @@ def calc_crossell(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 def calc_remocao(df: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
     prod = (
-        df.groupby(["xProd", "categoria"])
+        df.groupby("xProd")
         .agg(frequencia=("chave", "nunique"), receita=("vProd", "sum"))
         .reset_index()
         .sort_values("receita")
@@ -1333,11 +1332,11 @@ def calc_turno(df: pd.DataFrame) -> pd.DataFrame | None:
 
 #  PROMPT 5 — Produtos âncora (pedido com 1 só item) 
 def calc_solo_produtos(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    ipc = df.groupby("chave")["numItem"].max()
-    notas_solo = ipc[ipc == 1].index
+    contagem = df.groupby("chave")["numItem"].count()
+    notas_solo = contagem[contagem == 1].index
     solo = df[df["chave"].isin(notas_solo)]
     return (
-        solo.groupby(["xProd", "categoria"])
+        solo.groupby("xProd")
         .agg(frequencia=("chave", "count"), receita=("vProd", "sum"))
         .reset_index()
         .sort_values("frequencia", ascending=False)
@@ -1408,12 +1407,11 @@ def calc_ticket_drivers(df: pd.DataFrame, top_n: int = 10):
     tm_geral    = ticket_nota.mean()
 
     # Vetorizado: junta ticket de cada nota com os produtos da mesma nota
-    prod_chave = df[["xProd", "chave", "categoria"]].drop_duplicates(["xProd", "chave"])
+    prod_chave = df[["xProd", "chave"]].drop_duplicates(["xProd", "chave"])
     merged = prod_chave.merge(ticket_nota.rename("ticket"), left_on="chave", right_index=True)
     agg = (
         merged.groupby("xProd")
-        .agg(categoria=("categoria", "first"),
-             n_pedidos=("chave", "nunique"),
+        .agg(n_pedidos=("chave", "nunique"),
              tm_prod=("ticket", "mean"))
         .reset_index()
     )
@@ -1425,7 +1423,7 @@ def calc_ticket_drivers(df: pd.DataFrame, top_n: int = 10):
     agg["Diferença R$"]             = (agg["tm_prod"] - tm_geral).round(2)
     agg["Diferença %"]              = ((agg["tm_prod"] / tm_geral - 1) * 100).round(1)
     agg["Ticket Médio c/ Produto"]  = agg["tm_prod"].round(2)
-    agg = agg.rename(columns={"xProd": "Produto", "categoria": "Categoria", "n_pedidos": "Nº Pedidos"})
+    agg = agg.rename(columns={"xProd": "Produto", "n_pedidos": "Nº Pedidos"})
     agg = agg.drop(columns="tm_prod")
 
     elevadores = agg.nlargest(top_n, "Diferença R$").reset_index(drop=True)
@@ -1436,7 +1434,7 @@ def calc_ticket_drivers(df: pd.DataFrame, top_n: int = 10):
 #  PROMPT 16 — Simulação de preços 
 def calc_simulacao_precos(df: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
     prod = (
-        df.groupby(["xProd", "categoria"])
+        df.groupby("xProd")
         .agg(preco_medio=("vUnCom", "mean"), volume=("qCom", "sum"), receita=("vProd", "sum"))
         .reset_index()
         .sort_values("receita", ascending=False)
@@ -1515,7 +1513,7 @@ def calc_combo_pricing(df_pares: pd.DataFrame, df: pd.DataFrame, top_n: int = 10
 #  PROMPT 46 — Metas mensais 
 def calc_metas(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     prod = (
-        df.groupby(["xProd", "categoria"])
+        df.groupby("xProd")
         .agg(volume=("qCom", "sum"), receita=("vProd", "sum"),
              frequencia=("chave", "nunique"))
         .reset_index()
@@ -1524,10 +1522,6 @@ def calc_metas(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     )
     prod["Meta +10%"] = (prod["receita"] * 1.10).round(2)
     prod["Meta +20%"] = (prod["receita"] * 1.20).round(2)
-    prod["Ação Sugerida"] = prod["categoria"].apply(
-        lambda c: "Destacar na vitrine / balcão" if c in ["Panificação", "Bolos", "Salgados", "Lanchonete"]
-        else "Sugerir como complemento no atendimento"
-    )
     return prod
 
 
@@ -1631,7 +1625,7 @@ def fig_bcg(df_bcg: pd.DataFrame):
     fig = px.scatter(
         df_bcg, x="frequencia", y="receita",
         color="BCG", color_discrete_map=cores,
-        hover_data={"xProd": True, "categoria": True,
+        hover_data={"xProd": True,
                     "frequencia": True, "receita": ":.2f"},
         title="Matriz BCG — Produtos",
         labels={"frequencia": "Frequência (pedidos)", "receita": "Receita (R$)"},
@@ -1688,8 +1682,8 @@ def fig_crossell(df_cross: pd.DataFrame):
 # 
 # EXPORT EXCEL
 # 
-def exportar_excel(kpis, df_cat, df_pares, df_trios,
-                   df_cesta, df_bcg, df_cross, df_remocao,
+def exportar_excel(kpis, df_pares, df_trios,
+                   df_cesta, df_bcg, df_remocao,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
                    df_combos, df_metas,
                    cliente: str, periodo: str) -> bytes:
@@ -1705,25 +1699,18 @@ def exportar_excel(kpis, df_cat, df_pares, df_trios,
         })
         resumo.to_excel(writer, sheet_name="Resumo Geral", index=False)
 
-        cat_exp = df_cat.copy()
-        cat_exp["receita"] = cat_exp["receita"].apply(brl)
-        cat_exp["pct"]     = cat_exp["pct"].apply(lambda x: f"{x:.1f}".replace(".", ",") + "%")
-        cat_exp.columns    = ["Categoria", "Receita", "Nº Pedidos", "% Total"]
-        cat_exp.to_excel(writer, sheet_name="Categorias", index=False)
-
         df_pares.to_excel(writer, sheet_name="Pares de Produtos", index=False)
         df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
         df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
-        df_cross.to_excel(writer, sheet_name="Cross-sell", index=False)
 
-        bcg_exp = df_bcg[["xProd", "categoria", "BCG", "frequencia", "receita"]].copy()
+        bcg_exp = df_bcg[["xProd", "BCG", "frequencia", "receita"]].copy()
         bcg_exp["receita"] = bcg_exp["receita"].apply(brl)
-        bcg_exp.columns    = ["Produto", "Categoria", "Classificação", "Frequência", "Receita"]
+        bcg_exp.columns    = ["Produto", "Classificação", "Frequência", "Receita"]
         bcg_exp.to_excel(writer, sheet_name="Classificação Produtos", index=False)
 
         rem_exp = df_remocao.copy()
         rem_exp["receita"] = rem_exp["receita"].apply(brl)
-        rem_exp.columns    = ["Produto", "Categoria", "Frequência", "Receita"]
+        rem_exp.columns    = ["Produto", "Frequência", "Receita"]
         rem_exp.to_excel(writer, sheet_name="Candidatos Remoção", index=False)
 
         if not df_elev.empty:
@@ -1884,7 +1871,7 @@ def pptx_para_pdf(pptx_bytes: bytes):
         return None
 
 
-def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
+def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
                  df_remocao, df_elev, df_redu, df_sim_rec,
                  tem_nfe, df_nfe,
                  cliente: str, periodo: str, fonte_label: str) -> bytes:
@@ -2047,32 +2034,22 @@ def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
             x = gap + i * (box_w + gap)
             add_kpi_box(fig, x, 0.50, box_w, 0.32, lbl, val, sub, clr)
 
-        # Top categorias
-        if df_cat is not None and not df_cat.empty:
-            top5 = df_cat.head(5)
+        # Top produtos no slide de resumo
+        if df_bcg is not None and not df_bcg.empty:
+            top5_r = df_bcg.nlargest(5, "receita")
             ax_b = fig.add_axes([0.05, 0.10, 0.52, 0.36])
             ax_b.set_facecolor("white")
-            bars = ax_b.barh(top5["categoria"][::-1], top5["receita"][::-1],
+            bars = ax_b.barh(top5_r["xProd"].str[:22][::-1], top5_r["receita"][::-1],
                              color=AZUL2, edgecolor="none", height=0.6)
             ax_b.set_xlabel("Receita (R$)", fontsize=8, color=SUBTXT)
-            ax_b.tick_params(labelsize=8)
+            ax_b.tick_params(labelsize=7)
             ax_b.spines[["top","right","left"]].set_visible(False)
-            ax_b.set_title("Top Categorias", fontsize=10, fontweight="bold",
+            ax_b.set_title("Top 5 Produtos", fontsize=10, fontweight="bold",
                            color=AZUL, pad=6)
             for bar in bars:
                 w = bar.get_width()
                 ax_b.text(w * 1.01, bar.get_y() + bar.get_height()/2,
                           brl(w), va="center", fontsize=7, color=TEXTO)
-
-            # Mini tabela ao lado
-            tbl_data = [
-                [c, brl(r), f"{p:.1f}%".replace(".", ",")]
-                for c, r, p in zip(df_cat["categoria"], df_cat["receita"], df_cat["pct"])
-            ][:8]
-            draw_table(fig, [0.60, 0.06, 0.38, 0.38], tbl_data,
-                       ["Categoria", "Receita", "%"],
-                       col_widths=[0.45, 0.33, 0.22],
-                       title="Receita por Categoria")
 
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
@@ -2084,24 +2061,18 @@ def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
         # Top 20 produtos por receita
         from collections import defaultdict
         if df_bcg is not None and not df_bcg.empty:
-            top_prod = df_bcg.nlargest(20, "receita")[["xProd", "categoria", "BCG", "frequencia", "receita"]].copy()
+            top_prod = df_bcg.nlargest(20, "receita")[["xProd", "BCG", "frequencia", "receita"]].copy()
             tbl_data = [
                 [str(i+1),
-                 row["xProd"][:40] if len(row["xProd"]) > 40 else row["xProd"],
-                 row["categoria"],
+                 row["xProd"][:50] if len(row["xProd"]) > 50 else row["xProd"],
                  row["BCG"],
                  fmt_num(int(row["frequencia"])),
                  brl(row["receita"])]
-                for i, row in top_prod.iterrows()
-            ]
-            # Reset index for numbering
-            tbl_data = [
-                [str(i+1), d[1], d[2], d[3], d[4], d[5]]
-                for i, d in enumerate(tbl_data)
+                for i, (_, row) in enumerate(top_prod.iterrows())
             ]
             draw_table(fig, [0.03, 0.07, 0.94, 0.80], tbl_data,
-                       ["#", "Produto", "Categoria", "BCG", "Frequência", "Receita"],
-                       col_widths=[0.04, 0.38, 0.16, 0.12, 0.14, 0.16],
+                       ["#", "Produto", "BCG", "Frequência", "Receita"],
+                       col_widths=[0.04, 0.54, 0.14, 0.14, 0.14],
                        title="Top 20 Produtos por Receita")
 
         pdf.savefig(fig, bbox_inches="tight")
@@ -2166,8 +2137,8 @@ def exportar_pdf(kpis, kpis_nfce, df_cat, df_pares, df_bcg,
 #
 # EXPORT PPTX
 #
-def exportar_pptx(kpis, df_cat, df_pares, df_trios,
-                  df_cesta, df_turno, df_bcg, df_cross,
+def exportar_pptx(kpis, df_pares, df_trios,
+                  df_cesta, df_turno, df_bcg,
                   df_elev, df_redu, df_sim_rec, df_sim_preco,
                   df_combos, df_metas, df_horas,
                   df_solo, df_remocao, df_dia_tipo,
@@ -2295,8 +2266,8 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
 
     sub_cards = [
         (fmt_num(kpis["total_itens"]), "TOTAL DE ITENS"),
-        (f"{df_cat['n_pedidos'].max()}", "MAIOR Nº PEDIDOS"),
-        (fmt_num(len(df_cat)), "CATEGORIAS ATIVAS"),
+        (fmt_num(len(df_bcg)) if df_bcg is not None else "—", "PRODUTOS ÚNICOS"),
+        (fmt_num(df_bcg[df_bcg["BCG"]=="Estrela"].shape[0]) if df_bcg is not None else "—", "PRODUTOS ESTRELA"),
     ]
     for i, (val, lbl) in enumerate(sub_cards):
         left = Inches(1.0 + i * 3.8)
@@ -2314,54 +2285,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
              Inches(0.5), Inches(6.9), Inches(12), Inches(0.4),
              font_size=9, color=RGBColor(0x9E, 0x9E, 0x9E))
 
-    #  SLIDE 3: RECEITA POR CATEGORIA 
-    sl = prs.slides.add_slide(blank)
-    add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
-    add_text(sl, "RECEITA POR CATEGORIA",
-             Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=22, bold=True, color=BRANCO)
-
-    # Gráfico de barras horizontais — ocupa 8,5" de largura
-    fig_m, ax = plt.subplots(figsize=(8.5, 5.5))
-    cats  = df_cat["categoria"].tolist()
-    recs  = df_cat["receita"].tolist()
-    cores = [CORES_CATEGORIA.get(c, "#95A5A6") for c in cats]
-    bars  = ax.barh(cats, recs, color=cores, height=0.65)
-    max_rec = max(recs) if recs else 1
-    for bar, rec, pct in zip(bars, recs, df_cat["pct"].tolist()):
-        label = f"{brl(rec)}  ({pct_br(pct)})"
-        ax.text(bar.get_width() + max_rec * 0.01,
-                bar.get_y() + bar.get_height() / 2,
-                label, va="center", fontsize=9, fontweight="bold")
-    ax.xaxis.set_major_formatter(
-        plt.FuncFormatter(lambda x, _: f"R$ {x/1000:.0f} mil".replace(".", ",")))
-    ax.set_xlabel("Receita", fontsize=10)
-    ax.tick_params(labelsize=10)
-    ax.set_xlim(0, max_rec * 1.45)
-    ax.spines[["top", "right"]].set_visible(False)
-    fig_m.tight_layout()
-    plt_to_pptx_image(fig_m, sl, Inches(0.3), Inches(1.1), Inches(8.8), Inches(6.2))
-
-    # Painel TOP 5 à direita
-    top5 = df_cat.head(5)
-    add_text(sl, "TOP 5 CATEGORIAS",
-             Inches(9.3), Inches(1.2), Inches(3.7), Inches(0.5),
-             font_size=12, bold=True, color=AZUL_ESC)
-    for i, row in enumerate(top5.itertuples()):
-        top = Inches(1.85 + i * 1.0)
-        add_rect(sl, Inches(9.3), top, Inches(3.7), Inches(0.85),
-                 RGBColor(0xEC, 0xF0, 0xF1))
-        add_text(sl, row.categoria,
-                 Inches(9.45), top + Inches(0.06), Inches(2.5), Inches(0.35),
-                 font_size=11, bold=True, color=AZUL_ESC)
-        add_text(sl, brl(row.receita),
-                 Inches(9.45), top + Inches(0.43), Inches(2.2), Inches(0.32),
-                 font_size=12, bold=True, color=LARANJA)
-        add_text(sl, pct_br(row.pct),
-                 Inches(11.5), top + Inches(0.22), Inches(1.3), Inches(0.42),
-                 font_size=16, bold=True, color=AZUL_MED, align=PP_ALIGN.CENTER)
-
-    #  SLIDE 4: PARES DE PRODUTOS 
+    #  SLIDE 3: PARES DE PRODUTOS
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "TOP 10 PARES DE PRODUTOS MAIS COMPRADOS JUNTOS",
@@ -2556,10 +2480,10 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                  Inches(0.5), Inches(1.05), Inches(12), Inches(0.35),
                  font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
 
-        hdrs_sl  = ["#", "Produto", "Categoria", "Pedidos Solo", "Receita Solo"]
-        col_ws_sl = [Inches(0.5), Inches(5.5), Inches(2.0), Inches(2.0), Inches(2.8)]
+        hdrs_sl  = ["#", "Produto", "Pedidos Solo", "Receita Solo"]
+        col_ws_sl = [Inches(0.5), Inches(7.5), Inches(2.0), Inches(2.8)]
         y_sl = Inches(1.5)
-        rh   = Inches(0.46)   # altura ligeiramente maior para leitura
+        rh   = Inches(0.46)
         x    = Inches(0.3)
         for hdr, ww in zip(hdrs_sl, col_ws_sl):
             add_rect(sl, x, y_sl, ww, rh, AZUL_ESC)
@@ -2572,11 +2496,11 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
             y_r = y_sl + rh * (ri + 1)
             bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
             x   = Inches(0.3)
-            vals_sl = [str(ri+1), str(row["xProd"])[:55], str(row["categoria"]),
+            vals_sl = [str(ri+1), str(row["xProd"])[:65],
                        fmt_num(row["frequencia"]), brl(row["receita"])]
             for vi, (val, ww) in enumerate(zip(vals_sl, col_ws_sl)):
                 add_rect(sl, x, y_r, ww, rh, bg)
-                al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
+                al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
                 add_text(sl, val, x + Inches(0.05), y_r + Inches(0.08),
                          ww - Inches(0.1), rh - Inches(0.1),
                          font_size=9, color=TEXTO, align=al)
@@ -2602,8 +2526,8 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
              Inches(0.5), Inches(1.05), Inches(12), Inches(0.35),
              font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
 
-    hdrs_rem  = ["#", "Produto", "Categoria", "Frequência", "Receita"]
-    col_ws_rem = [Inches(0.5), Inches(5.8), Inches(2.0), Inches(1.8), Inches(2.8)]
+    hdrs_rem  = ["#", "Produto", "Frequência", "Receita"]
+    col_ws_rem = [Inches(0.5), Inches(7.8), Inches(1.8), Inches(2.8)]
     y_rm = Inches(1.5)
     rh   = Inches(0.44)
     x    = Inches(0.3)
@@ -2618,11 +2542,11 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
         y_r = y_rm + rh * (ri + 1)
         bg  = RGBColor(0xFF, 0xF0, 0xF0) if ri % 2 == 0 else BRANCO
         x   = Inches(0.3)
-        vals_rem = [str(ri+1), str(row["xProd"])[:58], str(row["categoria"]),
+        vals_rem = [str(ri+1), str(row["xProd"])[:70],
                     fmt_num(row["frequencia"]), brl(row["receita"])]
         for vi, (val, ww) in enumerate(zip(vals_rem, col_ws_rem)):
             add_rect(sl, x, y_r, ww, rh, bg)
-            al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
+            al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
             add_text(sl, val, x + Inches(0.05), y_r + Inches(0.07),
                      ww - Inches(0.1), rh - Inches(0.1),
                      font_size=9, color=TEXTO, align=al)
@@ -2635,45 +2559,7 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
              Inches(0.5), footer_top + Inches(0.04), Inches(12.3), Inches(0.26),
              font_size=9, color=RGBColor(0x92, 0x40, 0x0E))
 
-    #  SLIDE 9: CROSS-SELL 
-    sl = prs.slides.add_slide(blank)
-    add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
-    add_text(sl, "OPORTUNIDADES DE CROSS-SELL ENTRE CATEGORIAS",
-             Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
-             font_size=20, bold=True, color=BRANCO)
-
-    if not df_cross.empty:
-        fig_cr, ax_cr = plt.subplots(figsize=(8.0, 5.5))
-        df_cr_s = df_cross.sort_values("Frequência")
-        labels_cr = df_cr_s.apply(lambda r: f"{r['Categoria A']} + {r['Categoria B']}", axis=1)
-        ax_cr.barh(labels_cr, df_cr_s["Frequência"], color="#E67E22", height=0.65)
-        max_cr = df_cr_s["Frequência"].max()
-        for i, (val, label) in enumerate(zip(df_cr_s["Frequência"], labels_cr)):
-            ax_cr.text(val + max_cr * 0.01, i,
-                       f"{int(val):,}".replace(",", "."),
-                       va="center", fontsize=9, fontweight="bold")
-        ax_cr.set_xlabel("Pedidos conjuntos", fontsize=10)
-        ax_cr.tick_params(labelsize=10)
-        ax_cr.set_xlim(0, max_cr * 1.2)
-        ax_cr.spines[["top", "right"]].set_visible(False)
-        fig_cr.tight_layout()
-        plt_to_pptx_image(fig_cr, sl, Inches(0.3), Inches(1.1), Inches(8.5), Inches(6.2))
-
-        add_rect(sl, Inches(9.0), Inches(1.1), Inches(4.0), Inches(6.2), RGBColor(0xFF, 0xF5, 0xEB))
-        add_text(sl, "TOP COMBINAÇÕES",
-                 Inches(9.15), Inches(1.25), Inches(3.7), Inches(0.5),
-                 font_size=13, bold=True, color=AZUL_ESC)
-        for ki, row in enumerate(df_cross.head(6).itertuples()):
-            top_c = Inches(1.9 + ki * 0.83)
-            add_rect(sl, Inches(9.0), top_c, Inches(4.0), Inches(0.75), RGBColor(0xFF, 0xFF, 0xFF))
-            add_text(sl, f"{row._1} + {row._2}",
-                     Inches(9.15), top_c + Inches(0.06), Inches(3.7), Inches(0.33),
-                     font_size=10, bold=True, color=AZUL_ESC)
-            add_text(sl, f"{fmt_num(row.Frequência)} pedidos juntos",
-                     Inches(9.15), top_c + Inches(0.40), Inches(3.7), Inches(0.27),
-                     font_size=10, color=LARANJA)
-
-    #  SLIDE DIA DA SEMANA (se disponível) 
+    #  SLIDE DIA DA SEMANA (se disponível)
     if df_dia_tipo is not None and not df_dia_tipo.empty:
         sl = prs.slides.add_slide(blank)
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
@@ -3085,28 +2971,17 @@ def exportar_pptx(kpis, df_cat, df_pares, df_trios,
                              font_size=9, color=TEXTO, align=al)
                     x += ww
 
-        # Categorias NF-e à direita — gráfico de barras
-        if "categoria" in df_nfe.columns:
-            cat_b2b = calc_categorias(df_nfe)
-            add_text(sl, "RECEITA POR CATEGORIA (NF-e)",
+        # Top produtos NF-e à direita
+        if df_nfe is not None and not df_nfe.empty:
+            top_nfe = (df_nfe.groupby("xProd")["vProd"].sum()
+                       .nlargest(8).reset_index().sort_values("vProd"))
+            add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(8.0), Inches(3.0), Inches(5.1), Inches(0.4),
                      font_size=11, bold=True, color=AZUL_ESC)
-
             fig_cb2, ax_cb2 = plt.subplots(figsize=(4.8, 3.8))
-            cb_cats = cat_b2b["categoria"].tolist()
-            cb_recs = cat_b2b["receita"].tolist()
-            cb_cores = [CORES_CATEGORIA.get(c, "#95A5A6") for c in cb_cats]
-            bars_cb = ax_cb2.barh(cb_cats, cb_recs, color=cb_cores, height=0.6)
-            max_cb = max(cb_recs) if cb_recs else 1
-            for bar_cb, rec_cb, pct_cb in zip(bars_cb, cb_recs, cat_b2b["pct"].tolist()):
-                ax_cb2.text(bar_cb.get_width() + max_cb * 0.02,
-                            bar_cb.get_y() + bar_cb.get_height() / 2,
-                            f"{pct_br(pct_cb)}",
-                            va="center", fontsize=8, fontweight="bold", color="#1F2937")
-            ax_cb2.set_xlim(0, max_cb * 1.35)
-            ax_cb2.xaxis.set_major_formatter(
-                plt.FuncFormatter(lambda x, _: f"R${x/1000:.0f}k".replace(".", ",")))
-            ax_cb2.tick_params(labelsize=8)
+            ax_cb2.barh(top_nfe["xProd"].str[:25], top_nfe["vProd"],
+                        color=AZUL2, height=0.6)
+            ax_cb2.tick_params(labelsize=7)
             ax_cb2.spines[["top", "right"]].set_visible(False)
             fig_cb2.tight_layout()
             plt_to_pptx_image(fig_cb2, sl, Inches(8.0), Inches(3.45), Inches(5.1), Inches(3.8))
@@ -3306,12 +3181,10 @@ def main():
         fonte_label  = _R["fonte_label"]
         kpis         = _R["kpis"]
         kpis_nfce    = _R["kpis_nfce"]
-        df_cat       = _R["df_cat"]
         df_pares     = _R["df_pares"]
         df_trios     = _R["df_trios"]
         df_cesta     = _R["df_cesta"]
         df_bcg       = _R["df_bcg"]
-        df_cross     = _R["df_cross"]
         df_remocao   = _R["df_remocao"]
         df_turno     = _R["df_turno"]
         df_solo      = _R["df_solo"]
@@ -3471,10 +3344,7 @@ def main():
         kpis      = calc_kpis(df_all)
         kpis_nfce = calc_kpis(df)
 
-        _render_prog(20, "🗂️ Analisando receita por categoria...", _t0, _box_txt, _box_bar)
-        df_cat = calc_categorias(df_all)
-
-        _render_prog(28, "🛒 Market Basket — pares de produtos... (pode demorar)", _t0, _box_txt, _box_bar)
+        _render_prog(20, "🛒 Market Basket — pares de produtos... (pode demorar)", _t0, _box_txt, _box_bar)
         df_pares = calc_basket_pares(df, top_n)
 
         _render_prog(42, "🛍️ Market Basket — combos de 3 produtos... (pode demorar)", _t0, _box_txt, _box_bar)
@@ -3489,10 +3359,7 @@ def main():
         df_solo    = calc_solo_produtos(df)
         df_anti    = calc_anti_pares(df)
 
-        _render_prog(67, "🔗 Cross-sell entre categorias...", _t0, _box_txt, _box_bar)
-        df_cross = calc_crossell(df_all)
-
-        _render_prog(73, "🌅 Análise por turno e dia da semana...", _t0, _box_txt, _box_bar)
+        _render_prog(67, "🌅 Análise por turno e dia da semana...", _t0, _box_txt, _box_bar)
         df_turno = calc_turno(df)
         df_dia_tipo, df_dia_semana = calc_por_dia_semana(df)
 
@@ -3576,8 +3443,8 @@ f"{_col_nfe}{_col_skip}"
             "cli_label": cli_label,  "per_label": per_label,  "cnpj_label": cnpj_label,
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
-            "df_cat": df_cat,        "df_pares": df_pares,    "df_trios": df_trios,
-            "df_cesta": df_cesta,    "df_bcg": df_bcg,        "df_cross": df_cross,
+            "df_pares": df_pares,    "df_trios": df_trios,
+            "df_cesta": df_cesta,    "df_bcg": df_bcg,
             "df_remocao": df_remocao,"df_turno": df_turno,    "df_solo": df_solo,
             "df_anti": df_anti,      "df_dia_tipo": df_dia_tipo, "df_dia_semana": df_dia_semana,
             "df_elev": df_elev,      "df_redu": df_redu,
@@ -3646,11 +3513,9 @@ f"{_col_nfe}{_col_skip}"
 
     #  ABAS 
     abas = [
-        "Categorias",
         "Market Basket",
         "Cesta",
         "Candidatos a Remoção",
-        "Cross-sell",
         "Ticket Drivers",
         "Simulações",
         "Metas",
@@ -3663,30 +3528,7 @@ f"{_col_nfe}{_col_skip}"
     tabs = st.tabs(abas)
     tab_idx = {name: i for i, name in enumerate(abas)}
 
-    #  CATEGORIAS 
-    with tabs[tab_idx["Categorias"]]:
-        st.subheader("Receita por Categoria")
-
-        col_g, col_t = st.columns([3, 2])
-        with col_g:
-            st.plotly_chart(fig_categorias(df_cat), use_container_width=True)
-        with col_t:
-            tbl = df_cat.copy()
-            tbl["Receita"] = tbl["receita"].apply(brl)
-            tbl["% Total"] = tbl["pct"].apply(lambda x: f"{x:.1f}".replace(".", ",") + "%")
-            tbl["Nº Ped."] = tbl["n_pedidos"].apply(fmt_num)
-            st.dataframe(
-                tbl[["categoria", "Receita", "% Total", "Nº Ped."]].rename(
-                    columns={"categoria": "Categoria"}),
-                use_container_width=True, hide_index=True, height=400,
-            )
-
-        # Destaque categoria líder
-        lider = df_cat.iloc[0]
-        st.info(f" **{lider['categoria']}** lidera com {brl(lider['receita'])} "
-                f"({lider['pct']:.1f}% do faturamento) em {fmt_num(lider['n_pedidos'])} pedidos")
-
-    #  MARKET BASKET 
+    #  MARKET BASKET
     with tabs[tab_idx["Market Basket"]]:
         col_p, col_t3 = st.columns(2)
 
@@ -3789,16 +3631,7 @@ f"{_col_nfe}{_col_skip}"
                 st.info(f" **{top_rem['xProd']}** — produto com menor receita da lista. "
                         f"Apenas {fmt_num(top_rem['frequencia'])} vendas no período.")
 
-    #  CROSS-SELL 
-    with tabs[tab_idx["Cross-sell"]]:
-        st.subheader("Oportunidades de Cross-sell entre Categorias")
-        col_g, col_t = st.columns([3, 2])
-        with col_g:
-            st.plotly_chart(fig_crossell(df_cross), use_container_width=True)
-        with col_t:
-            st.dataframe(df_cross, use_container_width=True, hide_index=True, height=380)
-
-    #  TICKET DRIVERS 
+    #  TICKET DRIVERS
     with tabs[tab_idx["Ticket Drivers"]]:
         st.subheader("Produtos que Influenciam o Valor do Pedido")
 
@@ -4028,11 +3861,11 @@ f"{_col_nfe}{_col_skip}"
             for col in ["Δ +10%", "Δ +15%", "Δ +20%"]:
                 sim_p[col] = df_sim_preco[col].apply(lambda v: f"+{brl(v)}" if v > 0 else brl(v))
             st.dataframe(
-                sim_p[["xProd", "categoria", "preco_medio", "receita",
+                sim_p[["xProd", "preco_medio", "receita",
                         "+10% preço (-5% vol)", "Δ +10%",
                         "+15% preço (-5% vol)", "Δ +15%",
                         "+20% preço (-5% vol)", "Δ +20%"]].rename(columns={
-                    "xProd": "Produto", "categoria": "Categoria",
+                    "xProd": "Produto",
                     "preco_medio": "Preço Médio Atual", "receita": "Receita Atual",
                 }),
                 use_container_width=True, hide_index=True, height=500,
@@ -4061,7 +3894,7 @@ f"{_col_nfe}{_col_skip}"
 
         st.dataframe(
             tbl_m.rename(columns={
-                "xProd": "Produto", "categoria": "Categoria",
+                "xProd": "Produto",
                 "volume": "Volume Atual", "receita": "Receita Atual",
                 "frequencia": "Freq. Pedidos",
             }),
@@ -4108,16 +3941,10 @@ f"{_col_nfe}{_col_skip}"
                     )
                     top_b2b["receita_fmt"] = top_b2b["receita"].apply(brl)
                     st.dataframe(
-                        top_b2b[["xProd", "categoria", "notas", "receita_fmt"]].rename(columns={
-                            "xProd": "Produto", "categoria": "Categoria",
+                        top_b2b[["xProd", "notas", "receita_fmt"]].rename(columns={
+                            "xProd": "Produto",
                             "notas": "Notas", "receita_fmt": "Receita"}),
                         use_container_width=True, hide_index=True, height=450)
-
-            if "categoria" in df_nfe.columns:
-                with col_b2:
-                    st.markdown("#### Receita por Categoria (NF-e)")
-                    cat_b2b = calc_categorias(df_nfe)
-                    st.plotly_chart(fig_categorias(cat_b2b), use_container_width=True)
 
     #  EXPORTAÇÃO
     # CSS de impressão injetado na página principal (não no iframe)
@@ -4165,8 +3992,8 @@ f"{_col_nfe}{_col_skip}"
         from pptx import Presentation  # noqa: F401
         import matplotlib  # noqa: F401
         _pptx_bytes = exportar_pptx(
-            kpis, df_cat, df_pares, df_trios,
-            df_cesta, df_turno, df_bcg, df_cross,
+            kpis, df_pares, df_trios,
+            df_cesta, df_turno, df_bcg,
             df_elev, df_redu, df_sim_rec, df_sim_preco,
             df_combos, df_metas, df_horas,
             df_solo, df_remocao, df_dia_tipo,
@@ -4181,8 +4008,8 @@ f"{_col_nfe}{_col_skip}"
     col_xl, col_pp, col_pdf = st.columns(3)
 
     with col_xl:
-        xlsx_bytes = exportar_excel(kpis, df_cat, df_pares, df_trios,
-                                    df_cesta, df_bcg, df_cross, df_remocao,
+        xlsx_bytes = exportar_excel(kpis, df_pares, df_trios,
+                                    df_cesta, df_bcg, df_remocao,
                                     df_elev, df_redu, df_sim_preco, df_sim_rec,
                                     df_combos, df_metas,
                                     cli_label, per_label)
