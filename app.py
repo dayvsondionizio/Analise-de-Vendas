@@ -2081,15 +2081,26 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
         # ══════════════════════════════════════════════════════════
         # Slide 4 — Market Basket
         # ══════════════════════════════════════════════════════════
-        fig = new_slide("MARKET BASKET — PARES MAIS COMPRADOS JUNTOS")
+        _n_p = len(df_pares) if df_pares is not None else 0
+        fig = new_slide(f"MARKET BASKET — TOP {_n_p} PARES MAIS COMPRADOS JUNTOS")
         if df_pares is not None and not df_pares.empty:
-            top_pares = df_pares.head(20)
-            cols_pares = list(top_pares.columns)
-            tbl_data = [[str(i+1)] + [str(v) for v in row]
-                        for i, row in enumerate(top_pares.values.tolist())]
-            draw_table(fig, [0.03, 0.07, 0.94, 0.80], tbl_data,
-                       ["#"] + cols_pares,
-                       title="Top 20 Pares de Produtos")
+            half  = (_n_p + 1) // 2  # split point for two columns
+            cols_pares = list(df_pares.columns)
+            if _n_p <= 10:
+                tbl_data = [[str(i+1)] + [str(v) for v in row]
+                            for i, row in enumerate(df_pares.values.tolist())]
+                draw_table(fig, [0.03, 0.07, 0.94, 0.80], tbl_data,
+                           ["#"] + cols_pares,
+                           title=f"Top {_n_p} Pares de Produtos")
+            else:
+                left_df  = df_pares.iloc[:half]
+                right_df = df_pares.iloc[half:]
+                tbl_l = [[str(i+1)]       + [str(v) for v in row] for i, row in enumerate(left_df.values.tolist())]
+                tbl_r = [[str(i+1+half)]  + [str(v) for v in row] for i, row in enumerate(right_df.values.tolist())]
+                draw_table(fig, [0.02, 0.07, 0.47, 0.80], tbl_l,
+                           ["#"] + cols_pares, title=f"Pares 1–{half}")
+                draw_table(fig, [0.51, 0.07, 0.47, 0.80], tbl_r,
+                           ["#"] + cols_pares, title=f"Pares {half+1}–{_n_p}")
 
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
@@ -2288,62 +2299,75 @@ def exportar_pptx(kpis, df_pares, df_trios,
     #  SLIDE 3: PARES DE PRODUTOS
     sl = prs.slides.add_slide(blank)
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
-    add_text(sl, "TOP 10 PARES DE PRODUTOS MAIS COMPRADOS JUNTOS",
-             Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
+
+    _n_pares = len(df_pares)
+    add_text(sl, f"TOP {_n_pares} PARES DE PRODUTOS MAIS COMPRADOS JUNTOS",
+             Inches(0.3), Inches(0.1), Inches(12.5), Inches(0.8),
              font_size=22, bold=True, color=BRANCO)
 
-    # Tabela
-    rows_tbl = df_pares.head(10)
-    col_widths = [Inches(0.5), Inches(3.0), Inches(3.0), Inches(1.3)]
-    headers = ["#", "Produto A", "Produto B", "Frequência"]
-    y_start = Inches(1.15)
-    row_h   = Inches(0.42)
-    tbl_left = Inches(0.4)
-
-    # Header
-    x = tbl_left
-    for j, (hdr, w) in enumerate(zip(headers, col_widths)):
-        add_rect(sl, x, y_start, w, row_h, AZUL_ESC)
-        add_text(sl, hdr, x + Inches(0.05), y_start + Inches(0.07),
-                 w - Inches(0.1), row_h - Inches(0.1),
-                 font_size=14, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
-        x += w
-
-    for i, row in enumerate(rows_tbl.itertuples()):
-        y = y_start + row_h * (i + 1)
-        bg = CINZA_CLR if i % 2 == 0 else BRANCO
-        x  = tbl_left
-        vals = [str(i + 1), row._1, row._2, fmt_num(row.Frequência)]
-        for j, (val, w) in enumerate(zip(vals, col_widths)):
-            add_rect(sl, x, y, w, row_h, bg)
-            al = PP_ALIGN.CENTER if j in (0, 3) else PP_ALIGN.LEFT
-            add_text(sl, val, x + Inches(0.06), y + Inches(0.07),
-                     w - Inches(0.12), row_h - Inches(0.1),
-                     font_size=13, color=TEXTO, align=al)
-            x += w
-
-    # Insights
-    def _trunc(txt, n=28):
+    def _trunc(txt, n=30):
         return txt if len(txt) <= n else txt[:n].rstrip() + "…"
 
+    # helper: draw one pares table at given x offset, items offset num_offset
+    def _draw_pares_tbl(rows_df, left_x, y0, col_ws, num_offset=0):
+        rh = Inches(0.41)
+        hdrs_p = ["#", "Produto A", "Produto B", "Freq."]
+        x = left_x
+        for hdr, w in zip(hdrs_p, col_ws):
+            add_rect(sl, x, y0, w, rh, AZUL_ESC)
+            add_text(sl, hdr, x + Inches(0.04), y0 + Inches(0.06),
+                     w - Inches(0.08), rh - Inches(0.1),
+                     font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+            x += w
+        for i, row in enumerate(rows_df.itertuples()):
+            y  = y0 + rh * (i + 1)
+            bg = CINZA_CLR if i % 2 == 0 else BRANCO
+            x  = left_x
+            vals = [str(i + 1 + num_offset),
+                    str(row._1)[:38], str(row._2)[:38],
+                    fmt_num(getattr(row, "Frequência", getattr(row, "_3", 0)))]
+            for j, (val, w) in enumerate(zip(vals, col_ws)):
+                add_rect(sl, x, y, w, rh, bg)
+                al = PP_ALIGN.CENTER if j in (0, 3) else PP_ALIGN.LEFT
+                add_text(sl, val, x + Inches(0.05), y + Inches(0.06),
+                         w - Inches(0.10), rh - Inches(0.08),
+                         font_size=12, color=TEXTO, align=al)
+                x += w
+
+    # Footer insights (always at bottom)
     insights = []
     if not df_pares.empty:
         top1 = df_pares.iloc[0]
-        pa = _trunc(top1['Produto A'])
-        pb = _trunc(top1['Produto B'])
-        insights.append(f"{pa} + {pb}: par mais frequente com {fmt_num(top1['Frequência'])} ocorrências")
-    insights.append("Identifique o produto âncora — aquele que aparece na maioria dos pares")
+        pa = _trunc(top1["Produto A"])
+        pb = _trunc(top1["Produto B"])
+        freq1 = fmt_num(top1["Frequência"])
+        insights.append(f"{pa} + {pb}: par mais frequente com {freq1} ocorrencias")
+    insights.append("Identifique o produto ancora — aquele que aparece na maioria dos pares")
     insights.append("Crie kits e combos baseados nos pares mais frequentes")
 
-    add_rect(sl, Inches(8.7), Inches(1.15), Inches(4.4), Inches(5.8),
+    footer_y = Inches(6.25)
+    add_rect(sl, Inches(0.2), footer_y, Inches(13.0), Inches(1.05),
              RGBColor(0xEB, 0xF5, 0xFF))
     add_text(sl, "INSIGHTS DE CROSS-SELL",
-             Inches(8.85), Inches(1.3), Inches(4.1), Inches(0.5),
-             font_size=14, bold=True, color=AZUL_ESC)
+             Inches(0.35), footer_y + Inches(0.05), Inches(4.0), Inches(0.32),
+             font_size=12, bold=True, color=AZUL_ESC)
     for k, ins in enumerate(insights):
         add_text(sl, ins,
-                 Inches(8.85), Inches(1.9 + k * 1.75), Inches(4.1), Inches(1.6),
-                 font_size=14, color=TEXTO)
+                 Inches(0.35 + k * 4.33), footer_y + Inches(0.37),
+                 Inches(4.2), Inches(0.62),
+                 font_size=11, color=TEXTO)
+
+    # Table(s)
+    y_tbl = Inches(1.15)
+    if _n_pares <= 10:
+        # Single wide table — full width
+        cw1 = [Inches(0.5), Inches(4.5), Inches(4.5), Inches(1.4)]
+        _draw_pares_tbl(df_pares, Inches(1.2), y_tbl, cw1, num_offset=0)
+    else:
+        # Two tables side by side — left: 1–10, right: 11–N
+        cw2 = [Inches(0.45), Inches(2.35), Inches(2.35), Inches(0.75)]  # 5.9" each
+        _draw_pares_tbl(df_pares.head(10),    Inches(0.3), y_tbl, cw2, num_offset=0)
+        _draw_pares_tbl(df_pares.iloc[10:20], Inches(6.8), y_tbl, cw2, num_offset=10)
 
     #  SLIDE 5: COMBOS DE 3 
     sl = prs.slides.add_slide(blank)
