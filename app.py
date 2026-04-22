@@ -2334,7 +2334,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          font_size=12, color=TEXTO, align=al)
                 x += w
 
-    # Footer insights (always at bottom)
+    # Footer insights — empilhados verticalmente para evitar overflow
     insights = []
     if not df_pares.empty:
         top1 = df_pares.iloc[0]
@@ -2345,16 +2345,18 @@ def exportar_pptx(kpis, df_pares, df_trios,
     insights.append("Identifique o produto ancora — aquele que aparece na maioria dos pares")
     insights.append("Crie kits e combos baseados nos pares mais frequentes")
 
-    footer_y = Inches(6.25)
-    add_rect(sl, Inches(0.2), footer_y, Inches(13.0), Inches(1.05),
+    _ins_row_h = Inches(0.30)
+    footer_h   = Inches(0.28) + len(insights) * _ins_row_h + Inches(0.14)
+    footer_y   = Inches(7.5) - footer_h - Inches(0.08)   # âncora no rodapé
+    add_rect(sl, Inches(0.2), footer_y, Inches(13.0), footer_h,
              RGBColor(0xEB, 0xF5, 0xFF))
     add_text(sl, "INSIGHTS DE CROSS-SELL",
-             Inches(0.35), footer_y + Inches(0.05), Inches(4.0), Inches(0.32),
-             font_size=12, bold=True, color=AZUL_ESC)
+             Inches(0.35), footer_y + Inches(0.04), Inches(5.0), Inches(0.26),
+             font_size=11, bold=True, color=AZUL_ESC)
     for k, ins in enumerate(insights):
-        add_text(sl, ins,
-                 Inches(0.35 + k * 4.33), footer_y + Inches(0.37),
-                 Inches(4.2), Inches(0.62),
+        y_ins = footer_y + Inches(0.30) + k * _ins_row_h
+        add_text(sl, f"•  {ins}",
+                 Inches(0.40), y_ins, Inches(12.6), _ins_row_h,
                  font_size=11, color=TEXTO)
 
     # Table(s)
