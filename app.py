@@ -4296,38 +4296,55 @@ f"{_col_nfe}{_col_skip}"
     st.divider()
     st.subheader("Exportar Relatório")
 
-    # Gera PPTX uma vez e reutiliza para PPTX e PDF
     _nome_base = f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
-    _pptx_bytes = None
-    try:
-        from pptx import Presentation  # noqa: F401
-        import matplotlib  # noqa: F401
-        _pptx_bytes = exportar_pptx(
-            kpis, df_pares, df_trios,
-            df_cesta, df_turno, df_bcg,
-            df_elev, df_redu, df_sim_rec, df_sim_preco,
-            df_combos, df_metas, df_horas,
-            df_solo, df_remocao, df_dia_tipo,
-            df_nfe, kpis_nfce,
-            fonte_label, cli_label, per_label,
-            df_abc=df_abc,
-            df_por_hora=df_por_hora,
-            df_por_turno=df_por_turno,
-        )
-    except ImportError:
-        pass
+
+    # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
+    # Usa o fingerprint da análise como chave: se o dado mudou, regenera; caso
+    # contrário reutiliza o bytes já gerado, evitando o rerun "pesado" que
+    # causa o reinício da tela.
+    _fp_atual = st.session_state.get("_analise_fp", "")
+
+    if st.session_state.get("_export_fp") != _fp_atual:
+        # Dados novos — gera os arquivos e guarda no cache
+        _pptx_bytes = None
+        try:
+            from pptx import Presentation  # noqa: F401
+            import matplotlib  # noqa: F401
+            _pptx_bytes = exportar_pptx(
+                kpis, df_pares, df_trios,
+                df_cesta, df_turno, df_bcg,
+                df_elev, df_redu, df_sim_rec, df_sim_preco,
+                df_combos, df_metas, df_horas,
+                df_solo, df_remocao, df_dia_tipo,
+                df_nfe, kpis_nfce,
+                fonte_label, cli_label, per_label,
+                df_abc=df_abc,
+                df_por_hora=df_por_hora,
+                df_por_turno=df_por_turno,
+            )
+        except ImportError:
+            pass
+
+        _xlsx_bytes = exportar_excel(kpis, df_pares, df_trios,
+                                     df_cesta, df_bcg, df_abc, df_remocao,
+                                     df_elev, df_redu, df_sim_preco, df_sim_rec,
+                                     df_combos, df_metas,
+                                     cli_label, per_label)
+
+        st.session_state["_export_pptx"]  = _pptx_bytes
+        st.session_state["_export_xlsx"]  = _xlsx_bytes
+        st.session_state["_export_fp"]    = _fp_atual
+    else:
+        # Mesmos dados — reutiliza cache (clique no botão não regenera nada)
+        _pptx_bytes = st.session_state.get("_export_pptx")
+        _xlsx_bytes = st.session_state.get("_export_xlsx")
 
     col_xl, col_pp, col_pdf = st.columns(3)
 
     with col_xl:
-        xlsx_bytes = exportar_excel(kpis, df_pares, df_trios,
-                                    df_cesta, df_bcg, df_abc, df_remocao,
-                                    df_elev, df_redu, df_sim_preco, df_sim_rec,
-                                    df_combos, df_metas,
-                                    cli_label, per_label)
         st.download_button(
             label="Baixar Excel (.xlsx)",
-            data=xlsx_bytes,
+            data=_xlsx_bytes,
             file_name=f"{_nome_base}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
