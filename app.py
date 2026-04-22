@@ -1296,6 +1296,43 @@ def calc_bcg(df: pd.DataFrame) -> pd.DataFrame:
     return prod.sort_values("receita", ascending=False)
 
 
+def calc_curva_abc(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Classifica todos os produtos pela Curva ABC com base na receita acumulada.
+      A: produtos que representam os primeiros 80 % da receita (itens vitais)
+      B: 80–95 % acumulado (itens importantes)
+      C: 95–100 % acumulado (itens triviais)
+    """
+    prod = (
+        df.groupby("xProd")
+        .agg(frequencia=("chave", "nunique"), receita=("vProd", "sum"))
+        .reset_index()
+        .sort_values("receita", ascending=False)
+        .reset_index(drop=True)
+    )
+    total = prod["receita"].sum()
+    prod["pct_receita"]  = prod["receita"] / total * 100
+    prod["pct_acumulado"] = prod["pct_receita"].cumsum()
+
+    def _grupo(acum):
+        if acum <= 80:
+            return "A"
+        elif acum <= 95:
+            return "B"
+        return "C"
+
+    prod["Curva"] = prod["pct_acumulado"].apply(_grupo)
+    prod.insert(0, "Rank", range(1, len(prod) + 1))
+    prod = prod.rename(columns={
+        "xProd":        "Produto",
+        "frequencia":   "Frequência",
+        "receita":      "Receita (R$)",
+        "pct_receita":  "% Receita",
+        "pct_acumulado":"% Acumulado",
+    })
+    return prod[["Rank", "Produto", "Curva", "Frequência", "Receita (R$)", "% Receita", "% Acumulado"]]
+
+
 def calc_crossell(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     baskets_cat = df.groupby("chave")["categoria"].agg(lambda x: list(set(x)))
     contagem = Counter()
@@ -1683,7 +1720,7 @@ def fig_crossell(df_cross: pd.DataFrame):
 # EXPORT EXCEL
 # 
 def exportar_excel(kpis, df_pares, df_trios,
-                   df_cesta, df_bcg, df_remocao,
+                   df_cesta, df_bcg, df_abc, df_remocao,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
                    df_combos, df_metas,
                    cliente: str, periodo: str) -> bytes:
@@ -1707,6 +1744,13 @@ def exportar_excel(kpis, df_pares, df_trios,
         bcg_exp["receita"] = bcg_exp["receita"].apply(brl)
         bcg_exp.columns    = ["Produto", "Classificação", "Frequência", "Receita"]
         bcg_exp.to_excel(writer, sheet_name="Classificação Produtos", index=False)
+
+        if df_abc is not None and not df_abc.empty:
+            abc_exp = df_abc.copy()
+            abc_exp["Receita (R$)"] = abc_exp["Receita (R$)"].apply(brl)
+            abc_exp["% Receita"]    = abc_exp["% Receita"].round(2).astype(str) + "%"
+            abc_exp["% Acumulado"]  = abc_exp["% Acumulado"].round(2).astype(str) + "%"
+            abc_exp.to_excel(writer, sheet_name="Curva ABC", index=False)
 
         rem_exp = df_remocao.copy()
         rem_exp["receita"] = rem_exp["receita"].apply(brl)
@@ -2155,6 +2199,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                   df_solo, df_remocao, df_dia_tipo,
                   df_nfe, kpis_nfce,
                   fonte_label: str, cliente: str, periodo: str,
+                  df_abc=None,
                   df_por_hora=None, df_por_turno=None) -> bytes:
     try:
         from pptx import Presentation
@@ -2602,6 +2647,94 @@ def exportar_pptx(kpis, df_pares, df_trios,
     add_text(sl, "⚠ Antes de remover: verifique custo de produção, sazonalidade e perfil de cliente fiel.",
              Inches(0.5), footer_top + Inches(0.04), Inches(12.3), Inches(0.26),
              font_size=13, color=RGBColor(0x92, 0x40, 0x0E))
+
+    #  SLIDE CURVA ABC
+    if df_abc is not None and not df_abc.empty:
+        sl = prs.slides.add_slide(blank)
+        add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
+        add_text(sl, "CURVA ABC — ANÁLISE DE RELEVÂNCIA DOS PRODUTOS",
+                 Inches(0.3), Inches(0.1), W - Inches(0.6), Inches(0.8),
+                 font_size=22, bold=True, color=BRANCO)
+
+        _abc_cores = {"A": RGBColor(0x05, 0x96, 0x69),   # verde
+                      "B": RGBColor(0xD9, 0x77, 0x06),   # âmbar
+                      "C": RGBColor(0x6B, 0x72, 0x80)}   # cinza
+
+        _abc_col_x = [Inches(0.2), Inches(4.55), Inches(8.9)]
+        _abc_col_w = Inches(4.2)
+        _abc_top   = Inches(1.1)
+        _fat_total = df_abc["Receita (R$)"].sum()
+
+        for gi, grupo in enumerate(["A", "B", "C"]):
+            gdf   = df_abc[df_abc["Curva"] == grupo]
+            if gdf.empty:
+                continue
+            cx    = _abc_col_x[gi]
+            cor   = _abc_cores[grupo]
+            n_prod   = len(gdf)
+            fat_grp  = gdf["Receita (R$)"].sum()
+            pct_grp  = fat_grp / _fat_total * 100 if _fat_total else 0
+
+            # Cabeçalho colorido com letra
+            add_rect(sl, cx, _abc_top, _abc_col_w, Inches(0.5), cor)
+            add_text(sl, f"GRUPO  {grupo}",
+                     cx + Inches(0.1), _abc_top + Inches(0.08),
+                     _abc_col_w - Inches(0.2), Inches(0.36),
+                     font_size=18, bold=True, color=BRANCO)
+
+            # Resumo estatístico
+            _stat_top = _abc_top + Inches(0.55)
+            add_rect(sl, cx, _stat_top, _abc_col_w, Inches(0.62),
+                     RGBColor(0xF3, 0xF4, 0xF6))
+            add_text(sl, f"{n_prod} produto(s)  ·  {pct_grp:.1f}% da receita  ·  {brl(fat_grp)}",
+                     cx + Inches(0.1), _stat_top + Inches(0.12),
+                     _abc_col_w - Inches(0.2), Inches(0.40),
+                     font_size=12, color=TEXTO)
+
+            # Top 5 produtos do grupo
+            top5 = gdf.head(5)
+            _row_top = _stat_top + Inches(0.68)
+            _rh_abc  = Inches(0.42)
+            hdrs_abc = ["#", "Produto", "Receita", "%"]
+            cws_abc  = [Inches(0.38), Inches(2.18), Inches(1.12), Inches(0.52)]
+            # Cabeçalho tabela
+            _x = cx
+            for hdr_a, cw_a in zip(hdrs_abc, cws_abc):
+                add_rect(sl, _x, _row_top, cw_a, _rh_abc, cor)
+                add_text(sl, hdr_a,
+                         _x + Inches(0.03), _row_top + Inches(0.06),
+                         cw_a - Inches(0.06), _rh_abc - Inches(0.08),
+                         font_size=11, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                _x += cw_a
+            # Linhas de dados
+            for ri, (_, row_a) in enumerate(top5.iterrows()):
+                _yr  = _row_top + _rh_abc * (ri + 1)
+                _bg  = RGBColor(0xEC, 0xFD, 0xF5) if gi == 0 else (
+                       RGBColor(0xFF, 0xF9, 0xEB) if gi == 1 else
+                       RGBColor(0xF9, 0xFA, 0xFB)) if ri % 2 == 0 else BRANCO
+                _x = cx
+                _vals_a = [str(int(row_a["Rank"])),
+                           str(row_a["Produto"])[:30],
+                           brl(row_a["Receita (R$)"]),
+                           f"{row_a['% Receita']:.1f}%"]
+                for ji, (va, cw_a) in enumerate(zip(_vals_a, cws_abc)):
+                    add_rect(sl, _x, _yr, cw_a, _rh_abc, _bg)
+                    _al = PP_ALIGN.CENTER if ji in (0, 2, 3) else PP_ALIGN.LEFT
+                    add_text(sl, va,
+                             _x + Inches(0.03), _yr + Inches(0.06),
+                             cw_a - Inches(0.06), _rh_abc - Inches(0.08),
+                             font_size=11, color=TEXTO, align=_al)
+                    _x += cw_a
+
+        # Legenda rodapé
+        add_rect(sl, Inches(0.2), Inches(6.9), W - Inches(0.4), Inches(0.38),
+                 RGBColor(0xEB, 0xF5, 0xFF))
+        add_text(sl,
+                 "A: primeiros 80% da receita (produtos vitais)  "
+                 "·  B: 80–95% (produtos importantes)  "
+                 "·  C: 95–100% (produtos de menor impacto)",
+                 Inches(0.35), Inches(6.92), W - Inches(0.7), Inches(0.32),
+                 font_size=11, color=AZUL_ESC)
 
     #  SLIDE DIA DA SEMANA (se disponível)
     if df_dia_tipo is not None and not df_dia_tipo.empty:
@@ -3237,6 +3370,7 @@ def main():
         df_trios     = _R["df_trios"]
         df_cesta     = _R["df_cesta"]
         df_bcg       = _R["df_bcg"]
+        df_abc       = _R.get("df_abc", pd.DataFrame())
         df_remocao   = _R["df_remocao"]
         df_turno     = _R["df_turno"]
         df_solo      = _R["df_solo"]
@@ -3407,6 +3541,7 @@ def main():
 
         _render_prog(60, "🏷️ Classificando produtos (BCG, remoção, solo)...", _t0, _box_txt, _box_bar)
         df_bcg     = calc_bcg(df_all)
+        df_abc     = calc_curva_abc(df_all)
         df_remocao = calc_remocao(df_all)
         df_solo    = calc_solo_produtos(df)
         df_anti    = calc_anti_pares(df)
@@ -3496,7 +3631,7 @@ f"{_col_nfe}{_col_skip}"
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
             "df_pares": df_pares,    "df_trios": df_trios,
-            "df_cesta": df_cesta,    "df_bcg": df_bcg,
+            "df_cesta": df_cesta,    "df_bcg": df_bcg,   "df_abc": df_abc,
             "df_remocao": df_remocao,"df_turno": df_turno,    "df_solo": df_solo,
             "df_anti": df_anti,      "df_dia_tipo": df_dia_tipo, "df_dia_semana": df_dia_semana,
             "df_elev": df_elev,      "df_redu": df_redu,
@@ -4051,6 +4186,7 @@ f"{_col_nfe}{_col_skip}"
             df_solo, df_remocao, df_dia_tipo,
             df_nfe, kpis_nfce,
             fonte_label, cli_label, per_label,
+            df_abc=df_abc,
             df_por_hora=df_por_hora,
             df_por_turno=df_por_turno,
         )
@@ -4061,7 +4197,7 @@ f"{_col_nfe}{_col_skip}"
 
     with col_xl:
         xlsx_bytes = exportar_excel(kpis, df_pares, df_trios,
-                                    df_cesta, df_bcg, df_remocao,
+                                    df_cesta, df_bcg, df_abc, df_remocao,
                                     df_elev, df_redu, df_sim_preco, df_sim_rec,
                                     df_combos, df_metas,
                                     cli_label, per_label)
