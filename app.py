@@ -3122,17 +3122,32 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      Inches(2.8), Inches(0.5),
                      font_size=14, color=BRANCO, align=PP_ALIGN.CENTER)
 
-        # Top produtos NF-e
+        # Top produtos NF-e (nomes limpos — sem Ped./Nro.Item)
         if "xProd" in df_nfe.columns and "vProd" in df_nfe.columns:
-            top_b2b = (df_nfe.groupby(["xProd", "categoria"])
+            import re as _re_tbl
+            def _clean_tbl(s):
+                s = _re_tbl.sub(r"\s+Ped\.+\s*:.*$", "", str(s), flags=_re_tbl.IGNORECASE)
+                s = _re_tbl.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re_tbl.IGNORECASE)
+                return s.strip()
+            _nfe_tbl = df_nfe.copy()
+            _nfe_tbl["xProd"] = _nfe_tbl["xProd"].apply(_clean_tbl)
+            _dest_b2b = "destinatario" if "destinatario" in _nfe_tbl.columns else None
+            _grp_b2b  = ["xProd"] + ([_dest_b2b] if _dest_b2b else [])
+            top_b2b = (_nfe_tbl.groupby(_grp_b2b)
                        .agg(receita=("vProd", "sum"), notas=("chave", "nunique"))
-                       .sort_values("receita", ascending=False).head(10).reset_index())
+                       .sort_values("receita", ascending=False).head(8).reset_index())
 
             add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(0.3), Inches(3.0), Inches(7.5), Inches(0.45),
                      font_size=14, bold=True, color=AZUL_ESC)
-            hdrs_b2b  = ["#", "Produto", "Notas"]
-            col_ws_b2b = [Inches(0.5), Inches(6.4), Inches(0.8)]
+
+            if _dest_b2b:
+                hdrs_b2b   = ["#", "Produto", "Empresa", "Notas"]
+                col_ws_b2b = [Inches(0.4), Inches(3.3), Inches(3.0), Inches(0.6)]
+            else:
+                hdrs_b2b   = ["#", "Produto", "Notas"]
+                col_ws_b2b = [Inches(0.5), Inches(6.4), Inches(0.8)]
+
             y_b = Inches(3.5)
             rh  = Inches(0.38)
             x   = Inches(0.3)
@@ -3142,18 +3157,22 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          ww - Inches(0.08), rh - Inches(0.08),
                          font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
                 x += ww
-            for ri, (_, row) in enumerate(top_b2b.head(8).iterrows()):
+            for ri, (_, row) in enumerate(top_b2b.iterrows()):
                 y_r = y_b + rh * (ri + 1)
                 bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
                 x   = Inches(0.3)
-                vals_b = [str(ri+1), str(row["xProd"])[:60],
-                          fmt_num(row["notas"])]
+                if _dest_b2b:
+                    vals_b = [str(ri+1), str(row["xProd"])[:40],
+                              str(row.get(_dest_b2b, ""))[:38],
+                              fmt_num(row["notas"])]
+                else:
+                    vals_b = [str(ri+1), str(row["xProd"])[:60], fmt_num(row["notas"])]
                 for vi, (val, ww) in enumerate(zip(vals_b, col_ws_b2b)):
                     add_rect(sl, x, y_r, ww, rh, bg)
-                    al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
+                    al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
                     add_text(sl, val, x + Inches(0.04), y_r + Inches(0.05),
                              ww - Inches(0.08), rh - Inches(0.08),
-                             font_size=13, color=TEXTO, align=al)
+                             font_size=11, color=TEXTO, align=al)
                     x += ww
 
         # Top produtos NF-e à direita (nomes limpos — sem Ped./Nro.Item)
