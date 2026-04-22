@@ -2232,19 +2232,20 @@ def exportar_pptx(kpis, df_pares, df_trios,
     add_rect(sl, 0, 0, W, H, AZUL_ESC)
     add_rect(sl, 0, Inches(5.2), W, Inches(2.3), AZUL_MED)
 
+    # Caixas de texto com largura total do slide — centralização garantida
     add_text(sl, cliente.upper(),
-             Inches(0.8), Inches(1.5), Inches(11), Inches(1.2),
+             Inches(0), Inches(1.5), W, Inches(1.4),
              font_size=42, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
     add_text(sl, "ANÁLISE ESTRATÉGICA DE VENDAS",
-             Inches(0.8), Inches(2.8), Inches(11), Inches(0.8),
+             Inches(0), Inches(3.0), W, Inches(0.7),
              font_size=24, bold=False, color=RGBColor(0xCA, 0xDC, 0xFC),
              align=PP_ALIGN.CENTER)
-    add_text(sl, periodo.upper() + f" |  {fonte_label.upper()}",
-             Inches(0.8), Inches(3.5), Inches(11), Inches(0.6),
+    add_text(sl, periodo.upper() + f"  |  {fonte_label.upper()}",
+             Inches(0), Inches(3.75), W, Inches(0.55),
              font_size=16, color=RGBColor(0xCA, 0xDC, 0xFC),
              align=PP_ALIGN.CENTER)
-    add_text(sl, "Inteligência de Dados para Crescimento de Vendas",
-             Inches(0.8), Inches(5.6), Inches(11), Inches(0.6),
+    add_text(sl, "Análise de dados orientada ao crescimento: clareza para decidir, estratégia para vender mais.",
+             Inches(0), Inches(5.5), W, Inches(0.75),
              font_size=14, color=BRANCO, align=PP_ALIGN.CENTER)
 
     # Logo centralizada na parte inferior da capa
