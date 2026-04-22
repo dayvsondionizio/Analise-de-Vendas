@@ -2979,7 +2979,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      font_size=11, bold=True, color=AZUL_ESC)
             fig_cb2, ax_cb2 = plt.subplots(figsize=(4.8, 3.8))
             ax_cb2.barh(top_nfe["xProd"].str[:25], top_nfe["vProd"],
-                        color=AZUL2, height=0.6)
+                        color="#2563EB", height=0.6)
             ax_cb2.tick_params(labelsize=7)
             ax_cb2.spines[["top", "right"]].set_visible(False)
             fig_cb2.tight_layout()
