@@ -2118,13 +2118,13 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             top_rem = df_remocao.head(12)
             rem_data = [
                 [str(i+1),
-                 row.iloc[0][:35] if len(str(row.iloc[0])) > 35 else str(row.iloc[0]),
-                 str(row.iloc[1]), str(row.iloc[2]), brl(float(row.iloc[3])) if row.iloc[3] else ""]
+                 row.xProd[:45] if len(str(row.xProd)) > 45 else str(row.xProd),
+                 fmt_num(int(row.frequencia)), brl(float(row.receita))]
                 for i, row in enumerate(top_rem.itertuples(index=False))
             ]
             draw_table(fig, [0.03, 0.07, 0.55, 0.37], rem_data,
-                       ["#", "Produto", "Categoria", "Freq.", "Receita"],
-                       col_widths=[0.05, 0.44, 0.22, 0.14, 0.15],
+                       ["#", "Produto", "Freq.", "Receita"],
+                       col_widths=[0.05, 0.60, 0.17, 0.18],
                        title="Candidatos a Remoção do Cardápio")
 
         pdf.savefig(fig, bbox_inches="tight")
@@ -2784,8 +2784,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
                  font_size=20, bold=True, color=BRANCO)
 
-        hdrs_mt  = ["Produto", "Categoria", "Receita Atual", "Meta +10%", "Meta +20%", "Ação"]
-        col_ws_m = [Inches(3.5), Inches(1.8), Inches(1.8), Inches(1.8), Inches(1.8), Inches(2.3)]
+        hdrs_mt  = ["Produto", "Receita Atual", "Meta +10%", "Meta +20%"]
+        col_ws_m = [Inches(5.5), Inches(2.5), Inches(2.5), Inches(2.5)]
         y_m = Inches(1.15)
         rh  = Inches(0.37)
         x   = Inches(0.2)
@@ -2799,14 +2799,13 @@ def exportar_pptx(kpis, df_pares, df_trios,
             y_r = y_m + rh * (ri + 1)
             bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
             x   = Inches(0.2)
-            vals_m = [str(row["xProd"])[:42], str(row["categoria"]),
-                      brl(row["receita"]), brl(row["Meta +10%"]), brl(row["Meta +20%"]),
-                      str(row.get("Ação Sugerida", ""))[:35]]
+            vals_m = [str(row["xProd"])[:55],
+                      brl(row["receita"]), brl(row["Meta +10%"]), brl(row["Meta +20%"])]
             for vi, (val, ww) in enumerate(zip(vals_m, col_ws_m)):
                 add_rect(sl, x, y_r, ww, rh, bg)
-                al = PP_ALIGN.LEFT if vi in (0, 1, 5) else PP_ALIGN.CENTER
-                col_v = (RGBColor(0x16, 0xA0, 0x85) if vi == 3
-                         else (RGBColor(0x8E, 0x44, 0xAD) if vi == 4 else TEXTO))
+                al = PP_ALIGN.LEFT if vi == 0 else PP_ALIGN.CENTER
+                col_v = (RGBColor(0x16, 0xA0, 0x85) if vi == 2
+                         else (RGBColor(0x8E, 0x44, 0xAD) if vi == 3 else TEXTO))
                 add_text(sl, val, x + Inches(0.05), y_r + Inches(0.06),
                          ww - Inches(0.1), rh - Inches(0.1),
                          font_size=8, color=col_v, align=al)
@@ -2946,8 +2945,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
             add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(0.3), Inches(3.0), Inches(7.5), Inches(0.45),
                      font_size=12, bold=True, color=AZUL_ESC)
-            hdrs_b2b  = ["#", "Produto", "Categoria", "Notas"]
-            col_ws_b2b = [Inches(0.5), Inches(4.6), Inches(1.8), Inches(0.8)]
+            hdrs_b2b  = ["#", "Produto", "Notas"]
+            col_ws_b2b = [Inches(0.5), Inches(6.4), Inches(0.8)]
             y_b = Inches(3.5)
             rh  = Inches(0.38)
             x   = Inches(0.3)
@@ -2961,11 +2960,11 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 y_r = y_b + rh * (ri + 1)
                 bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
                 x   = Inches(0.3)
-                vals_b = [str(ri+1), str(row["xProd"])[:50], str(row["categoria"]),
+                vals_b = [str(ri+1), str(row["xProd"])[:60],
                           fmt_num(row["notas"])]
                 for vi, (val, ww) in enumerate(zip(vals_b, col_ws_b2b)):
                     add_rect(sl, x, y_r, ww, rh, bg)
-                    al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
+                    al = PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER
                     add_text(sl, val, x + Inches(0.04), y_r + Inches(0.05),
                              ww - Inches(0.08), rh - Inches(0.08),
                              font_size=9, color=TEXTO, align=al)
@@ -3595,7 +3594,7 @@ f"{_col_nfe}{_col_skip}"
             else:
                 tbl_s = df_solo.copy()
                 tbl_s["receita"] = tbl_s["receita"].apply(brl)
-                tbl_s.columns = ["Produto", "Categoria", "Pedidos Solo", "Receita Solo"]
+                tbl_s.columns = ["Produto", "Pedidos Solo", "Receita Solo"]
                 st.dataframe(tbl_s, use_container_width=True, hide_index=True)
                 top_solo = df_solo.iloc[0]
                 st.info(f" **{top_solo['xProd']}** é o produto mais comprado sozinho "
@@ -3611,7 +3610,7 @@ f"{_col_nfe}{_col_skip}"
         with col_rem:
             rem = df_remocao.copy()
             rem["receita"] = rem["receita"].apply(brl)
-            rem.columns = ["Produto", "Categoria", "Frequência", "Receita"]
+            rem.columns = ["Produto", "Frequência", "Receita"]
             st.dataframe(rem, use_container_width=True, hide_index=True, height=500)
         with col_info:
             st.markdown("""
@@ -3648,7 +3647,7 @@ f"{_col_nfe}{_col_skip}"
             if df_elev.empty:
                 st.info("Dados insuficientes.")
             else:
-                tbl = df_elev[["Produto", "Categoria", "Nº Pedidos",
+                tbl = df_elev[["Produto", "Nº Pedidos",
                                "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
                 tbl["Ticket Médio c/ Produto"] = tbl["Ticket Médio c/ Produto"].apply(brl)
                 tbl["Diferença R$"] = tbl["Diferença R$"].apply(lambda v: f"+{brl(v)}")
@@ -3664,7 +3663,7 @@ f"{_col_nfe}{_col_skip}"
             if df_redu.empty:
                 st.info("Dados insuficientes.")
             else:
-                tbl2 = df_redu[["Produto", "Categoria", "Nº Pedidos",
+                tbl2 = df_redu[["Produto", "Nº Pedidos",
                                 "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
                 tbl2["Ticket Médio c/ Produto"] = tbl2["Ticket Médio c/ Produto"].apply(brl)
                 tbl2["Diferença R$"] = tbl2["Diferença R$"].apply(lambda v: brl(v) if v < 0 else f"+{brl(v)}")
