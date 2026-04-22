@@ -2377,6 +2377,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
              font_size=22, bold=True, color=BRANCO)
 
     rows_t = df_trios.head(10)
+    row_h   = Inches(0.42)
     col_w2  = [Inches(0.5), Inches(2.8), Inches(2.8), Inches(2.8), Inches(1.0), Inches(2.0)]
     hdrs2   = ["#", "Produto A", "Produto B", "Produto C", "Freq.", "Sugestão"]
     x = Inches(0.3)
