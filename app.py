@@ -2692,9 +2692,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      font_size=12, color=TEXTO)
 
             # Top 5 produtos do grupo
-            top5 = gdf.head(5)
+            top10 = gdf.head(10)
             _row_top = _stat_top + Inches(0.68)
-            _rh_abc  = Inches(0.42)
+            _rh_abc  = Inches(0.34)
             hdrs_abc = ["#", "Produto", "Receita", "%"]
             cws_abc  = [Inches(0.38), Inches(2.18), Inches(1.12), Inches(0.52)]
             # Cabeçalho tabela
@@ -2707,7 +2707,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          font_size=11, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
                 _x += cw_a
             # Linhas de dados
-            for ri, (_, row_a) in enumerate(top5.iterrows()):
+            for ri, (_, row_a) in enumerate(top10.iterrows()):
                 _yr  = _row_top + _rh_abc * (ri + 1)
                 _bg  = RGBColor(0xEC, 0xFD, 0xF5) if gi == 0 else (
                        RGBColor(0xFF, 0xF9, 0xEB) if gi == 1 else
@@ -3156,9 +3156,16 @@ def exportar_pptx(kpis, df_pares, df_trios,
                              font_size=13, color=TEXTO, align=al)
                     x += ww
 
-        # Top produtos NF-e à direita
+        # Top produtos NF-e à direita (nomes limpos — sem Ped./Nro.Item)
         if df_nfe is not None and not df_nfe.empty:
-            top_nfe = (df_nfe.groupby("xProd")["vProd"].sum()
+            import re as _re_nfe
+            def _clean_nfe(s):
+                s = _re_nfe.sub(r"\s+Ped\.+\s*:.*$", "", str(s), flags=_re_nfe.IGNORECASE)
+                s = _re_nfe.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re_nfe.IGNORECASE)
+                return s.strip()
+            _nfe_c = df_nfe.copy()
+            _nfe_c["xProd"] = _nfe_c["xProd"].apply(_clean_nfe)
+            top_nfe = (_nfe_c.groupby("xProd")["vProd"].sum()
                        .nlargest(8).reset_index().sort_values("vProd"))
             add_text(sl, "TOP PRODUTOS (NF-e)",
                      Inches(8.0), Inches(3.0), Inches(5.1), Inches(0.4),
@@ -3703,6 +3710,7 @@ f"{_col_nfe}{_col_skip}"
         "Market Basket",
         "Cesta",
         "Candidatos a Remoção",
+        "Curva ABC",
         "Ticket Drivers",
         "Simulações",
         "Metas",
@@ -3817,6 +3825,67 @@ f"{_col_nfe}{_col_skip}"
             if top_rem is not None:
                 st.info(f" **{top_rem['xProd']}** — produto com menor receita da lista. "
                         f"Apenas {fmt_num(top_rem['frequencia'])} vendas no período.")
+
+    #  CURVA ABC
+    with tabs[tab_idx["Curva ABC"]]:
+        st.subheader("Curva ABC — Relevância dos Produtos")
+        st.caption("Classifica todos os produtos pela participação acumulada na receita total.")
+
+        if df_abc is not None and not df_abc.empty:
+            _fat_abc = df_abc["Receita (R$)"].sum()
+            _ga = df_abc[df_abc["Curva"] == "A"]
+            _gb = df_abc[df_abc["Curva"] == "B"]
+            _gc = df_abc[df_abc["Curva"] == "C"]
+
+            ca, cb, cc = st.columns(3)
+            with ca:
+                st.markdown(
+                    f"<div style='background:#D1FAE5;border-left:5px solid #059669;"
+                    f"padding:14px 16px;border-radius:6px'>"
+                    f"<div style='font-size:22px;font-weight:700;color:#065F46'>GRUPO A</div>"
+                    f"<div style='font-size:13px;color:#065F46;margin-top:4px'>"
+                    f"{len(_ga)} produtos · {_ga['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                    f"<div style='font-size:18px;font-weight:600;color:#059669;margin-top:6px'>"
+                    f"{brl(_ga['Receita (R$)'].sum())}</div>"
+                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos vitais (0–80%)</div>"
+                    f"</div>", unsafe_allow_html=True)
+            with cb:
+                st.markdown(
+                    f"<div style='background:#FEF3C7;border-left:5px solid #D97706;"
+                    f"padding:14px 16px;border-radius:6px'>"
+                    f"<div style='font-size:22px;font-weight:700;color:#92400E'>GRUPO B</div>"
+                    f"<div style='font-size:13px;color:#92400E;margin-top:4px'>"
+                    f"{len(_gb)} produtos · {_gb['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                    f"<div style='font-size:18px;font-weight:600;color:#D97706;margin-top:6px'>"
+                    f"{brl(_gb['Receita (R$)'].sum())}</div>"
+                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos importantes (80–95%)</div>"
+                    f"</div>", unsafe_allow_html=True)
+            with cc:
+                st.markdown(
+                    f"<div style='background:#F3F4F6;border-left:5px solid #6B7280;"
+                    f"padding:14px 16px;border-radius:6px'>"
+                    f"<div style='font-size:22px;font-weight:700;color:#374151'>GRUPO C</div>"
+                    f"<div style='font-size:13px;color:#374151;margin-top:4px'>"
+                    f"{len(_gc)} produtos · {_gc['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                    f"<div style='font-size:18px;font-weight:600;color:#6B7280;margin-top:6px'>"
+                    f"{brl(_gc['Receita (R$)'].sum())}</div>"
+                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Longa cauda (95–100%)</div>"
+                    f"</div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
+                                   horizontal=True, key="radio_abc")
+            _df_show = df_abc if _filtro_abc == "Todos" else df_abc[df_abc["Curva"] == _filtro_abc]
+
+            _df_display = _df_show.copy()
+            _df_display["Receita (R$)"] = _df_display["Receita (R$)"].apply(brl)
+            _df_display["% Receita"]    = _df_display["% Receita"].round(2).astype(str) + "%"
+            _df_display["% Acumulado"] = _df_display["% Acumulado"].round(2).astype(str) + "%"
+
+            st.dataframe(_df_display, use_container_width=True, hide_index=True, height=420)
+        else:
+            st.info("Rode a análise para ver a Curva ABC.")
 
     #  TICKET DRIVERS
     with tabs[tab_idx["Ticket Drivers"]]:
@@ -4115,23 +4184,59 @@ f"{_col_nfe}{_col_skip}"
                 c3.metric("Ticket Médio B2B",  brl(fat_b2b / n_b2b if n_b2b else 0))
                 c4.metric("% do Total",        (f"{fat_b2b/kpis['faturamento']*100:.1f}".replace(".", ",") + "%") if kpis["faturamento"] else "—")
 
-            col_b1, col_b2 = st.columns(2)
-
             if "xProd" in df_nfe.columns and "vProd" in df_nfe.columns:
+                import re as _re
+                def _limpar_xprod(s: str) -> str:
+                    s = _re.sub(r"\s+Ped\.+\s*:.*$", "", s, flags=_re.IGNORECASE)
+                    s = _re.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re.IGNORECASE)
+                    return s.strip()
+
+                _df_nfe_view = df_nfe.copy()
+                _df_nfe_view["xProd_clean"] = _df_nfe_view["xProd"].astype(str).apply(_limpar_xprod)
+                _dest_col = "destinatario" if "destinatario" in _df_nfe_view.columns else None
+
+                _grp_cols = ["xProd_clean"] + ([_dest_col] if _dest_col else [])
+                top_b2b = (
+                    _df_nfe_view.groupby(_grp_cols)
+                    .agg(receita=("vProd", "sum"), notas=("chave", "nunique"))
+                    .sort_values("receita", ascending=False).head(15)
+                    .reset_index()
+                )
+                top_b2b["Receita"] = top_b2b["receita"].apply(brl)
+
+                _rename = {"xProd_clean": "Produto", "notas": "Notas"}
+                if _dest_col:
+                    _rename[_dest_col] = "Empresa"
+                _cols_show = ["Produto"] + (["Empresa"] if _dest_col else []) + ["Notas", "Receita"]
+                top_b2b = top_b2b.rename(columns=_rename)
+
+                col_b1, col_b2 = st.columns([3, 2])
                 with col_b1:
                     st.markdown("#### Top Produtos (NF-e)")
-                    top_b2b = (
-                        df_nfe.groupby(["xProd", "categoria"])
-                        .agg(receita=("vProd", "sum"), qtd=("qCom", "sum"), notas=("chave", "nunique"))
-                        .sort_values("receita", ascending=False).head(15)
-                        .reset_index()
+                    st.dataframe(top_b2b[_cols_show],
+                                 use_container_width=True, hide_index=True, height=450)
+
+                with col_b2:
+                    st.markdown("#### Receita por Produto (NF-e)")
+                    import plotly.express as _px
+                    _chart_df = top_b2b.head(10).iloc[::-1].copy()
+                    _chart_df["_receita_num"] = _df_nfe_view.groupby(
+                        _df_nfe_view["xProd"].astype(str).apply(_limpar_xprod))["vProd"].sum().nlargest(10).iloc[::-1].values
+                    _fig_nfe = _px.bar(
+                        _chart_df, x="_receita_num", y="Produto",
+                        orientation="h",
+                        labels={"_receita_num": "Receita (R$)", "Produto": ""},
+                        color_discrete_sequence=["#2563EB"],
                     )
-                    top_b2b["receita_fmt"] = top_b2b["receita"].apply(brl)
-                    st.dataframe(
-                        top_b2b[["xProd", "notas", "receita_fmt"]].rename(columns={
-                            "xProd": "Produto",
-                            "notas": "Notas", "receita_fmt": "Receita"}),
-                        use_container_width=True, hide_index=True, height=450)
+                    _fig_nfe.update_layout(
+                        margin=dict(l=0, r=10, t=10, b=10),
+                        xaxis_tickformat=",.0f",
+                        plot_bgcolor="white",
+                        height=420,
+                    )
+                    _fig_nfe.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
+                    _fig_nfe.update_yaxes(tickfont=dict(size=11))
+                    st.plotly_chart(_fig_nfe, use_container_width=True)
 
     #  EXPORTAÇÃO
     # CSS de impressão injetado na página principal (não no iframe)
