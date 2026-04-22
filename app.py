@@ -29,41 +29,64 @@ st.set_page_config(
 # CATEGORIAS — mapeamento por palavra-chave no xProd
 # Ordem importa: primeiro match ganha
 # 
-MAPA_CATEGORIAS = [
-    ("Pães",          ["PAO", "PÃO", "PAES", "BAGUETE", "BRIOCHE", "CIABATTA",
-                       "INTEGRAL", "CENTEIO", "FORMA", "CROISSANT", "FOCACCIA",
-                       "PITA", "HAMBURGUER", "HOT DOG", "BISNAGUINHA"]),
-    ("Lanchonete",    ["LANCHONETE", "SANDUICHE", "SANDUÍCHE", "WRAP",
-                       "MISTO", "CLUB"]),
-    ("Frios/Queijos", ["QJ ", "QUEIJO", "MUSSARELA", "MUÇARELA", "COALHO",
-                       "BRIE", "GOUDA", "PARMESAO", "PARMESÃO", "GORGONZOLA",
-                       "PRESUNTO", "PEITO DE PERU", "MORTADELA", "SALAME",
-                       "COPA ", "FRIOS", "EMBUTIDO", "APRESUNTADO", "BLANQUET",
-                       "PEPERONI", "LINGUICA", "LINGUIÇA"]),
-    ("Massas",        ["MACARRAO", "MACARRÃO", "MASSA ", "ESPAGUETE", "TALHARIM",
-                       "RAVIOL", "NHOQUE", "LAMEN", "LÁMEN", "RAMEN",
-                       "FIDEOS", "FIDÉOS", "FIDEO", "INSTANTANEO", "INSTANTÂNEO"]),
-    ("Bolos",         ["BOLO", "TORTA", "CHEESECAKE", "BROWNIE", "CUPCAKE",
-                       "ROCAMBOLE", "BICHO DE PE", "PANETONE", "CHOCOTONE",
-                       "PUDIM", "MOUSSE", "SEMIFRIO"]),
-    ("Salgados",      ["COXINHA", "PASTEL", "SALGADO", "ESFIHA", "KIBE",
-                       "RISOLIS", "RISOLE", "EMPADA", "BOLINHA",
-                       "DOGUINHO", "QUICHE", "CROQUET"]),
-    ("Tapiocas",      ["TAPIOCA"]),
-    ("Cafés",         ["CAFE", "CAFÉ", "CAPPUCCINO", "EXPRESSO", "ESPRESSO",
-                       "MACCHIATO", "LATTE", "CHA ", "CHÁ "]),
-    ("Refeições",     ["ALMOCO", "ALMOÇO", "PRATO FEITO", "PF ", "PF",
-                       "FEIJAO", "FEIJÃO", "MARMITA", "SELF SERVICE",
-                       "SELF-SERVICE", "BUFFET"]),
-    ("Sopas/Caldos",  ["SOPA", "CALDO", "SOPAO", "SOPÃO", "CANJICA",
-                       "MINGAU", "CREME DE"]),
-    ("Bebidas",       ["REFRI", "SUCO", "AGUA ", "ÁGUA ", "BEBIDA",
-                       "ACHOCOLATADO", "VITAMINA", "SMOOTHIE", "ISOTONIC",
-                       "ENERGET", "CERVEJA", "VINHO", "NESCAU", "LEITE",
-                       "IOGURTE", "YAKULT"]),
-    ("Doces",         ["DOCE", "BRIGADEIRO", "CHOCOLATE", "BOMBA",
-                       "SONHO", "COCADA", "BEIJINHO", "TRUFA",
-                       "BALA ", "PIRULITO", "BISCOITO", "COOKIE"]),
+# ──────────────────────────────────────────────────────────────────
+# CATEGORIAS — baseadas em NCM (código fiscal oficial)
+# NCM é sempre primário; keywords são fallback só para alimentos
+# preparados na própria padaria (salgados, bolos, etc.) que dividem
+# capítulo NCM 19/21 com produtos industrializados.
+# ──────────────────────────────────────────────────────────────────
+
+# Subcapítulos 4 dígitos têm prioridade sobre capítulos 2 dígitos
+MAPA_NCM = {
+    # ── subcapítulos 4 dígitos ──────────────────────────────────
+    "1901": "Mercearia",       # misturas p/ bolos, preparações infantis
+    "1902": "Massas",          # massas alimentícias (macarrão, lamen…)
+    "1903": "Mercearia",       # tapioca granulada
+    "1904": "Mercearia",       # cereais pré-cozidos (granola, cornflakes)
+    "1905": "Panificação",     # pão, biscoito, wafer, torrada, croissant
+    # ── capítulos 2 dígitos ─────────────────────────────────────
+    "01": "Outros",
+    "02": "Frios/Carnes",      # carnes bovinas, suínas, aves
+    "03": "Frios/Carnes",      # peixes e frutos do mar
+    "04": "Laticínios",        # leite, queijo, manteiga, ovos, iogurte
+    "07": "Hortifruti",        # legumes e hortaliças
+    "08": "Hortifruti",        # frutas
+    "09": "Café/Chá",          # café, chá, mate, especiarias
+    "10": "Mercearia",         # cereais (trigo, arroz, milho)
+    "11": "Mercearia",         # farinhas e amidos
+    "12": "Mercearia",         # sementes oleaginosas
+    "13": "Mercearia",         # gomas e resinas vegetais
+    "15": "Mercearia",         # gorduras e óleos vegetais/animais
+    "16": "Frios/Carnes",      # conservas de carne e peixe
+    "17": "Doces",             # açúcar, mel, balas, confeitos
+    "18": "Doces",             # cacau e chocolate
+    "19": "Panificação",       # demais preparações de cereais
+    "20": "Mercearia",         # preparações de legumes/frutas (polpa, geleia)
+    "21": "Mercearia",         # preparações alimentícias (tempero, caldo)
+    "22": "Bebidas",           # bebidas (água, suco, refri, cerveja, vinho)
+    "23": "Mercearia",         # resíduos da indústria alimentar
+    "33": "Higiene/Limpeza",   # perfumaria, cosméticos
+    "34": "Higiene/Limpeza",   # sabões, detergentes, velas
+    "35": "Mercearia",         # albuminas e gelatinas
+    "39": "Embalagens",        # plásticos e embalagens plásticas
+    "48": "Embalagens",        # papel e embalagens de papel/papelão
+    "63": "Outros",            # artigos têxteis
+    "94": "Outros",            # móveis e iluminação
+}
+
+# Keywords: fallback APENAS para alimentos preparados na padaria
+# (estes têm NCM 19/21 igual aos industrializados — NCM não distingue)
+MAPA_CATEGORIAS_FALLBACK = [
+    ("Salgados",   ["COXINHA", "PASTEL", "SALGADO", "ESFIHA", "KIBE",
+                    "RISOLIS", "RISOLE", "EMPADA", "BOLINHA", "DOGUINHO",
+                    "QUICHE", "CROQUET"]),
+    ("Bolos",      ["BOLO", "CHEESECAKE", "BROWNIE", "CUPCAKE", "ROCAMBOLE",
+                    "PANETONE", "CHOCOTONE", "PUDIM", "MOUSSE", "SEMIFRIO"]),
+    ("Tapiocas",   ["TAPIOCA"]),
+    ("Refeições",  ["ALMOCO", "ALMOÇO", "PRATO FEITO", "MARMITA",
+                    "SELF SERVICE", "SELF-SERVICE", "BUFFET"]),
+    ("Lanchonete", ["LANCHONETE", "SANDUICHE", "SANDUÍCHE", "WRAP"]),
+    ("Sopas/Caldos", ["SOPAO", "SOPÃO", "MINGAU"]),
 ]
 
 DAYS_MAP = {
@@ -73,93 +96,68 @@ DAYS_MAP = {
 }
 
 CORES_CATEGORIA = {
-    "Pães":               "#E67E22",
-    "Lanchonete":         "#E74C3C",
-    "Frios/Queijos":      "#3498DB",
-    "Frios/Laticínios":   "#5DADE2",
-    "Bolos":              "#9B59B6",
-    "Salgados":           "#F1C40F",
-    "Tapiocas":           "#1ABC9C",
-    "Cafés":              "#795548",
-    "Refeições":          "#27AE60",
-    "Sopas/Caldos":       "#5D6D7E",
-    "Bebidas":            "#2980B9",
-    "Doces":              "#E91E63",
-    "Doces/Chocolate":    "#C0392B",
-    "Massas":             "#E8A838",
-    "Mercearia":          "#F39C12",
-    "Embalagens":         "#AAB7B8",
-    "Outros":             "#95A5A6",
+    "Panificação":      "#E67E22",
+    "Massas":           "#E8A838",
+    "Laticínios":       "#5DADE2",
+    "Frios/Carnes":     "#3498DB",
+    "Bolos":            "#9B59B6",
+    "Salgados":         "#F1C40F",
+    "Tapiocas":         "#1ABC9C",
+    "Café/Chá":         "#795548",
+    "Refeições":        "#27AE60",
+    "Sopas/Caldos":     "#5D6D7E",
+    "Bebidas":          "#2980B9",
+    "Doces":            "#E91E63",
+    "Hortifruti":       "#52BE80",
+    "Mercearia":        "#F39C12",
+    "Embalagens":       "#AAB7B8",
+    "Higiene/Limpeza":  "#85C1E9",
+    "Lanchonete":       "#E74C3C",
+    "Outros":           "#95A5A6",
 }
-
-# Mapeamento NCM capítulo → categoria (fallback quando xProd não bate keywords)
-MAPA_NCM = {
-    "02": "Frios/Laticínios",   # carnes
-    "04": "Frios/Laticínios",   # laticínios, ovos, mel
-    "07": "Mercearia",          # legumes/vegetais
-    "08": "Mercearia",          # frutas
-    "09": "Cafés",              # café, chá, especiarias
-    "10": "Mercearia",          # cereais
-    "11": "Mercearia",          # farinhas/amidos (insumos)
-    "15": "Mercearia",          # gorduras/óleos
-    "16": "Frios/Laticínios",   # conservas de carne/peixe
-    "17": "Doces/Chocolate",    # açúcar, mel
-    "18": "Doces/Chocolate",    # cacau, chocolate
-    # capítulo 19 refinado por subcapítulo (4 dígitos têm prioridade)
-    "1901": "Mercearia",        # preparações p/ bebidas infantis / misturas
-    "1902": "Massas",           # pastas alimentícias (macarrão, lamen, etc.)
-    "1903": "Mercearia",        # tapioca granulada
-    "1904": "Mercearia",        # cereais preparados (granola, cornflakes)
-    "1905": "Pães",             # pão, biscoitos, wafer, bolacha
-    "19":   "Pães",             # restante do cap. 19 → panificação
-    "20": "Mercearia",          # preparações de frutas/legumes
-    "21": "Mercearia",          # preparações alimentícias diversas
-    "22": "Bebidas",            # bebidas, águas, sucos, álcool
-    "23": "Mercearia",          # resíduos industriais / rações
-    "35": "Mercearia",          # albuminas/colas (gelatinas)
-    "39": "Embalagens",         # plásticos e embalagens
-    "48": "Embalagens",         # papel/papelão/embalagens
-}
-
-
-def categorizar(nome: str) -> str:
-    nome_up = str(nome).upper()
-    for cat, palavras in MAPA_CATEGORIAS:
-        for p in palavras:
-            if p in nome_up:
-                return cat
-    return "Outros"
 
 
 def categorizar_serie(s: pd.Series, ncm: pd.Series = None) -> pd.Series:
-    """Categoriza por keyword no xProd; usa NCM como fallback para 'Outros'."""
-    s_up  = s.str.upper().fillna("")
+    """
+    Classifica produtos pelo NCM fiscal (primário).
+    Fallback por keyword apenas para alimentos preparados na padaria
+    que compartilham capítulo NCM com industrializados.
+    """
     result = pd.Series("Outros", index=s.index, dtype="object")
-    for cat, palavras in reversed(MAPA_CATEGORIAS):
+
+    # 1) NCM como classificação primária
+    if ncm is not None:
+        ncm_str = ncm.astype(str).str.zfill(8)
+        sub4 = ncm_str.str[:4]
+        cap2 = ncm_str.str[:2]
+        ncm2 = {k: v for k, v in MAPA_NCM.items() if len(k) == 2}
+        ncm4 = {k: v for k, v in MAPA_NCM.items() if len(k) == 4}
+        # Aplica 2 dígitos primeiro, depois 4 dígitos sobrescrevem onde necessário
+        for cod, cat in ncm2.items():
+            result[cap2 == cod] = cat
+        for cod, cat in ncm4.items():
+            result[sub4 == cod] = cat
+
+    # 2) Keyword como fallback só para quem ficou "Outros" ou "Panificação"/"Mercearia"
+    #    (alimentos preparados na padaria que o NCM não distingue)
+    s_up = s.str.upper().fillna("")
+    for cat, palavras in reversed(MAPA_CATEGORIAS_FALLBACK):
         mask = pd.Series(False, index=s.index)
         for p in palavras:
             mask |= s_up.str.contains(p, regex=False, na=False)
         result[mask] = cat
 
-    # Fallback: itens ainda "Outros" recebem categoria pelo NCM
-    # Entradas de 4 dígitos têm prioridade sobre as de 2 dígitos
-    if ncm is not None:
-        ainda_outros = result == "Outros"
-        if ainda_outros.any():
-            ncm_str = ncm.astype(str).str.zfill(8)
-            sub4 = ncm_str.str[:4]   # subcapítulo (4 dígitos)
-            cap2 = ncm_str.str[:2]   # capítulo    (2 dígitos)
-            ncm4 = {k: v for k, v in MAPA_NCM.items() if len(k) == 4}
-            ncm2 = {k: v for k, v in MAPA_NCM.items() if len(k) == 2}
-            for cod, cat in ncm4.items():
-                mask_ncm = ainda_outros & (sub4 == cod)
-                result[mask_ncm] = cat
-                ainda_outros &= ~mask_ncm
-            for cod, cat in ncm2.items():
-                mask_ncm = ainda_outros & (cap2 == cod)
-                result[mask_ncm] = cat
-
     return result
+
+
+def categorizar(nome: str) -> str:
+    """Versão escalar — mantida para compatibilidade."""
+    nome_up = str(nome).upper()
+    for cat, palavras in MAPA_CATEGORIAS_FALLBACK:
+        for p in palavras:
+            if p in nome_up:
+                return cat
+    return "Outros"
 
 
 # 
@@ -1526,7 +1524,7 @@ def calc_metas(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     prod["Meta +10%"] = (prod["receita"] * 1.10).round(2)
     prod["Meta +20%"] = (prod["receita"] * 1.20).round(2)
     prod["Ação Sugerida"] = prod["categoria"].apply(
-        lambda c: "Destacar na vitrine / balcão" if c in ["Pães", "Bolos", "Salgados", "Lanchonete"]
+        lambda c: "Destacar na vitrine / balcão" if c in ["Panificação", "Bolos", "Salgados", "Lanchonete"]
         else "Sugerir como complemento no atendimento"
     )
     return prod
