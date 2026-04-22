@@ -1185,17 +1185,18 @@ def _logo_base64() -> str:
 # ANALYTICS
 #
 def calc_kpis(df: pd.DataFrame) -> dict:
-    notas = df.drop_duplicates("chave")
-    fat   = notas["vNF"].sum()
-    n     = len(notas)
-    tm    = fat / n if n else 0
-    ipc   = df.groupby("chave")["numItem"].max().mean()
+    notas        = df.drop_duplicates("chave")
+    fat          = notas["vNF"].sum()
+    n            = len(notas)
+    tm           = fat / n if n else 0
+    total_itens  = len(df)
+    ipc          = total_itens / n if n else 0   # total linhas ÷ total pedidos
     return {
         "faturamento":  fat,
         "n_pedidos":    n,
         "ticket_medio": tm,
         "ipc":          ipc,
-        "total_itens":  len(df),
+        "total_itens":  total_itens,
     }
 
 
