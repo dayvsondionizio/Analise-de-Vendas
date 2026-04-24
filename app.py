@@ -116,6 +116,200 @@ CORES_CATEGORIA = {
     "Outros":           "#95A5A6",
 }
 
+# CFOPs que compõem "compras de comercialização" para fins do Simples Nacional
+# Inclui: revenda de mercadorias (com e sem ST)
+# Exclui: imobilizado (14xx), uso e consumo (15xx), energia (12xx), industrialização (11xx)
+CFOPS_COMERCIALIZACAO = {
+    # Compra de mercadoria para comercialização (revenda)
+    "1102", "2102", "3102",
+    # Compra de mercadoria para comercialização — substituição tributária
+    "1403", "2403", "3403",
+    # Compra de mercadoria de produtor rural para comercialização
+    "1104", "2104", "3104",
+    # Compra por conta e ordem (comercialização)
+    "1117", "2117", "3117",
+    # Compra de mercadoria para comercialização em operação com DI
+    "3102",
+    # Retorno simbólico de mercadoria vendida c/ substituição tributária
+    "1410", "2410",
+}
+
+
+def parse_entradas_xml(arquivos) -> pd.DataFrame:
+    """Parseia XMLs de nota fiscal de ENTRADA (compras) e retorna DataFrame
+    com os itens, filtrando apenas CFOPs de comercialização."""
+    import xml.etree.ElementTree as ET
+    import zipfile, io as _io
+
+    NS = "{http://www.portalfiscal.inf.br/nfe}"
+
+    def t(name):
+        return f"{NS}{name}"
+
+    def gettxt(parent, child):
+        el = parent.find(t(child))
+        return el.text if el is not None and el.text else ""
+
+    def getfloat(parent, child):
+        txt = gettxt(parent, child)
+        try:
+            return float(txt) if txt else 0.0
+        except ValueError:
+            return 0.0
+
+    rows = []
+
+    def _process_xml_bytes(xml_data: bytes, source_name: str = ""):
+        try:
+            root = ET.fromstring(xml_data)
+            root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+            if root_local not in ("nfeProc", "NFe"):
+                return
+            nfe_el = root.find(t("NFe")) if root_local == "nfeProc" else root
+            prot_el = root.find(t("protNFe")) if root_local == "nfeProc" else None
+            if nfe_el is None:
+                return
+            infNFe = nfe_el.find(t("infNFe"))
+            if infNFe is None:
+                return
+
+            # Verifica autorização
+            if prot_el is not None:
+                infProt = prot_el.find(t("infProt"))
+                if infProt is not None:
+                    cStat = gettxt(infProt, "cStat")
+                    if cStat not in ("100", "150"):
+                        return
+
+            inf_id = infNFe.get("Id", "")
+            chave = inf_id[3:] if inf_id.startswith("NFe") else inf_id
+
+            ide = infNFe.find(t("ide"))
+            if ide is None:
+                return
+            dhEmi = gettxt(ide, "dhEmi") or None
+            nNF = gettxt(ide, "nNF")
+
+            emit_el = infNFe.find(t("emit"))
+            emitente = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit = gettxt(emit_el, "CNPJ") if emit_el is not None else ""
+
+            vNF = 0.0
+            total_el = infNFe.find(t("total"))
+            if total_el is not None:
+                icms = total_el.find(t("ICMSTot"))
+                if icms is not None:
+                    vNF = getfloat(icms, "vNF")
+
+            for det in infNFe.findall(t("det")):
+                prod = det.find(t("prod"))
+                if prod is None:
+                    continue
+                cfop = gettxt(prod, "CFOP")
+                rows.append({
+                    "chave":     chave,
+                    "nNF":       nNF,
+                    "dhEmi":     dhEmi,
+                    "emitente":  emitente,
+                    "cnpj_emit": cnpj_emit,
+                    "CFOP":      cfop,
+                    "xProd":     gettxt(prod, "xProd"),
+                    "NCM":       gettxt(prod, "NCM"),
+                    "qCom":      getfloat(prod, "qCom"),
+                    "vUnCom":    getfloat(prod, "vUnCom"),
+                    "vProd":     getfloat(prod, "vProd"),
+                    "vNF":       vNF,
+                    "fonte":     source_name,
+                })
+        except Exception:
+            pass
+
+    for arq in (arquivos or []):
+        try:
+            raw = arq.read() if hasattr(arq, "read") else arq
+            name = getattr(arq, "name", "")
+            if name.lower().endswith(".zip"):
+                with zipfile.ZipFile(_io.BytesIO(raw)) as zf:
+                    for zi in zf.namelist():
+                        if zi.lower().endswith(".xml"):
+                            _process_xml_bytes(zf.read(zi), zi)
+            else:
+                _process_xml_bytes(raw, name)
+        except Exception:
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    if "dhEmi" in df.columns:
+        df["dhEmi"] = pd.to_datetime(df["dhEmi"], utc=True, errors="coerce").dt.tz_localize(None)
+    return df
+
+
+def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float) -> dict:
+    """Calcula métricas para verificação da regra dos 80% do Simples Nacional.
+
+    Retorna dict com:
+        total_compras_comercializacao: float
+        pct_faturamento: float (0-100)
+        status: "OK" | "ALERTA" | "EXCEDIDO"
+        df_por_cfop: DataFrame com breakdown por CFOP
+        df_por_fornecedor: DataFrame com breakdown por fornecedor
+        df_entradas_filtradas: DataFrame somente com linhas de comercialização
+    """
+    if df_entradas is None or df_entradas.empty:
+        return {
+            "total_compras_comercializacao": 0.0,
+            "pct_faturamento": 0.0,
+            "status": "SEM_DADOS",
+            "df_por_cfop": pd.DataFrame(),
+            "df_por_fornecedor": pd.DataFrame(),
+            "df_entradas_filtradas": pd.DataFrame(),
+        }
+
+    df_com = df_entradas[df_entradas["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
+    total = df_com["vProd"].sum()
+    pct = (total / faturamento_total * 100) if faturamento_total else 0.0
+
+    if pct > 80:
+        status = "EXCEDIDO"
+    elif pct > 70:
+        status = "ALERTA"
+    else:
+        status = "OK"
+
+    df_por_cfop = (
+        df_com.groupby("CFOP")
+        .agg(
+            total_compras=("vProd", "sum"),
+            notas=("chave", "nunique"),
+            itens=("vProd", "count"),
+        )
+        .reset_index()
+        .sort_values("total_compras", ascending=False)
+    )
+
+    df_por_fornecedor = (
+        df_com.groupby("emitente")
+        .agg(
+            total_compras=("vProd", "sum"),
+            notas=("chave", "nunique"),
+        )
+        .reset_index()
+        .sort_values("total_compras", ascending=False)
+        .head(20)
+    )
+
+    return {
+        "total_compras_comercializacao": total,
+        "pct_faturamento": pct,
+        "status": status,
+        "df_por_cfop": df_por_cfop,
+        "df_por_fornecedor": df_por_fornecedor,
+        "df_entradas_filtradas": df_com,
+    }
+
 
 def categorizar_serie(s: pd.Series, ncm: pd.Series = None) -> pd.Series:
     """
@@ -1723,7 +1917,8 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_cesta, df_bcg, df_abc, df_remocao,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
                    df_combos, df_metas,
-                   cliente: str, periodo: str) -> bytes:
+                   cliente: str, periodo: str,
+                   sn_result=None) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         # Resumo Geral
@@ -1797,6 +1992,48 @@ def exportar_excel(kpis, df_pares, df_trios,
                 if col in mt.columns:
                     mt[col] = mt[col].apply(brl)
             mt.to_excel(writer, sheet_name="Metas por Produto", index=False)
+
+        # ── Simples Nacional ──────────────────────────────────────────
+        if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS"):
+            _sn_resumo = pd.DataFrame({
+                "Indicador": [
+                    "Faturamento Total",
+                    "Compras de Comercialização",
+                    "% do Faturamento",
+                    "Limite Legal",
+                    "Status",
+                ],
+                "Valor": [
+                    brl(kpis["faturamento"]),
+                    brl(sn_result["total_compras_comercializacao"]),
+                    f"{sn_result['pct_faturamento']:.2f}%",
+                    "80,00%",
+                    sn_result["status"],
+                ],
+            })
+            _sn_resumo.to_excel(writer, sheet_name="SN Resumo", index=False)
+
+            _df_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
+            if not _df_cfop.empty:
+                _sn_cfop = _df_cfop.copy()
+                _sn_cfop["total_compras"] = _sn_cfop["total_compras"].apply(brl)
+                _sn_cfop.columns = ["CFOP", "Total Compras", "Notas", "Itens"]
+                _sn_cfop.to_excel(writer, sheet_name="SN Por CFOP", index=False)
+
+            _df_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
+            if not _df_forn.empty:
+                _sn_forn = _df_forn.copy()
+                _sn_forn["total_compras"] = _sn_forn["total_compras"].apply(brl)
+                _sn_forn.columns = ["Fornecedor", "Total Compras", "Notas"]
+                _sn_forn.to_excel(writer, sheet_name="SN Fornecedores", index=False)
+
+            _df_items = sn_result.get("df_entradas_filtradas", pd.DataFrame())
+            if not _df_items.empty:
+                _sn_items = _df_items[["chave", "nNF", "dhEmi", "emitente", "CFOP",
+                                       "xProd", "qCom", "vUnCom", "vProd"]].copy()
+                _sn_items.columns = ["Chave NF-e", "Nº NF", "Emissão", "Fornecedor",
+                                     "CFOP", "Produto", "Qtd", "Vl Unit", "Vl Total"]
+                _sn_items.to_excel(writer, sheet_name="SN Itens Compra", index=False)
 
     return buf.getvalue()
 
@@ -2200,7 +2437,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
                   df_nfe, kpis_nfce,
                   fonte_label: str, cliente: str, periodo: str,
                   df_abc=None,
-                  df_por_hora=None, df_por_turno=None) -> bytes:
+                  df_por_hora=None, df_por_turno=None,
+                  sn_result=None) -> bytes:
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt, Emu
@@ -3197,14 +3435,151 @@ def exportar_pptx(kpis, df_pares, df_trios,
             fig_cb2.tight_layout()
             plt_to_pptx_image(fig_cb2, sl, Inches(8.0), Inches(3.45), Inches(5.1), Inches(3.8))
 
+    # ══════════════════════════════════════════════════════════════════
+    # SLIDE: SIMPLES NACIONAL — REGRA DOS 80%
+    # ══════════════════════════════════════════════════════════════════
+    if sn_result is not None and sn_result.get("status") != "SEM_DADOS":
+        sl = prs.slides.add_slide(blank)
+        _sn_total   = sn_result["total_compras_comercializacao"]
+        _sn_pct     = sn_result["pct_faturamento"]
+        _sn_status  = sn_result["status"]
+        _sn_fat     = kpis["faturamento"]
+
+        # Header
+        add_rect(sl, Inches(0), Inches(0), W, Inches(1.05), AZUL_ESC)
+        add_text(sl, "SIMPLES NACIONAL — REGRA DOS 80%",
+                 Inches(0.3), Inches(0.12), Inches(12.7), Inches(0.55),
+                 font_size=26, bold=True, color=BRANCO)
+        add_text(sl, f"{cliente}  ·  {periodo}  ·  Compras de Comercialização vs Faturamento",
+                 Inches(0.3), Inches(0.68), Inches(12.7), Inches(0.35),
+                 font_size=13, color=RGBColor(0xBA, 0xD0, 0xF0))
+
+        # ── KPI Cards (row) ──────────────────────────────────────────
+        _cards = [
+            ("Faturamento Total",          brl(_sn_fat),   AZUL_MED),
+            ("Compras Comercialização",     brl(_sn_total), AZUL_ESC),
+            ("% do Faturamento",           f"{_sn_pct:.1f}%".replace(".", ","),
+             RGBColor(0x16, 0xa3, 0x4a) if _sn_pct <= 80 else RGBColor(0xDC, 0x26, 0x26)),
+            ("Limite Legal",               "80,0%",        RGBColor(0x92, 0x40, 0x0E)),
+        ]
+        _cw = Inches(13.33 / len(_cards))
+        for _ci, (_lbl, _val, _clr) in enumerate(_cards):
+            _cx = Inches(_ci * (13.33 / len(_cards)))
+            add_rect(sl, _cx, Inches(1.15), _cw, Inches(1.3), CINZA_CLR)
+            add_text(sl, _lbl, _cx + Inches(0.1), Inches(1.18), _cw - Inches(0.2), Inches(0.35),
+                     font_size=11, color=RGBColor(0x6B, 0x72, 0x80))
+            add_text(sl, _val, _cx + Inches(0.1), Inches(1.55), _cw - Inches(0.2), Inches(0.6),
+                     font_size=22, bold=True, color=_clr)
+
+        # ── Barra de progresso visual ─────────────────────────────────
+        _bar_y = Inches(2.65)
+        # Fundo cinza
+        add_rect(sl, Inches(0.5), _bar_y, Inches(12.33), Inches(0.55),
+                 RGBColor(0xE5, 0xE7, 0xEB))
+        # Preenchimento colorido
+        _bar_clr = (RGBColor(0x16, 0xa3, 0x4a) if _sn_pct <= 70
+                    else (RGBColor(0xF5, 0x9E, 0x0B) if _sn_pct <= 80
+                          else RGBColor(0xDC, 0x26, 0x26)))
+        _bar_w = Inches(12.33 * min(_sn_pct, 100) / 100)
+        add_rect(sl, Inches(0.5), _bar_y, _bar_w, Inches(0.55), _bar_clr)
+        add_text(sl, f"{_sn_pct:.1f}%", Inches(0.5), _bar_y + Inches(0.1),
+                 _bar_w, Inches(0.35), font_size=13, bold=True, color=BRANCO, align=PP_ALIGN.RIGHT)
+        # Linha de limite 80%
+        _lim_x = Inches(0.5 + 12.33 * 0.80)
+        add_rect(sl, _lim_x - Inches(0.015), _bar_y - Inches(0.08),
+                 Inches(0.03), Inches(0.71), AZUL_ESC)
+        add_text(sl, "Limite 80%", _lim_x - Inches(0.5), _bar_y + Inches(0.6),
+                 Inches(1.0), Inches(0.3), font_size=10, bold=True, color=AZUL_ESC, align=PP_ALIGN.CENTER)
+
+        # ── Status banner ─────────────────────────────────────────────
+        _status_msgs = {
+            "OK":       ("✓ DENTRO DO LIMITE — compras representam {pct} do faturamento (≤ 80%)", RGBColor(0x16, 0xa3, 0x4a)),
+            "ALERTA":   ("⚠ ATENÇÃO — compras em {pct} do faturamento — próximo do limite de 80%", RGBColor(0xD9, 0x77, 0x06)),
+            "EXCEDIDO": ("✗ LIMITE EXCEDIDO — compras em {pct} do faturamento — acima de 80%",     RGBColor(0xDC, 0x26, 0x26)),
+        }
+        _msg_tmpl, _msg_clr = _status_msgs.get(_sn_status, ("—", AZUL_ESC))
+        _msg = _msg_tmpl.format(pct=f"{_sn_pct:.1f}%".replace(".", ","))
+        add_rect(sl, Inches(0.5), Inches(3.45), Inches(12.33), Inches(0.55), _msg_clr)
+        add_text(sl, _msg, Inches(0.6), Inches(3.5), Inches(12.1), Inches(0.45),
+                 font_size=14, bold=True, color=BRANCO)
+
+        # ── Tabela: Compras por CFOP ──────────────────────────────────
+        df_por_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
+        add_text(sl, "COMPRAS POR CFOP",
+                 Inches(0.5), Inches(4.15), Inches(5.5), Inches(0.4),
+                 font_size=14, bold=True, color=AZUL_ESC)
+        if not df_por_cfop.empty:
+            _hdr_cfop = ["CFOP", "Total Compras", "Notas", "Itens"]
+            _cw_cfop  = [Inches(1.1), Inches(2.4), Inches(1.0), Inches(1.0)]
+            _rh = Inches(0.38)
+            _y_c = Inches(4.58)
+            _x_c = Inches(0.5)
+            for _hi, (_hh, _hw) in enumerate(zip(_hdr_cfop, _cw_cfop)):
+                add_rect(sl, _x_c, _y_c, _hw, _rh, AZUL_ESC)
+                add_text(sl, _hh, _x_c + Inches(0.05), _y_c + Inches(0.07),
+                         _hw - Inches(0.1), _rh - Inches(0.1),
+                         font_size=11, bold=True, color=BRANCO)
+                _x_c += _hw
+            for _ri, (_, _row) in enumerate(df_por_cfop.head(6).iterrows()):
+                _y_c += _rh
+                _x_c = Inches(0.5)
+                bg = CINZA_CLR if _ri % 2 == 0 else BRANCO
+                _vals_c = [_row["CFOP"], brl(_row["total_compras"]),
+                           fmt_num(_row["notas"]), fmt_num(_row["itens"])]
+                for _vi, (_vv, _vw) in enumerate(zip(_vals_c, _cw_cfop)):
+                    add_rect(sl, _x_c, _y_c, _vw, _rh, bg)
+                    _al = PP_ALIGN.LEFT if _vi == 0 else PP_ALIGN.RIGHT
+                    add_text(sl, str(_vv), _x_c + Inches(0.05), _y_c + Inches(0.07),
+                             _vw - Inches(0.1), _rh - Inches(0.1),
+                             font_size=11, color=TEXTO, align=_al)
+                    _x_c += _vw
+
+        # ── Tabela: Top Fornecedores ───────────────────────────────────
+        df_por_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
+        add_text(sl, "TOP FORNECEDORES",
+                 Inches(6.8), Inches(4.15), Inches(6.0), Inches(0.4),
+                 font_size=14, bold=True, color=AZUL_ESC)
+        if not df_por_forn.empty:
+            _hdr_forn = ["Fornecedor", "Total Compras", "Notas"]
+            _cw_forn  = [Inches(3.6), Inches(1.8), Inches(0.8)]
+            _rh = Inches(0.38)
+            _y_f = Inches(4.58)
+            _x_f = Inches(6.8)
+            for _hi, (_hh, _hw) in enumerate(zip(_hdr_forn, _cw_forn)):
+                add_rect(sl, _x_f, _y_f, _hw, _rh, AZUL_ESC)
+                add_text(sl, _hh, _x_f + Inches(0.05), _y_f + Inches(0.07),
+                         _hw - Inches(0.1), _rh - Inches(0.1),
+                         font_size=11, bold=True, color=BRANCO)
+                _x_f += _hw
+            for _ri, (_, _row) in enumerate(df_por_forn.head(6).iterrows()):
+                _y_f += _rh
+                _x_f = Inches(6.8)
+                bg = CINZA_CLR if _ri % 2 == 0 else BRANCO
+                _nome_f = str(_row["emitente"])[:40]
+                _vals_f = [_nome_f, brl(_row["total_compras"]), fmt_num(_row["notas"])]
+                for _vi, (_vv, _vw) in enumerate(zip(_vals_f, _cw_forn)):
+                    add_rect(sl, _x_f, _y_f, _vw, _rh, bg)
+                    _al = PP_ALIGN.LEFT if _vi == 0 else PP_ALIGN.RIGHT
+                    add_text(sl, str(_vv), _x_f + Inches(0.05), _y_f + Inches(0.07),
+                             _vw - Inches(0.1), _rh - Inches(0.1),
+                             font_size=11, color=TEXTO, align=_al)
+                    _x_f += _vw
+
+        # Nota de rodapé
+        add_text(sl,
+                 "CFOPs considerados — comercialização: 1102, 2102, 1403, 2403, 1104, 2104, 1117, 2117, 1410, 2410  "
+                 "| Excluídos: imobilizado (14xx), uso e consumo (15xx), industrialização (11xx)",
+                 Inches(0.3), Inches(7.1), Inches(12.7), Inches(0.35),
+                 font_size=9, color=RGBColor(0x9C, 0xA3, 0xAF))
+
     buf = io.BytesIO()
     prs.save(buf)
     return buf.getvalue()
 
 
-# 
+#
 # INTERFACE STREAMLIT
-# 
+#
 def main():
     st.markdown("""
     <style>
@@ -3316,6 +3691,29 @@ def main():
         _tem_dados = bool(arquivos_upload) or bool(_pastas_validas)
 
         st.divider()
+        # ── Simples Nacional ──────────────────────────────────
+        is_simples = st.checkbox(
+            "🏪 Empresa é Simples Nacional?",
+            value=st.session_state.get("_chk_simples", False),
+            key="chk_simples",
+            help="Ativa a verificação da regra dos 80% — compras de comercialização não podem ultrapassar 80% do faturamento.",
+        )
+        st.session_state["_chk_simples"] = is_simples
+        if is_simples:
+            st.caption("📥 Anexe os XMLs de **entrada** (notas de compra) para verificar o limite de 80%")
+            arquivos_entrada = st.file_uploader(
+                "XMLs de Entrada",
+                type=["xml", "zip"],
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                key=f"uploader_entrada_{st.session_state.get('_upload_key', 0)}",
+            )
+            if arquivos_entrada:
+                st.success(f"✅ {len(arquivos_entrada)} arquivo(s) de entrada carregado(s)")
+        else:
+            arquivos_entrada = []
+
+        st.divider()
         btn_analisar = st.button(
             "▶ Analisar" if _tem_dados else "Carregue os arquivos acima",
             use_container_width=True,
@@ -3334,12 +3732,13 @@ def main():
                 st.rerun()
 
     # ── Fingerprint da fonte de dados ──
+    _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     if arquivos_upload:
-        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n)
+        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada)
     elif _pastas_validas:
-        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n)
+        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada)
     elif f_nfce:
-        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n)
+        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada)
     else:
         _fp = None
 
@@ -3412,6 +3811,8 @@ def main():
         df_horas     = _R["df_horas"]
         df_por_hora  = _R["df_por_hora"]
         df_por_turno = _R["df_por_turno"]
+        df_entradas  = _R.get("df_entradas", pd.DataFrame())
+        sn_result    = _R.get("sn_result", None)
 
     else:
         # ── CARREGAR + CALCULAR com tela de progresso ──
@@ -3585,9 +3986,24 @@ def main():
         df_combos    = calc_combo_pricing(df_pares, df)
         df_metas     = calc_metas(df_all)
 
-        _render_prog(95, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
+        _render_prog(93, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
         df_horas = calc_horas_oportunidade(df)
         df_por_hora, df_por_turno = calc_vendas_horario(df)
+
+        # ── Simples Nacional ──────────────────────────────────
+        df_entradas = pd.DataFrame()
+        sn_result   = None
+        if is_simples and arquivos_entrada:
+            _render_prog(97, "📋 Verificando regra dos 80% — Simples Nacional...", _t0, _box_txt, _box_bar)
+            # Precisa re-ler os bytes (já foram lidos acima para fingerprint,
+            # mas os UploadedFile são streams — fazemos seek(0) primeiro)
+            for _ae in arquivos_entrada:
+                try:
+                    _ae.seek(0)
+                except Exception:
+                    pass
+            df_entradas = parse_entradas_xml(arquivos_entrada)
+            sn_result   = calc_simples_nacional(df_entradas, kpis["faturamento"])
 
         _render_prog(100, "✅ Análise concluída!", _t0, _box_txt, _box_bar)
 
@@ -3664,6 +4080,7 @@ f"{_col_nfe}{_col_skip}"
             "df_sim_preco": df_sim_preco, "df_sim_rec": df_sim_rec,
             "df_combos": df_combos,  "df_metas": df_metas,
             "df_horas": df_horas,    "df_por_hora": df_por_hora, "df_por_turno": df_por_turno,
+            "df_entradas": df_entradas, "sn_result": sn_result,
         }
         # Força re-render para o painel lateral enxergar o cache
         # (sidebar é renderizado antes da análise rodar)
@@ -3738,6 +4155,8 @@ f"{_col_nfe}{_col_skip}"
         abas.insert(6, "Temporal")
     if not df_nfe.empty:
         abas.append("NF-e (B2B)")
+    if sn_result is not None:
+        abas.append("Simples Nacional")
 
     tabs = st.tabs(abas)
     tab_idx = {name: i for i, name in enumerate(abas)}
@@ -4257,6 +4676,110 @@ f"{_col_nfe}{_col_skip}"
                     _fig_nfe.update_yaxes(tickfont=dict(size=11))
                     st.plotly_chart(_fig_nfe, use_container_width=True)
 
+    #  SIMPLES NACIONAL
+    if "Simples Nacional" in tab_idx and sn_result is not None:
+        with tabs[tab_idx["Simples Nacional"]]:
+            st.subheader("Simples Nacional — Verificação dos 80%")
+            st.caption(
+                "A legislação do Simples Nacional exige que as compras para comercialização "
+                "não ultrapassem **80% do faturamento total**. Aqui você confere se a empresa está dentro do limite."
+            )
+
+            _sn_total   = sn_result["total_compras_comercializacao"]
+            _sn_pct     = sn_result["pct_faturamento"]
+            _sn_status  = sn_result["status"]
+            _sn_fat     = kpis["faturamento"]
+
+            # ── KPI Cards ────────────────────────────────────────────
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Faturamento Total",           brl(_sn_fat))
+            c2.metric("Compras de Comercialização",  brl(_sn_total))
+            c3.metric("% do Faturamento",
+                      f"{_sn_pct:.1f}%".replace(".", ","),
+                      delta=f"Limite: 80%",
+                      delta_color="off")
+            _status_emoji = {"OK": "✅ OK", "ALERTA": "⚠️ Atenção", "EXCEDIDO": "🔴 Excedido", "SEM_DADOS": "—"}
+            c4.metric("Status",  _status_emoji.get(_sn_status, _sn_status))
+
+            # ── Barra visual de progresso ─────────────────────────────
+            _bar_color = "#16a34a" if _sn_pct <= 70 else ("#f59e0b" if _sn_pct <= 80 else "#dc2626")
+            _pct_capped = min(_sn_pct, 100)
+            st.markdown(
+                f"""
+<div style="margin:12px 0 20px;background:#f1f5f9;border-radius:10px;height:28px;
+            position:relative;overflow:hidden;">
+  <div style="background:{_bar_color};width:{_pct_capped:.1f}%;height:100%;
+              border-radius:10px;display:flex;align-items:center;justify-content:flex-end;
+              padding-right:10px;font-size:13px;font-weight:700;color:white;">
+    {_sn_pct:.1f}%
+  </div>
+  <div style="position:absolute;top:0;left:80%;width:2px;height:100%;background:#1e3a5f;opacity:0.5;"></div>
+  <div style="position:absolute;top:0;left:80%;transform:translateX(-50%);margin-top:30px;
+              font-size:11px;color:#6b7280;white-space:nowrap;">limite 80%</div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+
+            if _sn_status == "EXCEDIDO":
+                st.error(
+                    f"🔴 **ALERTA FISCAL**: as compras de comercialização representam **{_sn_pct:.1f}%** do faturamento — "
+                    f"acima do limite de 80% exigido pelo Simples Nacional. "
+                    f"Isso pode indicar subfaturamento ou excesso de estoques. Consulte o contador."
+                )
+            elif _sn_status == "ALERTA":
+                st.warning(
+                    f"⚠️ **Atenção**: as compras estão em **{_sn_pct:.1f}%** do faturamento — "
+                    f"próximo do limite de 80%. Acompanhe de perto para não ultrapassar."
+                )
+            else:
+                st.success(
+                    f"✅ **Dentro do limite**: as compras de comercialização representam **{_sn_pct:.1f}%** "
+                    f"do faturamento — abaixo dos 80% exigidos."
+                )
+
+            st.divider()
+
+            # ── Breakdown por CFOP ────────────────────────────────────
+            df_por_cfop = sn_result["df_por_cfop"]
+            df_por_forn = sn_result["df_por_fornecedor"]
+
+            col_cfop, col_forn = st.columns(2)
+
+            with col_cfop:
+                st.markdown("#### Compras por CFOP")
+                if not df_por_cfop.empty:
+                    _cfop_show = df_por_cfop.copy()
+                    _cfop_show["total_compras"] = _cfop_show["total_compras"].apply(brl)
+                    _cfop_show = _cfop_show.rename(columns={
+                        "CFOP": "CFOP", "total_compras": "Total Compras",
+                        "notas": "Notas", "itens": "Itens",
+                    })
+                    st.dataframe(_cfop_show, use_container_width=True, hide_index=True, height=320)
+                else:
+                    st.info("Nenhum CFOP de comercialização encontrado nas entradas.")
+
+            with col_forn:
+                st.markdown("#### Top Fornecedores")
+                if not df_por_forn.empty:
+                    _forn_show = df_por_forn.copy()
+                    _forn_show["total_compras"] = _forn_show["total_compras"].apply(brl)
+                    _forn_show = _forn_show.rename(columns={
+                        "emitente": "Fornecedor", "total_compras": "Total Compras", "notas": "Notas",
+                    })
+                    st.dataframe(_forn_show, use_container_width=True, hide_index=True, height=320)
+                else:
+                    st.info("Sem dados de fornecedores.")
+
+            # ── CFOPs considerados ────────────────────────────────────
+            with st.expander("ℹ️ CFOPs considerados como compras de comercialização"):
+                st.markdown(
+                    "Os seguintes CFOPs são contabilizados como **compras de comercialização** "
+                    "(revenda de mercadorias):\n\n"
+                    + "\n".join(f"- **{c}**" for c in sorted(CFOPS_COMERCIALIZACAO))
+                    + "\n\n_Ficam de fora: imobilizado (14xx), uso e consumo (15xx), industrialização (11xx)._"
+                )
+
     #  EXPORTAÇÃO
     # CSS de impressão injetado na página principal (não no iframe)
     st.markdown("""
@@ -4321,6 +4844,7 @@ f"{_col_nfe}{_col_skip}"
                 df_abc=df_abc,
                 df_por_hora=df_por_hora,
                 df_por_turno=df_por_turno,
+                sn_result=sn_result,
             )
         except ImportError:
             pass
@@ -4329,7 +4853,8 @@ f"{_col_nfe}{_col_skip}"
                                      df_cesta, df_bcg, df_abc, df_remocao,
                                      df_elev, df_redu, df_sim_preco, df_sim_rec,
                                      df_combos, df_metas,
-                                     cli_label, per_label)
+                                     cli_label, per_label,
+                                     sn_result=sn_result)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
