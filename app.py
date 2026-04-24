@@ -205,11 +205,19 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                 prod = det.find(t("prod"))
                 if prod is None:
                     continue
-                # Normaliza CFOP: remove pontos/traços e mantém só 4 dígitos
-                # "1.102", "1102001", "1102.001" → "1102"
+                # Normaliza CFOP para perspectiva do COMPRADOR (padaria):
+                # XMLs de fornecedores usam CFOP de SAÍDA (5xxx/6xxx/7xxx).
+                # O SPED e o Simples Nacional trabalham com CFOP de ENTRADA (1xxx/2xxx/3xxx).
+                # Conversão: 5xxx→1xxx (mesmo estado), 6xxx→2xxx (outro estado), 7xxx→3xxx (exterior)
+                # "1.102", "1102001" → strip de não-dígitos → 4 dígitos
                 import re as _re_cfop
                 cfop_raw = gettxt(prod, "CFOP")
-                cfop = _re_cfop.sub(r"[^\d]", "", cfop_raw)[:4]
+                cfop_d = _re_cfop.sub(r"[^\d]", "", cfop_raw)[:4]
+                if len(cfop_d) == 4 and cfop_d[0] in ("5", "6", "7"):
+                    _mapa_dir = {"5": "1", "6": "2", "7": "3"}
+                    cfop = _mapa_dir[cfop_d[0]] + cfop_d[1:]
+                else:
+                    cfop = cfop_d
                 rows.append({
                     "chave":     chave,
                     "nNF":       nNF,
