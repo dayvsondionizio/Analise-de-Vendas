@@ -271,8 +271,78 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
     return df
 
 
-def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float) -> dict:
+def parse_sped_xlsx(arquivo) -> pd.DataFrame:
+    """Lê planilha de itens exportada do sistema fiscal (SPED/ERP).
+
+    Formato esperado: cabeçalho na linha 1, colunas incluindo
+    'Natureza' (CFOP), 'Valor Contábil', 'Nome' (fornecedor),
+    'Item' (produto), 'NCM', 'Documento', 'Data Emissão'.
+
+    Normaliza o CFOP para 4 dígitos (ex: '1403001' → '1403').
+    Retorna DataFrame com colunas padronizadas compatíveis com
+    calc_simples_nacional().
+    """
+    try:
+        raw = arquivo.read() if hasattr(arquivo, "read") else arquivo
+        import io as _io_sped
+        df_raw = pd.read_excel(_io_sped.BytesIO(raw), sheet_name=0, header=0)
+        # Header real está na linha 0
+        df_raw.columns = df_raw.iloc[0].tolist()
+        df_raw = df_raw.iloc[1:].reset_index(drop=True)
+
+        # Mapeamento flexível de colunas (funciona mesmo com acentuação diferente)
+        col_map = {}
+        for col in df_raw.columns:
+            c = str(col).lower()
+            if "natureza" in c:                      col_map["CFOP_raw"] = col
+            elif "valor cont" in c:                  col_map["vProd"] = col
+            elif "nome" in c and "filial" not in c:  col_map["emitente"] = col
+            elif "item" in c and "c" not in c[:3]:   col_map["xProd"] = col
+            elif "ncm" in c:                         col_map["NCM"] = col
+            elif "documento" in c:                   col_map["nNF"] = col
+            elif "emiss" in c:                       col_map["dhEmi"] = col
+            elif "cnpj" in c and "filial" not in c and "cliente" not in c: col_map["cnpj_emit"] = col
+            elif "c" in c[:2] and "digo item" in c: col_map["cProd"] = col
+
+        df = pd.DataFrame()
+        for dest, src in col_map.items():
+            if src in df_raw.columns:
+                df[dest] = df_raw[src]
+
+        if df.empty or "CFOP_raw" not in df.columns:
+            return pd.DataFrame()
+
+        # Normaliza CFOP: remove não-dígitos, pega 4 primeiros
+        df["CFOP"] = df["CFOP_raw"].astype(str).apply(
+            lambda c: re.sub(r"[^\d]", "", c)[:4]
+        )
+        df["CFOP_orig"] = df["CFOP_raw"].astype(str).str.strip()
+
+        # Valor contábil
+        if "vProd" in df.columns:
+            df["vProd"] = pd.to_numeric(df["vProd"], errors="coerce").fillna(0.0)
+
+        # Data
+        if "dhEmi" in df.columns:
+            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce")
+
+        # Fonte
+        df["fonte"] = "sped_xlsx"
+        df["chave"] = df.get("nNF", pd.Series(dtype=str)).astype(str)
+
+        return df[df["CFOP"].str.len() == 4].reset_index(drop=True)
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
+                          df_sped: pd.DataFrame = None) -> dict:
     """Calcula métricas para verificação da regra dos 80% do Simples Nacional.
+
+    Se df_sped (planilha do sistema fiscal) for fornecido, usa como fonte
+    primária (tem a classificação correta do analista/contador).
+    df_entradas (XMLs) é usado como fonte secundária ou para confronto.
 
     Retorna dict com:
         total_compras_comercializacao: float
@@ -282,57 +352,123 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float) -
         df_por_fornecedor: DataFrame com breakdown por fornecedor
         df_entradas_filtradas: DataFrame somente com linhas de comercialização
     """
-    if df_entradas is None or df_entradas.empty:
+    tem_xml  = df_entradas is not None and not df_entradas.empty
+    tem_sped = df_sped is not None and not df_sped.empty
+
+    if not tem_xml and not tem_sped:
         return {
             "total_compras_comercializacao": 0.0,
             "pct_faturamento": 0.0,
             "status": "SEM_DADOS",
+            "fonte": "sem_dados",
             "df_por_cfop": pd.DataFrame(),
+            "df_por_cfop_xml": pd.DataFrame(),
             "df_por_fornecedor": pd.DataFrame(),
             "df_entradas_filtradas": pd.DataFrame(),
+            "df_confronto": pd.DataFrame(),
         }
 
-    # CFOP já vem normalizado (4 dígitos limpos) do parse_entradas_xml
-    df_com = df_entradas[df_entradas["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
-    total = df_com["vProd"].sum()
-    pct = (total / faturamento_total * 100) if faturamento_total else 0.0
+    # ── Fonte primária: planilha SPED (tem classificação do analista) ──────
+    if tem_sped:
+        df_com_sped = df_sped[df_sped["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
+        total = df_com_sped["vProd"].sum()
+        fonte = "ambos" if tem_xml else "sped_xlsx"
 
-    if pct > 80:
-        status = "EXCEDIDO"
-    elif pct > 70:
-        status = "ALERTA"
+        # Breakdown por CFOP original (preserva sub-código para info)
+        _grp_col = "CFOP_orig" if "CFOP_orig" in df_com_sped.columns else "CFOP"
+        df_por_cfop = (
+            df_com_sped.groupby(_grp_col)
+            .agg(
+                total_compras=("vProd", "sum"),
+                itens=("vProd", "count"),
+            )
+            .reset_index()
+            .rename(columns={_grp_col: "CFOP"})
+            .sort_values("total_compras", ascending=False)
+        )
+        # notas: por nNF se disponível
+        if "nNF" in df_com_sped.columns:
+            _notas = df_com_sped.groupby(_grp_col)["nNF"].nunique().rename("notas")
+            df_por_cfop = df_por_cfop.merge(_notas.reset_index().rename(columns={_grp_col:"CFOP"}),
+                                            on="CFOP", how="left")
+        else:
+            df_por_cfop["notas"] = 0
+
+        _forn_col = "emitente" if "emitente" in df_com_sped.columns else None
+        if _forn_col:
+            df_por_fornecedor = (
+                df_com_sped.groupby(_forn_col)
+                .agg(total_compras=("vProd", "sum"), itens=("vProd", "count"))
+                .reset_index()
+                .rename(columns={_forn_col: "emitente"})
+                .sort_values("total_compras", ascending=False)
+                .head(20)
+            )
+        else:
+            df_por_fornecedor = pd.DataFrame()
+
+        # ── Confronto com XMLs (quando ambos disponíveis) ──────────────────
+        df_confronto = pd.DataFrame()
+        df_por_cfop_xml = pd.DataFrame()
+        if tem_xml:
+            df_com_xml = df_entradas[df_entradas["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
+            # Breakdown XML por CFOP (4 dígitos)
+            df_por_cfop_xml = (
+                df_com_xml.groupby("CFOP")
+                .agg(total_xml=("vProd", "sum"), itens_xml=("vProd", "count"))
+                .reset_index().sort_values("total_xml", ascending=False)
+            )
+            # Breakdown SPED por CFOP 4 dígitos (para confronto)
+            _sped_4d = (
+                df_com_sped.groupby("CFOP")
+                .agg(total_sped=("vProd", "sum"), itens_sped=("vProd", "count"))
+                .reset_index()
+            )
+            # Merge por CFOP 4d
+            df_confronto = _sped_4d.merge(df_por_cfop_xml, on="CFOP", how="outer").fillna(0)
+            df_confronto["diferenca"] = df_confronto["total_sped"] - df_confronto["total_xml"]
+            df_confronto = df_confronto.sort_values("total_sped", ascending=False).reset_index(drop=True)
+
+        # Itens excluídos pelo analista (uso e consumo etc.)
+        _excluir_cfops = {"1405","2405","1551","1552","1556","2551","2556","1910","2910"}
+        df_excluidos = df_sped[df_sped["CFOP"].isin(_excluir_cfops)].copy() if tem_sped else pd.DataFrame()
+
+        df_com_sped["fonte"] = "sped"
     else:
-        status = "OK"
+        # ── Somente XMLs ──────────────────────────────────────────────────
+        df_com_sped = df_entradas[df_entradas["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
+        total = df_com_sped["vProd"].sum()
+        fonte = "xml"
 
-    df_por_cfop = (
-        df_com.groupby("CFOP")
-        .agg(
-            total_compras=("vProd", "sum"),
-            notas=("chave", "nunique"),
-            itens=("vProd", "count"),
+        df_por_cfop = (
+            df_com_sped.groupby("CFOP")
+            .agg(total_compras=("vProd", "sum"), notas=("chave", "nunique"), itens=("vProd", "count"))
+            .reset_index().sort_values("total_compras", ascending=False)
         )
-        .reset_index()
-        .sort_values("total_compras", ascending=False)
-    )
+        _forn_col = "emitente" if "emitente" in df_com_sped.columns else None
+        df_por_fornecedor = (
+            df_com_sped.groupby(_forn_col)
+            .agg(total_compras=("vProd", "sum"), notas=("chave", "nunique"))
+            .reset_index().sort_values("total_compras", ascending=False).head(20)
+        ) if _forn_col else pd.DataFrame()
+        df_confronto = pd.DataFrame()
+        df_por_cfop_xml = pd.DataFrame()
+        df_excluidos = pd.DataFrame()
 
-    df_por_fornecedor = (
-        df_com.groupby("emitente")
-        .agg(
-            total_compras=("vProd", "sum"),
-            notas=("chave", "nunique"),
-        )
-        .reset_index()
-        .sort_values("total_compras", ascending=False)
-        .head(20)
-    )
+    pct = (total / faturamento_total * 100) if faturamento_total else 0.0
+    status = "EXCEDIDO" if pct > 80 else ("ALERTA" if pct > 70 else "OK")
 
     return {
         "total_compras_comercializacao": total,
         "pct_faturamento": pct,
         "status": status,
+        "fonte": fonte,
         "df_por_cfop": df_por_cfop,
+        "df_por_cfop_xml": df_por_cfop_xml,
         "df_por_fornecedor": df_por_fornecedor,
-        "df_entradas_filtradas": df_com,
+        "df_entradas_filtradas": df_com_sped,
+        "df_confronto": df_confronto,
+        "df_excluidos": df_excluidos,
     }
 
 
@@ -2020,8 +2156,14 @@ def exportar_excel(kpis, df_pares, df_trios,
 
         # ── Simples Nacional ──────────────────────────────────────────
         if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS"):
+            _sn_fonte_label = {
+                "sped_xlsx": "Planilha do sistema fiscal (SPED)",
+                "ambos":     "Planilha SPED + XMLs (confronto)",
+                "xml":       "XMLs de entrada (NF-e fornecedores)",
+            }.get(sn_result.get("fonte", "xml"), "XML")
             _sn_resumo = pd.DataFrame({
                 "Indicador": [
+                    "Fonte dos dados",
                     "Faturamento Total",
                     "Compras de Comercialização",
                     "% do Faturamento",
@@ -2029,6 +2171,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "Status",
                 ],
                 "Valor": [
+                    _sn_fonte_label,
                     brl(kpis["faturamento"]),
                     brl(sn_result["total_compras_comercializacao"]),
                     f"{sn_result['pct_faturamento']:.2f}%",
@@ -2042,23 +2185,65 @@ def exportar_excel(kpis, df_pares, df_trios,
             if not _df_cfop.empty:
                 _sn_cfop = _df_cfop.copy()
                 _sn_cfop["total_compras"] = _sn_cfop["total_compras"].apply(brl)
-                _sn_cfop.columns = ["CFOP", "Total Compras", "Notas", "Itens"]
+                # Renomeia colunas pelo nome (não por posição) para ser robusto
+                _sn_cfop = _sn_cfop.rename(columns={
+                    "CFOP": "CFOP", "total_compras": "Total Compras",
+                    "notas": "Notas/Docs", "itens": "Itens",
+                })
                 _sn_cfop.to_excel(writer, sheet_name="SN Por CFOP", index=False)
 
             _df_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
             if not _df_forn.empty:
                 _sn_forn = _df_forn.copy()
                 _sn_forn["total_compras"] = _sn_forn["total_compras"].apply(brl)
-                _sn_forn.columns = ["Fornecedor", "Total Compras", "Notas"]
+                _sn_forn = _sn_forn.rename(columns={
+                    "emitente": "Fornecedor", "total_compras": "Total Compras",
+                    "notas": "Notas/Docs", "itens": "Itens",
+                })
                 _sn_forn.to_excel(writer, sheet_name="SN Fornecedores", index=False)
 
+            # Itens de compra — adapta para SPED ou XML
             _df_items = sn_result.get("df_entradas_filtradas", pd.DataFrame())
             if not _df_items.empty:
-                _sn_items = _df_items[["chave", "nNF", "dhEmi", "emitente", "CFOP",
-                                       "xProd", "qCom", "vUnCom", "vProd"]].copy()
-                _sn_items.columns = ["Chave NF-e", "Nº NF", "Emissão", "Fornecedor",
-                                     "CFOP", "Produto", "Qtd", "Vl Unit", "Vl Total"]
+                _sn_items = _df_items.copy()
+                # Seleciona apenas as colunas que existem
+                _cols_desejadas = {
+                    "chave": "Chave NF-e", "nNF": "Nº NF", "dhEmi": "Emissão",
+                    "emitente": "Fornecedor", "CFOP_orig": "Natureza CFOP",
+                    "CFOP": "CFOP 4d", "xProd": "Produto", "NCM": "NCM",
+                    "qCom": "Qtd", "vUnCom": "Vl Unit", "vProd": "Vl Total",
+                }
+                _sel = {k: v for k, v in _cols_desejadas.items() if k in _sn_items.columns}
+                _sn_items = _sn_items[list(_sel.keys())].rename(columns=_sel)
                 _sn_items.to_excel(writer, sheet_name="SN Itens Compra", index=False)
+
+            # Itens excluídos pelo analista
+            _df_exc = sn_result.get("df_excluidos", pd.DataFrame())
+            if not _df_exc.empty:
+                _sn_exc = _df_exc.copy()
+                _cols_exc = {
+                    "CFOP_orig": "Natureza CFOP", "CFOP": "CFOP 4d",
+                    "emitente": "Fornecedor", "xProd": "Produto",
+                    "NCM": "NCM", "nNF": "Nº NF", "dhEmi": "Emissão",
+                    "vProd": "Valor",
+                }
+                _sel_exc = {k: v for k, v in _cols_exc.items() if k in _sn_exc.columns}
+                _sn_exc = _sn_exc[list(_sel_exc.keys())].rename(columns=_sel_exc)
+                _sn_exc.to_excel(writer, sheet_name="SN Excluídos", index=False)
+
+            # Confronto SPED × XMLs
+            _df_conf = sn_result.get("df_confronto", pd.DataFrame())
+            if not _df_conf.empty and "total_sped" in _df_conf.columns:
+                _sn_conf = _df_conf.copy()
+                for _cc in ["total_sped", "total_xml", "diferenca"]:
+                    if _cc in _sn_conf.columns:
+                        _sn_conf[_cc] = _sn_conf[_cc].apply(brl)
+                _sn_conf = _sn_conf.rename(columns={
+                    "CFOP": "CFOP", "total_sped": "Total SPED",
+                    "total_xml": "Total XMLs", "diferenca": "Diferença",
+                    "itens_sped": "Itens SPED", "itens_xml": "Itens XML",
+                })
+                _sn_conf.to_excel(writer, sheet_name="SN Confronto", index=False)
 
     return buf.getvalue()
 
@@ -3725,7 +3910,23 @@ def main():
         )
         st.session_state["_chk_simples"] = is_simples
         if is_simples:
-            st.caption("📥 XMLs de **entrada** (notas de compra) — upload ou pasta")
+            st.caption("📥 Informe as compras — planilha do sistema (recomendado) e/ou XMLs de entrada")
+
+            # ── Planilha SPED (fonte primária — classificação do analista) ──
+            st.markdown("**📊 Planilha do sistema fiscal** *(fonte preferida)*")
+            st.caption("Relatório de itens exportado do sistema: colunas Natureza (CFOP) + Valor Contábil")
+            arquivo_sped = st.file_uploader(
+                "Planilha SPED",
+                type=["xlsx", "xls"],
+                accept_multiple_files=False,
+                label_visibility="collapsed",
+                key=f"uploader_sped_{st.session_state.get('_upload_key', 0)}",
+            )
+            if arquivo_sped:
+                st.success(f"✅ Planilha **{arquivo_sped.name}** carregada")
+
+            # ── XMLs de entrada (complemento / confronto) ──────────────────
+            st.markdown("**📋 XMLs de entrada** *(opcional — para confronto)*")
             arquivos_entrada = st.file_uploader(
                 "XMLs de Entrada",
                 type=["xml", "zip"],
@@ -3762,7 +3963,8 @@ def main():
                 _pasta_entrada = ""
         else:
             arquivos_entrada = []
-            _pasta_entrada = ""
+            arquivo_sped     = None
+            _pasta_entrada   = ""
 
         st.divider()
         btn_analisar = st.button(
@@ -3784,13 +3986,14 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
-    _fp_pe = _pasta_entrada if _pasta_entrada else ""
+    _fp_pe   = _pasta_entrada if _pasta_entrada else ""
+    _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
     if arquivos_upload:
-        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe)
+        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     elif _pastas_validas:
-        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe)
+        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     elif f_nfce:
-        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe)
+        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     else:
         _fp = None
 
@@ -3863,8 +4066,9 @@ def main():
         df_horas     = _R["df_horas"]
         df_por_hora  = _R["df_por_hora"]
         df_por_turno = _R["df_por_turno"]
-        df_entradas  = _R.get("df_entradas", pd.DataFrame())
-        sn_result    = _R.get("sn_result", None)
+        df_entradas    = _R.get("df_entradas", pd.DataFrame())
+        sn_result      = _R.get("sn_result", None)
+        df_sped_parsed = _R.get("df_sped_parsed", pd.DataFrame())
 
     else:
         # ── CARREGAR + CALCULAR com tela de progresso ──
@@ -4044,8 +4248,9 @@ def main():
 
         # ── Simples Nacional ──────────────────────────────────
         df_entradas = pd.DataFrame()
+        df_sped_parsed = pd.DataFrame()
         sn_result   = None
-        _tem_entradas = is_simples and (bool(arquivos_entrada) or bool(_pasta_entrada))
+        _tem_entradas = is_simples and (bool(arquivos_entrada) or bool(_pasta_entrada) or arquivo_sped is not None)
         if _tem_entradas:
             _render_prog(97, "📋 Verificando regra dos 80% — Simples Nacional...", _t0, _box_txt, _box_bar)
             # Re-seek dos uploads (streams já lidos no fingerprint)
@@ -4086,7 +4291,22 @@ def main():
                     if not _df_pe.empty:
                         df_entradas = pd.concat([df_entradas, _df_pe], ignore_index=True) if not df_entradas.empty else _df_pe
 
-            sn_result = calc_simples_nacional(df_entradas, kpis["faturamento"])
+            # ── Planilha SPED (fonte primária) ──────────────────────
+            if arquivo_sped is not None:
+                try:
+                    arquivo_sped.seek(0)
+                except Exception:
+                    pass
+                try:
+                    df_sped_parsed = parse_sped_xlsx(arquivo_sped)
+                except Exception as _e_sped:
+                    st.warning(f"⚠️ Não foi possível ler a planilha SPED: {_e_sped}")
+                    df_sped_parsed = pd.DataFrame()
+
+            sn_result = calc_simples_nacional(
+                df_entradas, kpis["faturamento"],
+                df_sped=df_sped_parsed if not df_sped_parsed.empty else None
+            )
 
         _render_prog(100, "✅ Análise concluída!", _t0, _box_txt, _box_bar)
 
@@ -4164,6 +4384,7 @@ f"{_col_nfe}{_col_skip}"
             "df_combos": df_combos,  "df_metas": df_metas,
             "df_horas": df_horas,    "df_por_hora": df_por_hora, "df_por_turno": df_por_turno,
             "df_entradas": df_entradas, "sn_result": sn_result,
+            "df_sped_parsed": df_sped_parsed,
         }
         # Força re-render para o painel lateral enxergar o cache
         # (sidebar é renderizado antes da análise rodar)
@@ -4763,6 +4984,16 @@ f"{_col_nfe}{_col_skip}"
     if "Simples Nacional" in tab_idx and sn_result is not None:
         with tabs[tab_idx["Simples Nacional"]]:
             st.subheader("Simples Nacional — Verificação dos 80%")
+
+            # ── Indicação da fonte usada ──────────────────────────────
+            _sn_fonte = sn_result.get("fonte", "xml")
+            if _sn_fonte == "sped_xlsx":
+                st.info("📊 **Fonte: Planilha do sistema fiscal (SPED)** — usando a classificação do analista/contador como base de cálculo.")
+            elif _sn_fonte == "ambos":
+                st.info("📊 **Fontes combinadas: Planilha SPED + XMLs de entrada** — valores da planilha SPED como primário, XMLs como confronto.")
+            else:
+                st.info("📋 **Fonte: XMLs de entrada** — CFOPs convertidos automaticamente (5xxx→1xxx, 6xxx→2xxx).")
+
             st.caption(
                 "A legislação do Simples Nacional exige que as compras para comercialização "
                 "não ultrapassem **80% do faturamento total**. Aqui você confere se a empresa está dentro do limite."
@@ -4853,6 +5084,64 @@ f"{_col_nfe}{_col_skip}"
                     st.dataframe(_forn_show, use_container_width=True, hide_index=True, height=320)
                 else:
                     st.info("Sem dados de fornecedores.")
+
+            # ── Itens excluídos pelo analista (uso e consumo etc.) ─────
+            df_excluidos = sn_result.get("df_excluidos", pd.DataFrame())
+            if not df_excluidos.empty:
+                st.divider()
+                with st.expander(f"🚫 Itens reclassificados pelo analista — **uso e consumo / outros** ({len(df_excluidos)} itens, {brl(df_excluidos['vProd'].sum())} excluídos do cálculo)", expanded=False):
+                    st.caption("Estes itens constam na planilha SPED mas foram classificados pelo contador como uso e consumo, ativo imobilizado ou outra natureza — portanto NÃO entram nas compras de comercialização.")
+                    _exc_show = df_excluidos.copy()
+                    _fmt_cols_exc = {"vProd": brl}
+                    for _c, _fn in _fmt_cols_exc.items():
+                        if _c in _exc_show.columns:
+                            _exc_show[_c] = _exc_show[_c].apply(_fn)
+                    _ren_exc = {"CFOP_orig": "Natureza (CFOP)", "CFOP": "CFOP 4d", "vProd": "Valor",
+                                "emitente": "Fornecedor", "xProd": "Descrição", "NCM": "NCM",
+                                "nNF": "Documento", "dhEmi": "Data Emissão"}
+                    _exc_show = _exc_show.rename(columns={k: v for k, v in _ren_exc.items() if k in _exc_show.columns})
+                    st.dataframe(_exc_show, use_container_width=True, hide_index=True, height=280)
+
+            # ── Confronto SPED × XMLs ─────────────────────────────────
+            df_confronto = sn_result.get("df_confronto", pd.DataFrame())
+            df_por_cfop_xml = sn_result.get("df_por_cfop_xml", pd.DataFrame())
+            if not df_confronto.empty:
+                st.divider()
+                st.markdown("### 🔍 Confronto: Planilha SPED × XMLs de Entrada")
+                st.caption(
+                    "Compara os valores de comercialização por CFOP entre a planilha do sistema fiscal (SPED) "
+                    "e os XMLs baixados da SEFAZ. Diferenças podem indicar notas manuais (papel), compras de "
+                    "fornecedores sem NF-e, ou reclassificações feitas pelo contador."
+                )
+
+                # Resumo em KPIs
+                _tot_sped_conf = df_confronto["total_sped"].sum() if "total_sped" in df_confronto.columns else 0
+                _tot_xml_conf  = df_confronto["total_xml"].sum()  if "total_xml"  in df_confronto.columns else 0
+                _diff_conf     = _tot_sped_conf - _tot_xml_conf
+                cc1, cc2, cc3 = st.columns(3)
+                cc1.metric("Total SPED (sistema)", brl(_tot_sped_conf))
+                cc2.metric("Total XMLs (SEFAZ)",   brl(_tot_xml_conf))
+                cc3.metric("Diferença",            brl(abs(_diff_conf)),
+                           delta=f"{'SPED maior' if _diff_conf >= 0 else 'XML maior'}",
+                           delta_color="off")
+
+                # Tabela de confronto por CFOP
+                _conf_show = df_confronto.copy()
+                for _c in ["total_sped", "total_xml", "diferenca"]:
+                    if _c in _conf_show.columns:
+                        _conf_show[_c] = _conf_show[_c].apply(brl)
+                _conf_show = _conf_show.rename(columns={
+                    "CFOP": "CFOP", "total_sped": "SPED (sistema)",
+                    "total_xml": "XMLs (SEFAZ)", "diferenca": "Diferença",
+                    "itens_sped": "Itens SPED", "itens_xml": "Itens XML",
+                })
+                st.dataframe(_conf_show, use_container_width=True, hide_index=True)
+
+                if abs(_diff_conf) > 0:
+                    st.info(
+                        f"💡 A diferença de **{brl(abs(_diff_conf))}** entre SPED e XMLs é normal quando existem "
+                        f"compras de fornecedores sem NF-e eletrônica (notas em papel) registradas manualmente no sistema fiscal."
+                    )
 
             # ── CFOPs considerados ────────────────────────────────────
             with st.expander("ℹ️ CFOPs considerados como compras de comercialização"):
