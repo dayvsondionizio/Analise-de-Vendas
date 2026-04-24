@@ -205,17 +205,29 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                 prod = det.find(t("prod"))
                 if prod is None:
                     continue
-                # Normaliza CFOP para perspectiva do COMPRADOR (padaria):
+                # Normaliza CFOP para perspectiva do COMPRADOR (padaria / Simples Nacional):
                 # XMLs de fornecedores usam CFOP de SAÍDA (5xxx/6xxx/7xxx).
-                # O SPED e o Simples Nacional trabalham com CFOP de ENTRADA (1xxx/2xxx/3xxx).
-                # Conversão: 5xxx→1xxx (mesmo estado), 6xxx→2xxx (outro estado), 7xxx→3xxx (exterior)
-                # "1.102", "1102001" → strip de não-dígitos → 4 dígitos
+                # Passo 1: converte direção 5→1 (mesma UF), 6→2 (outra UF), 7→3 (exterior)
+                # Passo 2: ajusta subcategorias para o contexto de COMÉRCIO:
+                #   5401/6401 (venda de produção com ST) → tratado como 1403/2403 (compra p/ comercialização c/ ST)
+                #   5101/6101 (venda de produção sem ST) → tratado como 1102/2102 (compra p/ comercialização sem ST)
+                # Isso espelha o lançamento típico do SPED para empresas de comércio (Simples Anexo I).
                 import re as _re_cfop
                 cfop_raw = gettxt(prod, "CFOP")
                 cfop_d = _re_cfop.sub(r"[^\d]", "", cfop_raw)[:4]
                 if len(cfop_d) == 4 and cfop_d[0] in ("5", "6", "7"):
                     _mapa_dir = {"5": "1", "6": "2", "7": "3"}
-                    cfop = _mapa_dir[cfop_d[0]] + cfop_d[1:]
+                    cfop_base = _mapa_dir[cfop_d[0]] + cfop_d[1:]
+                    # Ajuste de subcategoria para empresas de comércio
+                    _remap_com = {
+                        "1401": "1403",  # compra produção c/ ST → comercialização c/ ST
+                        "2401": "2403",
+                        "3401": "3403",
+                        "1101": "1102",  # compra produção s/ ST → comercialização s/ ST
+                        "2101": "2102",
+                        "3101": "3102",
+                    }
+                    cfop = _remap_com.get(cfop_base, cfop_base)
                 else:
                     cfop = cfop_d
                 rows.append({
