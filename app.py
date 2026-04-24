@@ -205,7 +205,11 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                 prod = det.find(t("prod"))
                 if prod is None:
                     continue
-                cfop = gettxt(prod, "CFOP")
+                # Normaliza CFOP: remove pontos/traços e mantém só 4 dígitos
+                # "1.102", "1102001", "1102.001" → "1102"
+                import re as _re_cfop
+                cfop_raw = gettxt(prod, "CFOP")
+                cfop = _re_cfop.sub(r"[^\d]", "", cfop_raw)[:4]
                 rows.append({
                     "chave":     chave,
                     "nNF":       nNF,
@@ -268,6 +272,7 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float) -
             "df_entradas_filtradas": pd.DataFrame(),
         }
 
+    # CFOP já vem normalizado (4 dígitos limpos) do parse_entradas_xml
     df_com = df_entradas[df_entradas["CFOP"].isin(CFOPS_COMERCIALIZACAO)].copy()
     total = df_com["vProd"].sum()
     pct = (total / faturamento_total * 100) if faturamento_total else 0.0
@@ -3700,7 +3705,7 @@ def main():
         )
         st.session_state["_chk_simples"] = is_simples
         if is_simples:
-            st.caption("📥 Anexe os XMLs de **entrada** (notas de compra) para verificar o limite de 80%")
+            st.caption("📥 XMLs de **entrada** (notas de compra) — upload ou pasta")
             arquivos_entrada = st.file_uploader(
                 "XMLs de Entrada",
                 type=["xml", "zip"],
@@ -3710,8 +3715,34 @@ def main():
             )
             if arquivos_entrada:
                 st.success(f"✅ {len(arquivos_entrada)} arquivo(s) de entrada carregado(s)")
+
+            # ── Pasta local de entradas (só desktop) ─────────────────
+            if not _is_cloud():
+                if st.button("📁 Selecionar pasta de entradas", use_container_width=True, key="btn_pasta_entrada"):
+                    _pe = _abrir_seletor_pasta()
+                    if _pe:
+                        st.session_state["_pasta_entrada"] = _pe
+                _pasta_entrada = st.session_state.get("_pasta_entrada", "")
+                if _pasta_entrada:
+                    _n_ent = _contar_xmls_pasta(_pasta_entrada)
+                    _cor_e = "#D1FAE5" if _n_ent > 0 else "#FEE2E2"
+                    _tc_e  = "#065F46" if _n_ent > 0 else "#991B1B"
+                    _col_ei, _col_er = st.columns([5, 1])
+                    with _col_ei:
+                        st.markdown(
+                            f"<div style='background:{_cor_e};border-radius:6px;padding:5px 9px;"
+                            f"font-size:11px;color:{_tc_e};margin:2px 0'>"
+                            f"<b>{_Path(_pasta_entrada).name}</b> · {_n_ent} XMLs de entrada</div>",
+                            unsafe_allow_html=True)
+                    with _col_er:
+                        if st.button("✕", key="rm_pasta_entrada"):
+                            del st.session_state["_pasta_entrada"]
+                            st.rerun()
+            else:
+                _pasta_entrada = ""
         else:
             arquivos_entrada = []
+            _pasta_entrada = ""
 
         st.divider()
         btn_analisar = st.button(
@@ -3733,12 +3764,13 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
+    _fp_pe = _pasta_entrada if _pasta_entrada else ""
     if arquivos_upload:
-        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada)
+        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe)
     elif _pastas_validas:
-        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada)
+        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe)
     elif f_nfce:
-        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada)
+        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe)
     else:
         _fp = None
 
@@ -3993,17 +4025,48 @@ def main():
         # ── Simples Nacional ──────────────────────────────────
         df_entradas = pd.DataFrame()
         sn_result   = None
-        if is_simples and arquivos_entrada:
+        _tem_entradas = is_simples and (bool(arquivos_entrada) or bool(_pasta_entrada))
+        if _tem_entradas:
             _render_prog(97, "📋 Verificando regra dos 80% — Simples Nacional...", _t0, _box_txt, _box_bar)
-            # Precisa re-ler os bytes (já foram lidos acima para fingerprint,
-            # mas os UploadedFile são streams — fazemos seek(0) primeiro)
+            # Re-seek dos uploads (streams já lidos no fingerprint)
             for _ae in arquivos_entrada:
                 try:
                     _ae.seek(0)
                 except Exception:
                     pass
             df_entradas = parse_entradas_xml(arquivos_entrada)
-            sn_result   = calc_simples_nacional(df_entradas, kpis["faturamento"])
+
+            # Pasta local de entradas
+            if _pasta_entrada:
+                from pathlib import Path as _PEPath
+                import xml.etree.ElementTree as _ET_PE
+                _pe_files = sorted(
+                    set(_PEPath(_pasta_entrada).rglob("*.xml")) |
+                    set(_PEPath(_pasta_entrada).rglob("*.XML"))
+                )
+                # Cria objetos file-like a partir dos bytes dos XMLs da pasta
+                import io as _io_pe
+
+                class _BytesWrapper:
+                    def __init__(self, data, name):
+                        self._buf = _io_pe.BytesIO(data)
+                        self.name = name
+                    def read(self): return self._buf.read()
+                    def seek(self, p): self._buf.seek(p)
+
+                _pe_wrappers = []
+                for _pf in _pe_files:
+                    try:
+                        _pe_wrappers.append(_BytesWrapper(_pf.read_bytes(), _pf.name))
+                    except Exception:
+                        pass
+
+                if _pe_wrappers:
+                    _df_pe = parse_entradas_xml(_pe_wrappers)
+                    if not _df_pe.empty:
+                        df_entradas = pd.concat([df_entradas, _df_pe], ignore_index=True) if not df_entradas.empty else _df_pe
+
+            sn_result = calc_simples_nacional(df_entradas, kpis["faturamento"])
 
         _render_prog(100, "✅ Análise concluída!", _t0, _box_txt, _box_bar)
 
