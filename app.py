@@ -3829,12 +3829,6 @@ def exportar_pptx(kpis, df_pares, df_trios,
                              font_size=11, color=TEXTO, align=_al)
                     _x_f += _vw
 
-        # Nota de rodapé
-        add_text(sl,
-                 "CFOPs considerados — comercialização: 1102, 2102, 1403, 2403, 1104, 2104, 1117, 2117, 1410, 2410  "
-                 "| Excluídos: imobilizado (14xx), uso e consumo (15xx), industrialização (11xx)",
-                 Inches(0.3), Inches(7.1), Inches(12.7), Inches(0.35),
-                 font_size=9, color=RGBColor(0x9C, 0xA3, 0xAF))
 
     buf = io.BytesIO()
     prs.save(buf)
