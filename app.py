@@ -3806,9 +3806,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
             _x_f = Inches(6.8)
             for _hi, (_hh, _hw) in enumerate(zip(_hdr_forn, _cw_forn)):
                 add_rect(sl, _x_f, _y_f, _hw, _rh, AZUL_ESC)
+                _hal_f = PP_ALIGN.LEFT if _hi == 0 else PP_ALIGN.RIGHT
                 add_text(sl, _hh, _x_f + Inches(0.05), _y_f + Inches(0.07),
                          _hw - Inches(0.1), _rh - Inches(0.1),
-                         font_size=11, bold=True, color=BRANCO)
+                         font_size=11, bold=True, color=BRANCO, align=_hal_f)
                 _x_f += _hw
             for _ri, (_, _row) in enumerate(df_por_forn.head(6).iterrows()):
                 _y_f += _rh
