@@ -3299,8 +3299,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
              (f"Nota: o ticket médio exibido no relatório ({_tm_total_str}) reflete todas as vendas do período. "
               f"A análise de drivers acima considera apenas vendas do consumidor final (NFC-e), "
               f"excluindo pedidos corporativos que distorcem o perfil de consumo."),
-             Inches(0.3), Inches(6.55), Inches(12.7), Inches(0.9),
-             font_size=11, color=RGBColor(0x6B, 0x72, 0x80))
+             Inches(0.3), Inches(6.55), Inches(11.8), Inches(0.9),
+             font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
 
     #  SLIDE 11: SIMULAÇÃO DE RECEITA 
     sl = prs.slides.add_slide(blank)
@@ -3337,12 +3337,16 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
         melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
         add_rect(sl, Inches(0.3), Inches(6.3), Inches(12.7), Inches(0.8), RGBColor(0xFE, 0xF3, 0xC7))
-        _melhor_txt = (f"Maior oportunidade: {melhor['Estratégia']}"
-                       f"   \u2014   {brl(melhor['Impacto Mensal'])} por m\u00eas"
-                       f"   \u2014   {brl(melhor['Impacto Anual'])} por ano")
-        add_text(sl, _melhor_txt,
-                 Inches(0.5), Inches(6.35), Inches(12.5), Inches(0.7),
-                 font_size=14, bold=True, color=RGBColor(0x92, 0x40, 0x0E))
+        # Label: lado esquerdo do banner
+        add_text(sl, f"Maior oportunidade:  {melhor['Estratégia']}",
+                 Inches(0.45), Inches(6.42), Inches(6.0), Inches(0.6),
+                 font_size=13, bold=True, color=RGBColor(0x92, 0x40, 0x0E), wrap=False)
+        # Valores: lado direito — caixa isolada para R$ renderizar corretamente
+        add_text(sl,
+                 f"{brl(melhor['Impacto Mensal'])} / m\u00eas   \u2014   {brl(melhor['Impacto Anual'])} / ano",
+                 Inches(6.6), Inches(6.42), Inches(6.2), Inches(0.6),
+                 font_size=13, bold=True, color=RGBColor(0x92, 0x40, 0x0E),
+                 align=PP_ALIGN.RIGHT, wrap=False)
 
     #  SLIDE 12: SIMULAÇÃO DE PREÇOS 
     sl = prs.slides.add_slide(blank)
