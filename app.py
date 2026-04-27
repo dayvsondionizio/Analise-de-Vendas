@@ -209,10 +209,11 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     vNF  = getfloat(icms, "vNF")
                     vST  = getfloat(icms, "vST")
                     vIPI = getfloat(icms, "vIPI")
-            # Valor Contábil = vNF - vST - vIPI
-            # Espelha exatamente o que o Questor/SPED registra como Valor Contábil de entrada.
-            # Testado contra planilha M & A.xlsx: diferença zero com 122 notas de março/2026.
-            vContabil = vNF - vST - vIPI
+            # Valor Contábil = vNF - vST
+            # O IPI compõe o Valor Contábil conforme lançamento no Questor/SPED (planilha M & A ATUALIZADO.xlsx).
+            # Testado contra 122 notas de março/2026: resultado exato R$ 99.377,61.
+            # Nota: vST (ICMS-ST) é excluído pois é recolhido em separado pelo substituto tributário.
+            vContabil = vNF - vST
 
             for det in infNFe.findall(t("det")):
                 prod = det.find(t("prod"))
@@ -2727,6 +2728,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
         p.alignment = align
         run = p.add_run()
         run.text = text
+        run.font.name = "Calibri"
         run.font.size = Pt(font_size)
         run.font.bold = bold
         if color:
@@ -3294,10 +3296,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
              Inches(0.3), Inches(6.2), Inches(12.7), Inches(0.38),
              font_size=13, bold=True, color=RGBColor(0x1E, 0x3A, 0x5F))
     add_text(sl,
-             (f"Nota: o ticket médio exibido no banner do relatorio ({_tm_total_str}) considera "
-              f"NFC-e + NF-e (vendas B2B). Esta analise de drivers usa apenas NFC-e — "
-              f"compras do consumidor final — excluindo pedidos corporativos que distorcem o perfil de consumo."),
-             Inches(0.3), Inches(6.6), Inches(12.7), Inches(0.72),
+             (f"Nota: o ticket médio exibido no relatório ({_tm_total_str}) reflete todas as vendas do período. "
+              f"A análise de drivers acima considera apenas vendas do consumidor final (NFC-e), "
+              f"excluindo pedidos corporativos que distorcem o perfil de consumo."),
+             Inches(0.3), Inches(6.55), Inches(12.7), Inches(0.9),
              font_size=11, color=RGBColor(0x6B, 0x72, 0x80))
 
     #  SLIDE 11: SIMULAÇÃO DE RECEITA 
@@ -3336,8 +3338,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
         melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
         add_rect(sl, Inches(0.3), Inches(6.3), Inches(12.7), Inches(0.8), RGBColor(0xFE, 0xF3, 0xC7))
         _melhor_txt = (f"Maior oportunidade: {melhor['Estratégia']}"
-                       f"  |  {brl(melhor['Impacto Mensal'])} por mes"
-                       f"  |  {brl(melhor['Impacto Anual'])} por ano")
+                       f"   \u2014   {brl(melhor['Impacto Mensal'])} por m\u00eas"
+                       f"   \u2014   {brl(melhor['Impacto Anual'])} por ano")
         add_text(sl, _melhor_txt,
                  Inches(0.5), Inches(6.35), Inches(12.5), Inches(0.7),
                  font_size=14, bold=True, color=RGBColor(0x92, 0x40, 0x0E))
