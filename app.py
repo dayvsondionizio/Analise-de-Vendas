@@ -460,11 +460,21 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
         total = _notas_unicas[_val_col].sum()
         fonte = "xml"
 
-        # Breakdown informacional por CFOP (vProd dos itens) — para referência
+        # Breakdown por CFOP usando vContabil proporcional ao vProd de cada item
+        # Garante que sum(CFOP) == total (vNF-vST), sem divergência no dashboard.
         df_com_sped = df_entradas.copy()
+        _nota_vcontabil = _notas_unicas.set_index("chave")[_val_col].rename("_vContabil_nota")
+        _nota_vprod     = df_entradas.groupby("chave")["vProd"].sum().rename("_vProd_nota")
+        _df_cfop_calc   = df_entradas.join(_nota_vcontabil, on="chave").join(_nota_vprod, on="chave")
+        _df_cfop_calc["_vContabil_item"] = (
+            _df_cfop_calc["vProd"] / _df_cfop_calc["_vProd_nota"].replace(0, 1)
+            * _df_cfop_calc["_vContabil_nota"]
+        )
         df_por_cfop = (
-            df_entradas.groupby("CFOP")
-            .agg(total_compras=("vProd", "sum"), notas=("chave", "nunique"), itens=("vProd", "count"))
+            _df_cfop_calc.groupby("CFOP")
+            .agg(total_compras=("_vContabil_item", "sum"),
+                 notas=("chave", "nunique"),
+                 itens=("vProd", "count"))
             .reset_index().sort_values("total_compras", ascending=False)
         )
         _forn_col = "emitente" if "emitente" in _notas_unicas.columns else None
@@ -3753,9 +3763,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
             _x_c = Inches(0.5)
             for _hi, (_hh, _hw) in enumerate(zip(_hdr_cfop, _cw_cfop)):
                 add_rect(sl, _x_c, _y_c, _hw, _rh, AZUL_ESC)
+                _hal = PP_ALIGN.LEFT if _hi == 0 else PP_ALIGN.RIGHT
                 add_text(sl, _hh, _x_c + Inches(0.05), _y_c + Inches(0.07),
                          _hw - Inches(0.1), _rh - Inches(0.1),
-                         font_size=11, bold=True, color=BRANCO)
+                         font_size=11, bold=True, color=BRANCO, align=_hal)
                 _x_c += _hw
             for _ri, (_, _row) in enumerate(df_por_cfop.head(6).iterrows()):
                 _y_c += _rh
