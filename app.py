@@ -3357,21 +3357,23 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
         melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
         add_rect(sl, Inches(0.3), Inches(6.3), Inches(12.7), Inches(0.8), RGBColor(0xFE, 0xF3, 0xC7))
-        # Banner dividido em 4 text boxes independentes — cada brl() isolado
-        # evita que renderizadores PDF tratem R$...R$ como delimitadores LaTeX
+        # Banner: 5 caixas lado a lado (cada brl() isolado evita bug LaTeX R$...R$)
         _bc = RGBColor(0x92, 0x40, 0x0E)
         add_text(sl, f"Maior oportunidade:  {melhor['Estratégia']}",
-                 Inches(0.45), Inches(6.42), Inches(5.8), Inches(0.6),
+                 Inches(0.45), Inches(6.42), Inches(4.8), Inches(0.6),
                  font_size=13, bold=True, color=_bc, wrap=False)
-        add_text(sl, f"{brl(melhor['Impacto Mensal'])} / m\u00eas",
-                 Inches(6.4), Inches(6.42), Inches(2.8), Inches(0.6),
-                 font_size=13, bold=True, color=_bc, align=PP_ALIGN.RIGHT, wrap=False)
         add_text(sl, "\u2014",
-                 Inches(9.25), Inches(6.42), Inches(0.5), Inches(0.6),
+                 Inches(5.3), Inches(6.42), Inches(0.4), Inches(0.6),
+                 font_size=13, bold=True, color=_bc, align=PP_ALIGN.CENTER, wrap=False)
+        add_text(sl, f"{brl(melhor['Impacto Mensal'])} / m\u00eas",
+                 Inches(5.75), Inches(6.42), Inches(2.3), Inches(0.6),
+                 font_size=13, bold=True, color=_bc, wrap=False)
+        add_text(sl, "\u2014",
+                 Inches(8.1), Inches(6.42), Inches(0.4), Inches(0.6),
                  font_size=13, bold=True, color=_bc, align=PP_ALIGN.CENTER, wrap=False)
         add_text(sl, f"{brl(melhor['Impacto Anual'])} / ano",
-                 Inches(9.8), Inches(6.42), Inches(3.1), Inches(0.6),
-                 font_size=13, bold=True, color=_bc, align=PP_ALIGN.RIGHT, wrap=False)
+                 Inches(8.55), Inches(6.42), Inches(2.5), Inches(0.6),
+                 font_size=13, bold=True, color=_bc, wrap=False)
 
     #  SLIDE 12: SIMULAÇÃO DE PREÇOS 
     sl = prs.slides.add_slide(blank)
