@@ -188,18 +188,28 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
             if ide is None:
                 return
             dhEmi = gettxt(ide, "dhEmi") or None
-            nNF = gettxt(ide, "nNF")
+            nNF    = gettxt(ide, "nNF")
+            finNFe = gettxt(ide, "finNFe")  # 1=normal, 2=complementar, 3=ajuste, 4=devolução
+
+            # Exclui notas de DEVOLUÇÃO (finNFe=4):
+            # São devoluções de mercadoria ao fornecedor — reduzem estoque, não são compras novas.
+            # O sistema Questor (SPED) não as registra como entradas de compra.
+            if finNFe == "4":
+                return
 
             emit_el = infNFe.find(t("emit"))
-            emitente = gettxt(emit_el, "xNome") if emit_el is not None else ""
-            cnpj_emit = gettxt(emit_el, "CNPJ") if emit_el is not None else ""
+            emitente  = gettxt(emit_el, "xNome") if emit_el is not None else ""
+            cnpj_emit = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
-            vNF = 0.0
+            vNF = vST = 0.0
             total_el = infNFe.find(t("total"))
             if total_el is not None:
                 icms = total_el.find(t("ICMSTot"))
                 if icms is not None:
                     vNF = getfloat(icms, "vNF")
+                    vST = getfloat(icms, "vST")
+            # Valor Contábil (sem ST) — espelha o que o Questor registra no SPED
+            vContabil = vNF - vST
 
             for det in infNFe.findall(t("det")):
                 prod = det.find(t("prod"))
@@ -243,6 +253,9 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "vUnCom":    getfloat(prod, "vUnCom"),
                     "vProd":     getfloat(prod, "vProd"),
                     "vNF":       vNF,
+                    "vST":       vST,
+                    "vContabil": vContabil,   # vNF - vST (igual ao Valor Contábil do Questor/SPED)
+                    "finNFe":    finNFe,
                     "fonte":     source_name,
                 })
         except Exception:
@@ -411,9 +424,10 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
         df_confronto = pd.DataFrame()
         df_por_cfop_xml = pd.DataFrame()
         if tem_xml:
-            # XML: soma vNF de TODAS as NF-e válidas (sem filtro de CFOP)
+            # XML: usa vContabil (vNF-vST) das notas normais (devolução já excluída no parse)
+            _val_col_xml = "vContabil" if "vContabil" in df_entradas.columns else "vNF"
             _notas_xml_unicas = df_entradas.drop_duplicates("chave")
-            total_xml_notas   = _notas_xml_unicas["vNF"].sum()
+            total_xml_notas   = _notas_xml_unicas[_val_col_xml].sum()
             n_notas_xml       = len(_notas_xml_unicas)
             # Confronto simples: SPED (comercialização classificada) × XMLs (total das notas)
             df_confronto = pd.DataFrame([
@@ -432,14 +446,17 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
 
         df_com_sped["fonte"] = "sped"
     else:
-        # ── Somente XMLs — soma vNF de TODAS as NF-e válidas (sem filtro de CFOP) ──
-        # Deduplica por chave de nota para não somar vNF múltiplas vezes
+        # ── Somente XMLs ─────────────────────────────────────────────────────────
+        # Notas de devolução (finNFe=4) já foram excluídas em parse_entradas_xml.
+        # Deduplica por chave de nota e usa vContabil (= vNF − vST),
+        # que é o que o Questor/SPED registra como Valor Contábil de entrada.
+        _val_col = "vContabil" if "vContabil" in df_entradas.columns else "vNF"
         _notas_unicas = df_entradas.drop_duplicates("chave")
-        total = _notas_unicas["vNF"].sum()
+        total = _notas_unicas[_val_col].sum()
         fonte = "xml"
 
         # Breakdown informacional por CFOP (vProd dos itens) — para referência
-        df_com_sped = df_entradas.copy()   # todos os itens, para o breakdown
+        df_com_sped = df_entradas.copy()
         df_por_cfop = (
             df_entradas.groupby("CFOP")
             .agg(total_compras=("vProd", "sum"), notas=("chave", "nunique"), itens=("vProd", "count"))
@@ -448,7 +465,7 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
         _forn_col = "emitente" if "emitente" in _notas_unicas.columns else None
         df_por_fornecedor = (
             _notas_unicas.groupby(_forn_col)
-            .agg(total_compras=("vNF", "sum"), notas=("chave", "nunique"))
+            .agg(total_compras=(_val_col, "sum"), notas=("chave", "nunique"))
             .reset_index().sort_values("total_compras", ascending=False).head(20)
         ) if _forn_col else pd.DataFrame()
         df_confronto = pd.DataFrame()
@@ -4992,7 +5009,7 @@ f"{_col_nfe}{_col_skip}"
             elif _sn_fonte == "ambos":
                 st.info("📊 **Fontes: Planilha SPED + XMLs de entrada** — cálculo pela planilha SPED (comercialização). XMLs usados para conferência do total de notas.")
             else:
-                st.info("📋 **Fonte: XMLs de entrada** — soma do **vNF de todas as NF-e válidas** (total das notas, sem distinção de CFOP).")
+                st.info("📋 **Fonte: XMLs de entrada** — soma do **Valor Contábil (vNF − vST)** das NF-e válidas, excluindo notas de devolução (finNFe=4). Espelha o Valor Contábil do Questor/SPED.")
 
             st.caption(
                 "A legislação do Simples Nacional exige que as compras para comercialização "
@@ -5008,7 +5025,7 @@ f"{_col_nfe}{_col_skip}"
             c1, c2, c3, c4 = st.columns(4)
             _lbl_compras = (
                 "Compras de Comercialização" if _sn_fonte in ("sped_xlsx", "ambos")
-                else "Total de Compras (NF-e)"
+                else "Total Compras (Valor Contábil)"
             )
             c1.metric("Faturamento Total",  brl(_sn_fat))
             c2.metric(_lbl_compras,         brl(_sn_total))
