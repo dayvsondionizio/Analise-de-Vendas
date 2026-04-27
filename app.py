@@ -2015,6 +2015,16 @@ def brl(v: float) -> str:
     return f"R$ {s}"
 
 
+def brl_pptx(v: float) -> str:
+    """Formato R$ para slides PPTX.
+    Usa cifrão fullwidth ＄ (U+FF04) para evitar que renderizadores de PDF
+    tratem dois R$...R$ como delimitadores LaTeX e descartém o símbolo.
+    Visualmente idêntico a R$, mas não é ASCII 0x24."""
+    s = f"{v:,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R\uFF04\u00a0{s}"   # R＄[NBSP]1.234,56
+
+
 def fmt_num(v: float) -> str:
     s = f"{int(v):,}".replace(",", ".")
     return s
@@ -3351,9 +3361,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_text(sl, f"Maior oportunidade:  {melhor['Estratégia']}",
                  Inches(0.45), Inches(6.42), Inches(6.0), Inches(0.6),
                  font_size=13, bold=True, color=RGBColor(0x92, 0x40, 0x0E), wrap=False)
-        # Valores: lado direito — caixa isolada para R$ renderizar corretamente
+        # Valores: lado direito — usa brl_pptx (cifrão fullwidth) para evitar
+        # que renderizadores PDF tratem R$...R$ como delimitadores LaTeX
         add_text(sl,
-                 f"{brl(melhor['Impacto Mensal'])} / m\u00eas   \u2014   {brl(melhor['Impacto Anual'])} / ano",
+                 f"{brl_pptx(melhor['Impacto Mensal'])}\u00a0/\u00a0m\u00eas\u2003\u2014\u2003{brl_pptx(melhor['Impacto Anual'])}\u00a0/\u00a0ano",
                  Inches(6.6), Inches(6.42), Inches(6.2), Inches(0.6),
                  font_size=13, bold=True, color=RGBColor(0x92, 0x40, 0x0E),
                  align=PP_ALIGN.RIGHT, wrap=False)
