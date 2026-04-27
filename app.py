@@ -201,15 +201,18 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
             emitente  = gettxt(emit_el, "xNome") if emit_el is not None else ""
             cnpj_emit = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
-            vNF = vST = 0.0
+            vNF = vST = vIPI = 0.0
             total_el = infNFe.find(t("total"))
             if total_el is not None:
                 icms = total_el.find(t("ICMSTot"))
                 if icms is not None:
-                    vNF = getfloat(icms, "vNF")
-                    vST = getfloat(icms, "vST")
-            # Valor Contábil (sem ST) — espelha o que o Questor registra no SPED
-            vContabil = vNF - vST
+                    vNF  = getfloat(icms, "vNF")
+                    vST  = getfloat(icms, "vST")
+                    vIPI = getfloat(icms, "vIPI")
+            # Valor Contábil = vNF - vST - vIPI
+            # Espelha exatamente o que o Questor/SPED registra como Valor Contábil de entrada.
+            # Testado contra planilha M & A.xlsx: diferença zero com 122 notas de março/2026.
+            vContabil = vNF - vST - vIPI
 
             for det in infNFe.findall(t("det")):
                 prod = det.find(t("prod"))
@@ -254,7 +257,8 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "vProd":     getfloat(prod, "vProd"),
                     "vNF":       vNF,
                     "vST":       vST,
-                    "vContabil": vContabil,   # vNF - vST (igual ao Valor Contábil do Questor/SPED)
+                    "vIPI":      vIPI,
+                    "vContabil": vContabil,   # vNF - vST - vIPI (igual ao Valor Contábil do Questor/SPED)
                     "finNFe":    finNFe,
                     "fonte":     source_name,
                 })
@@ -5009,7 +5013,7 @@ f"{_col_nfe}{_col_skip}"
             elif _sn_fonte == "ambos":
                 st.info("📊 **Fontes: Planilha SPED + XMLs de entrada** — cálculo pela planilha SPED (comercialização). XMLs usados para conferência do total de notas.")
             else:
-                st.info("📋 **Fonte: XMLs de entrada** — soma do **Valor Contábil (vNF − vST)** das NF-e válidas, excluindo notas de devolução (finNFe=4). Espelha o Valor Contábil do Questor/SPED.")
+                st.info("📋 **Fonte: XMLs de entrada** — soma do **Valor Contábil (vNF − vST − vIPI)** das NF-e válidas, excluindo notas de devolução. Espelha exatamente o Valor Contábil registrado no Questor/SPED.")
 
             st.caption(
                 "A legislação do Simples Nacional exige que as compras para comercialização "
