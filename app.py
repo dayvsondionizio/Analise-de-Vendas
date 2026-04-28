@@ -4052,6 +4052,8 @@ def main():
                 for _k in ["_analise", "_analise_fp", "pastas_xml"]:
                     if _k in st.session_state:
                         del st.session_state[_k]
+                # Limpa cache de dados para forçar reprocessamento dos arquivos
+                st.cache_data.clear()
                 # Incrementa chave do uploader para forçar limpeza dos arquivos
                 st.session_state["_upload_key"] = st.session_state.get("_upload_key", 0) + 1
                 st.rerun()
