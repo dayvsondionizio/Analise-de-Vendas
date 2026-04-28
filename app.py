@@ -1328,8 +1328,15 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             except Exception:
                 pass
         elif ext == "rar":
+            import subprocess, tempfile, os, shutil, traceback
+            def _rar_log(msg):
+                try:
+                    os.makedirs(r"C:\Temp", exist_ok=True)
+                    with open(r"C:\Temp\rar_debug.log", "a", encoding="utf-8") as _lf:
+                        _lf.write(msg + "\n")
+                except Exception:
+                    pass
             try:
-                import subprocess, tempfile, os, shutil
                 # Localiza UnRAR.exe (Windows) ou unrar (Linux/Mac)
                 _unrar_candidates = [
                     r"C:\Program Files\WinRAR\UnRAR.exe",
@@ -1337,31 +1344,41 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     r"C:\Program Files\WinRAR\WinRAR.exe",
                 ]
                 _unrar_exe = next((p for p in _unrar_candidates if os.path.isfile(p)), None)
+                _rar_log(f"[RAR] arquivo={nome} | unrar_exe={_unrar_exe} | data_len={len(data)}")
 
                 if _unrar_exe:
                     # Salva RAR em disco temporário e extrai para pasta temporária
                     _tmp_rar  = None
                     _tmp_dir  = tempfile.mkdtemp()
+                    _rar_log(f"[RAR] tmp_dir={_tmp_dir}")
                     try:
                         with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
                             _f.write(data)
                             _tmp_rar = _f.name
-                        # UnRAR e = extrair sem paths, -y = yes a tudo, -inul = sem output
-                        subprocess.run(
-                            [_unrar_exe, "e", "-y", "-inul", _tmp_rar, _tmp_dir + os.sep],
+                        _rar_log(f"[RAR] tmp_rar={_tmp_rar}")
+                        # UnRAR e = extrair sem paths, -y = yes a tudo
+                        _res = subprocess.run(
+                            [_unrar_exe, "e", "-y", _tmp_rar, _tmp_dir + os.sep],
                             capture_output=True, timeout=120
                         )
-                        for _fname in sorted(os.listdir(_tmp_dir)):
+                        _rar_log(f"[RAR] returncode={_res.returncode} | stdout={_res.stdout[:200]} | stderr={_res.stderr[:200]}")
+                        _listdir = os.listdir(_tmp_dir)
+                        _rar_log(f"[RAR] arquivos extraidos={_listdir}")
+                        for _fname in sorted(_listdir):
                             _fpath = os.path.join(_tmp_dir, _fname)
                             if os.path.isfile(_fpath):
                                 with open(_fpath, "rb") as _fh:
-                                    resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
+                                    _extracted = extrair_xml_bytes(_fh.read(), _fname, excluir)
+                                    _rar_log(f"[RAR] {_fname} -> {len(_extracted)} xml(s)")
+                                    resultado.extend(_extracted)
+                        _rar_log(f"[RAR] total resultado={len(resultado)}")
                     finally:
                         if _tmp_rar:
                             try: os.unlink(_tmp_rar)
                             except: pass
                         shutil.rmtree(_tmp_dir, ignore_errors=True)
                 else:
+                    _rar_log(f"[RAR] UnRAR.exe NAO encontrado — tentando rarfile")
                     # Fallback: rarfile (Linux/Mac com unrar instalado)
                     import rarfile
                     with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
@@ -1378,7 +1395,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                         try: os.unlink(_tmp_path)
                         except: pass
             except Exception:
-                pass
+                _rar_log(f"[RAR] EXCECAO: {traceback.format_exc()}")
         elif ext in ("7z", "7zip"):
             try:
                 import py7zr
