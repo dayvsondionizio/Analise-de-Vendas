@@ -1329,11 +1329,33 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 pass
         elif ext == "rar":
             try:
-                import rarfile
-                with rarfile.RarFile(io.BytesIO(data)) as rf:
-                    for entry in rf.namelist():
-                        eb = rf.read(entry)
-                        resultado.extend(extrair_xml_bytes(eb, entry, excluir))
+                import rarfile, os, tempfile
+                # Configura o UnRAR — tenta WinRAR primeiro (Windows), depois unrar (Linux/Mac)
+                _unrar_candidates = [
+                    r"C:\Program Files\WinRAR\UnRAR.exe",
+                    r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
+                    "unrar",   # Linux/Mac via PATH
+                    "7z",      # 7-Zip como fallback
+                ]
+                for _candidate in _unrar_candidates:
+                    if os.path.isfile(_candidate) or _candidate in ("unrar", "7z"):
+                        rarfile.UNRAR_TOOL = _candidate
+                        break
+                # Extrai via arquivo temporário (mais confiável que BytesIO em alguns sistemas)
+                with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _tmp:
+                    _tmp.write(data)
+                    _tmp_path = _tmp.name
+                try:
+                    with rarfile.RarFile(_tmp_path) as rf:
+                        for entry in rf.namelist():
+                            try:
+                                eb = rf.read(entry)
+                                resultado.extend(extrair_xml_bytes(eb, entry, excluir))
+                            except Exception:
+                                pass
+                finally:
+                    try: os.unlink(_tmp_path)
+                    except: pass
             except Exception:
                 pass
         elif ext in ("7z", "7zip"):
