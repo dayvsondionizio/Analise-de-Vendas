@@ -1329,33 +1329,54 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 pass
         elif ext == "rar":
             try:
-                import rarfile, os, tempfile
-                # Configura o UnRAR — tenta WinRAR primeiro (Windows), depois unrar (Linux/Mac)
+                import subprocess, tempfile, os, shutil
+                # Localiza UnRAR.exe (Windows) ou unrar (Linux/Mac)
                 _unrar_candidates = [
                     r"C:\Program Files\WinRAR\UnRAR.exe",
                     r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
-                    "unrar",   # Linux/Mac via PATH
-                    "7z",      # 7-Zip como fallback
+                    r"C:\Program Files\WinRAR\WinRAR.exe",
                 ]
-                for _candidate in _unrar_candidates:
-                    if os.path.isfile(_candidate) or _candidate in ("unrar", "7z"):
-                        rarfile.UNRAR_TOOL = _candidate
-                        break
-                # Extrai via arquivo temporário (mais confiável que BytesIO em alguns sistemas)
-                with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _tmp:
-                    _tmp.write(data)
-                    _tmp_path = _tmp.name
-                try:
-                    with rarfile.RarFile(_tmp_path) as rf:
-                        for entry in rf.namelist():
-                            try:
-                                eb = rf.read(entry)
-                                resultado.extend(extrair_xml_bytes(eb, entry, excluir))
-                            except Exception:
-                                pass
-                finally:
-                    try: os.unlink(_tmp_path)
-                    except: pass
+                _unrar_exe = next((p for p in _unrar_candidates if os.path.isfile(p)), None)
+
+                if _unrar_exe:
+                    # Salva RAR em disco temporário e extrai para pasta temporária
+                    _tmp_rar  = None
+                    _tmp_dir  = tempfile.mkdtemp()
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
+                            _f.write(data)
+                            _tmp_rar = _f.name
+                        # UnRAR e = extrair sem paths, -y = yes a tudo, -inul = sem output
+                        subprocess.run(
+                            [_unrar_exe, "e", "-y", "-inul", _tmp_rar, _tmp_dir + os.sep],
+                            capture_output=True, timeout=120
+                        )
+                        for _fname in sorted(os.listdir(_tmp_dir)):
+                            _fpath = os.path.join(_tmp_dir, _fname)
+                            if os.path.isfile(_fpath):
+                                with open(_fpath, "rb") as _fh:
+                                    resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
+                    finally:
+                        if _tmp_rar:
+                            try: os.unlink(_tmp_rar)
+                            except: pass
+                        shutil.rmtree(_tmp_dir, ignore_errors=True)
+                else:
+                    # Fallback: rarfile (Linux/Mac com unrar instalado)
+                    import rarfile
+                    with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
+                        _f.write(data)
+                        _tmp_path = _f.name
+                    try:
+                        with rarfile.RarFile(_tmp_path) as rf:
+                            for entry in rf.namelist():
+                                try:
+                                    resultado.extend(extrair_xml_bytes(rf.read(entry), entry, excluir))
+                                except Exception:
+                                    pass
+                    finally:
+                        try: os.unlink(_tmp_path)
+                        except: pass
             except Exception:
                 pass
         elif ext in ("7z", "7zip"):
