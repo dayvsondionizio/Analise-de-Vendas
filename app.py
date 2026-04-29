@@ -1764,10 +1764,20 @@ def calc_curva_abc(df: pd.DataFrame) -> pd.DataFrame:
       A: produtos que representam os primeiros 80 % da receita (itens vitais)
       B: 80–95 % acumulado (itens importantes)
       C: 95–100 % acumulado (itens triviais)
+
+    Usa receita normalizada: distribui o vNF de cada nota proporcionalmente ao
+    vProd de cada item — garante que o total bata com o faturamento exibido nos KPIs.
     """
+    # Receita ajustada por item: vProd / soma_vProd_da_nota * vNF
+    # Isso elimina a diferença entre vProd (bruto) e vNF (líquido com descontos)
+    _nota_vprod = df.groupby("chave")["vProd"].transform("sum")
+    _safe_total = _nota_vprod.where(_nota_vprod > 0, 1)
+    _rec_item   = df["vProd"] / _safe_total * df["vNF"]
+
+    _df2 = df.assign(_rec=_rec_item)
     prod = (
-        df.groupby("xProd")
-        .agg(frequencia=("chave", "nunique"), receita=("vProd", "sum"))
+        _df2.groupby("xProd")
+        .agg(frequencia=("chave", "nunique"), receita=("_rec", "sum"))
         .reset_index()
         .sort_values("receita", ascending=False)
         .reset_index(drop=True)
@@ -4722,13 +4732,35 @@ f"{_col_nfe}{_col_skip}"
     #  CURVA ABC
     with tabs[tab_idx["Curva ABC"]]:
         st.subheader("Curva ABC — Relevância dos Produtos")
-        st.caption("Classifica todos os produtos pela participação acumulada na receita total.")
 
-        if df_abc is not None and not df_abc.empty:
-            _fat_abc = df_abc["Receita (R$)"].sum()
-            _ga = df_abc[df_abc["Curva"] == "A"]
-            _gb = df_abc[df_abc["Curva"] == "B"]
-            _gc = df_abc[df_abc["Curva"] == "C"]
+        # ── Filtro por mês ──────────────────────────────────────────────────
+        _MESES_PT2 = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
+                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
+        _abc_df_base = df_all.copy()
+        if "dhEmi" in _abc_df_base.columns and _abc_df_base["dhEmi"].notna().any():
+            _periodos = sorted(_abc_df_base["dhEmi"].dropna().dt.to_period("M").unique())
+            _opcoes_mes = ["Todos os meses"] + [
+                f"{_MESES_PT2[p.month]} {p.year}" for p in _periodos]
+            _sel_mes = st.selectbox("📅 Período:", _opcoes_mes, key="abc_mes")
+            if _sel_mes != "Todos os meses":
+                _idx = _opcoes_mes.index(_sel_mes) - 1
+                _per = _periodos[_idx]
+                _abc_df_base = _abc_df_base[
+                    _abc_df_base["dhEmi"].dt.to_period("M") == _per]
+            _abc_titulo = f"— {_sel_mes}" if _sel_mes != "Todos os meses" else ""
+        else:
+            _abc_titulo = ""
+
+        st.caption(f"Classifica os produtos pela participação acumulada na receita {_abc_titulo}.")
+
+        _df_abc_filtrado = calc_curva_abc(_abc_df_base) if not _abc_df_base.empty else df_abc
+
+        if _df_abc_filtrado is not None and not _df_abc_filtrado.empty:
+            df_abc_show = _df_abc_filtrado
+            _fat_abc = df_abc_show["Receita (R$)"].sum()
+            _ga = df_abc_show[df_abc_show["Curva"] == "A"]
+            _gb = df_abc_show[df_abc_show["Curva"] == "B"]
+            _gc = df_abc_show[df_abc_show["Curva"] == "C"]
 
             ca, cb, cc = st.columns(3)
             with ca:
@@ -4769,7 +4801,7 @@ f"{_col_nfe}{_col_skip}"
 
             _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
                                    horizontal=True, key="radio_abc")
-            _df_show = df_abc if _filtro_abc == "Todos" else df_abc[df_abc["Curva"] == _filtro_abc]
+            _df_show = df_abc_show if _filtro_abc == "Todos" else df_abc_show[df_abc_show["Curva"] == _filtro_abc]
 
             _df_display = _df_show.copy()
             _df_display["Receita (R$)"] = _df_display["Receita (R$)"].apply(brl)
