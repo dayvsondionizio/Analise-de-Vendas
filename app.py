@@ -2258,6 +2258,20 @@ def exportar_excel(kpis, df_pares, df_trios,
     _FMT_PCT  = '0.00"%"'
     _FMT_NUM  = '#,##0'
 
+    def _autofit(writer):
+        """Ajusta a largura de todas as colunas de todas as abas ao conteúdo."""
+        for ws in writer.sheets.values():
+            for col_cells in ws.columns:
+                max_len = 0
+                col_letter = col_cells[0].column_letter
+                for cell in col_cells:
+                    try:
+                        val = str(cell.value) if cell.value is not None else ""
+                        max_len = max(max_len, len(val))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 60)
+
     def _fmt(writer, sheet: str, formatos: dict):
         """Aplica number_format por nome de coluna após to_excel.
         formatos = {"Nome Coluna": "formato_excel", ...}
@@ -2465,6 +2479,9 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "itens_sped": "Itens SPED", "itens_xml": "Itens XML",
                 })
                 _sn_conf.to_excel(writer, sheet_name="SN Confronto", index=False)
+
+        # Ajusta largura de todas as colunas em todas as abas
+        _autofit(writer)
 
     return buf.getvalue()
 
