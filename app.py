@@ -4262,13 +4262,10 @@ def main():
             st.error("Nenhum dado encontrado nos arquivos enviados. Verifique o formato.")
             return
 
-        if df_nfce.empty:
-            st.error("Nenhum dado de NFC-e encontrado. Verifique o arquivo ou pasta.")
-            return
-
         # ── Validação: apenas uma empresa por análise ─────────
-        if "emitente" in df_nfce.columns:
-            _em_check = df_nfce["emitente"].dropna()
+        _df_check_emp = df_nfce if not df_nfce.empty else df_nfe
+        if "emitente" in _df_check_emp.columns:
+            _em_check = _df_check_emp["emitente"].dropna()
             _em_check = _em_check[_em_check != ""]
             _em_unicas = sorted(_em_check.unique())
             if len(_em_unicas) > 1:
@@ -4281,8 +4278,27 @@ def main():
                 )
                 return
 
-        df     = df_nfce.copy()
-        df_all = pd.concat([df_nfce, df_nfe], ignore_index=True) if not df_nfe.empty else df_nfce.copy()
+        # df = base principal para análises de ticket, turno, basket etc.
+        # Se só tem NF-e (distribuidora / atacado), usa df_nfe como base e
+        # adiciona as colunas de tempo para que as análises por horário funcionem.
+        if not df_nfce.empty:
+            df = df_nfce.copy()
+        else:
+            df = df_nfe.copy()
+            if "dhEmi" in df.columns and df["dhEmi"].notna().any():
+                df["hora"]       = df["dhEmi"].dt.hour
+                df["dia_semana"] = df["dhEmi"].dt.day_name()
+                df["turno"]      = df["hora"].apply(
+                    lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
+                    if pd.notna(h) else None
+                )
+
+        if not df_nfce.empty and not df_nfe.empty:
+            df_all = pd.concat([df_nfce, df_nfe], ignore_index=True)
+        elif not df_nfce.empty:
+            df_all = df_nfce.copy()
+        else:
+            df_all = df_nfe.copy()
 
         _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
@@ -4322,7 +4338,13 @@ def main():
         else:
             per_label = "Período"
         tem_nfe     = not df_nfe.empty
-        fonte_label = "NFC-e + NF-e" if tem_nfe else "NFC-e"
+        tem_nfce    = not df_nfce.empty
+        if tem_nfce and tem_nfe:
+            fonte_label = "NFC-e + NF-e"
+        elif tem_nfe:
+            fonte_label = "NF-e"
+        else:
+            fonte_label = "NFC-e"
 
         # ── Análises ──
         _render_prog(12, "📊 Calculando faturamento e KPIs...", _t0, _box_txt, _box_bar)
