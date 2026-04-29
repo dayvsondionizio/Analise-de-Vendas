@@ -1328,55 +1328,59 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 pass
         elif ext == "rar":
             try:
-                import subprocess, tempfile, os, shutil
-                import shutil as _shutil
-                _unrar_candidates = [
-                    r"C:\Program Files\WinRAR\UnRAR.exe",
-                    r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
-                    r"C:\Program Files\WinRAR\WinRAR.exe",
-                    "/usr/bin/unrar",
-                    "/usr/local/bin/unrar",
-                ]
-                _unrar_exe = (
-                    _shutil.which("unrar") or
-                    next((p for p in _unrar_candidates if os.path.isfile(p)), None)
+                import subprocess, tempfile, os, shutil as _shutil2
+                # Localiza ferramenta de extração RAR (Windows: UnRAR.exe, Linux: unrar ou 7z)
+                import shutil as _sh
+                _unrar_exe  = (
+                    _sh.which("unrar") or
+                    next((p for p in [
+                        r"C:\Program Files\WinRAR\UnRAR.exe",
+                        r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
+                        r"C:\Program Files\WinRAR\WinRAR.exe",
+                    ] if os.path.isfile(p)), None)
                 )
-                if _unrar_exe:
-                    _tmp_rar  = None
-                    _tmp_dir  = tempfile.mkdtemp()
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
-                            _f.write(data)
-                            _tmp_rar = _f.name
+                _7z_exe = _sh.which("7z") or _sh.which("7za")
+
+                _tmp_rar = None
+                _tmp_dir = tempfile.mkdtemp()
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
+                        _f.write(data)
+                        _tmp_rar = _f.name
+
+                    if _unrar_exe:
                         subprocess.run(
                             [_unrar_exe, "e", "-y", "-inul", _tmp_rar, _tmp_dir + os.sep],
                             capture_output=True, timeout=120
                         )
-                        for _fname in sorted(os.listdir(_tmp_dir)):
-                            _fpath = os.path.join(_tmp_dir, _fname)
-                            if os.path.isfile(_fpath):
-                                with open(_fpath, "rb") as _fh:
-                                    resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
-                    finally:
-                        if _tmp_rar:
-                            try: os.unlink(_tmp_rar)
-                            except: pass
-                        shutil.rmtree(_tmp_dir, ignore_errors=True)
-                else:
-                    import rarfile
-                    with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as _f:
-                        _f.write(data)
-                        _tmp_path = _f.name
-                    try:
-                        with rarfile.RarFile(_tmp_path) as rf:
-                            for entry in rf.namelist():
+                    elif _7z_exe:
+                        subprocess.run(
+                            [_7z_exe, "e", "-y", f"-o{_tmp_dir}", _tmp_rar],
+                            capture_output=True, timeout=120
+                        )
+                    else:
+                        # Fallback: rarfile (funciona para entradas sem compressão)
+                        import rarfile
+                        with rarfile.RarFile(_tmp_rar) as rf:
+                            for _entry in rf.namelist():
                                 try:
-                                    resultado.extend(extrair_xml_bytes(rf.read(entry), entry, excluir))
+                                    resultado.extend(extrair_xml_bytes(rf.read(_entry), _entry.split("/")[-1], excluir))
                                 except Exception:
                                     pass
-                    finally:
-                        try: os.unlink(_tmp_path)
+                        raise StopIteration  # pula o listdir abaixo
+
+                    for _fname in sorted(os.listdir(_tmp_dir)):
+                        _fpath = os.path.join(_tmp_dir, _fname)
+                        if os.path.isfile(_fpath):
+                            with open(_fpath, "rb") as _fh:
+                                resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
+                except StopIteration:
+                    pass
+                finally:
+                    if _tmp_rar:
+                        try: os.unlink(_tmp_rar)
                         except: pass
+                    _shutil2.rmtree(_tmp_dir, ignore_errors=True)
             except Exception:
                 pass
         elif ext in ("7z", "7zip"):
