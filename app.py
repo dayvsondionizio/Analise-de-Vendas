@@ -4880,9 +4880,39 @@ f"{_col_nfe}{_col_skip}"
 
             st.markdown("---")
 
-            _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
-                                   horizontal=True, key="radio_abc")
-            _df_show = df_abc_show if _filtro_abc == "Todos" else df_abc_show[df_abc_show["Curva"] == _filtro_abc]
+            _col_filt1, _col_filt2 = st.columns([2, 3])
+            with _col_filt1:
+                _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
+                                       horizontal=True, key="radio_abc")
+            with _col_filt2:
+                # Filtro por origem (só aparece se houver os dois tipos de nota)
+                _origens_disp = sorted(df_abc_show["Origem"].dropna().unique()) if "Origem" in df_abc_show.columns else []
+                _tem_nfe_abc  = any("NF-e" in str(o) for o in _origens_disp)
+                _tem_nfce_abc = any("NFC-e" in str(o) for o in _origens_disp)
+                if _tem_nfe_abc and _tem_nfce_abc:
+                    _filtro_orig = st.radio("Filtrar origem:", ["Todos", "🧾 NF-e (B2B)", "🛒 NFC-e"],
+                                            horizontal=True, key="radio_abc_orig")
+                else:
+                    _filtro_orig = "Todos"
+
+            # Aplica filtros de grupo e origem
+            _df_show = df_abc_show.copy()
+            if _filtro_abc != "Todos":
+                _df_show = _df_show[_df_show["Curva"] == _filtro_abc]
+            if _filtro_orig == "🧾 NF-e (B2B)" and "Origem" in _df_show.columns:
+                _df_show = _df_show[_df_show["Origem"].str.contains("NF-e", na=False)]
+            elif _filtro_orig == "🛒 NFC-e" and "Origem" in _df_show.columns:
+                _df_show = _df_show[_df_show["Origem"].str.contains("NFC-e", na=False)]
+
+            # Aviso quando há produtos NF-e (B2B) para cruzar com relatório
+            if "Origem" in df_abc_show.columns and _tem_nfe_abc:
+                _n_nfe_abc = df_abc_show["Origem"].str.contains("NF-e", na=False).sum()
+                st.info(
+                    f"🧾 **{_n_nfe_abc} produto(s) de NF-e (B2B)** identificados — "
+                    "são vendas para pessoa jurídica (pedidos, contratos). "
+                    "Filtre por **🧾 NF-e (B2B)** para cruzar com o relatório de NF-e.",
+                    icon=None,
+                )
 
             _df_display = _df_show.copy()
             _df_display["Receita (R$)"] = _df_display["Receita (R$)"].apply(brl)
