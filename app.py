@@ -1329,17 +1329,30 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         elif ext == "rar":
             try:
                 import subprocess, tempfile, os, shutil as _shutil2
-                # Localiza ferramenta de extração RAR (Windows: UnRAR.exe, Linux: unrar ou 7z)
                 import shutil as _sh
-                _unrar_exe  = (
-                    _sh.which("unrar") or
-                    next((p for p in [
-                        r"C:\Program Files\WinRAR\UnRAR.exe",
-                        r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
-                        r"C:\Program Files\WinRAR\WinRAR.exe",
-                    ] if os.path.isfile(p)), None)
-                )
-                _7z_exe = _sh.which("7z") or _sh.which("7za")
+
+                # Monta lista de candidatos de extração na ordem de preferência
+                # Cada item: (executavel, funcao_que_gera_cmd)
+                def _rar_cmds(exe, tmp_rar, tmp_dir):
+                    base = os.path.basename(exe).lower()
+                    if "7z" in base:
+                        return [[exe, "e", "-y", f"-o{tmp_dir}", tmp_rar]]
+                    elif "bsdtar" in base:
+                        return [[exe, "xf", tmp_rar, "-C", tmp_dir]]
+                    else:  # unrar / UnRAR.exe
+                        return [[exe, "e", "-y", "-inul", tmp_rar, tmp_dir + os.sep],
+                                [exe, "e", "-y",         tmp_rar, tmp_dir + os.sep]]
+
+                _candidates = []
+                for _wp in [r"C:\Program Files\WinRAR\UnRAR.exe",
+                            r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
+                            r"C:\Program Files\WinRAR\WinRAR.exe"]:
+                    if os.path.isfile(_wp):
+                        _candidates.append(_wp)
+                for _bin in ["unrar", "7z", "7za", "bsdtar"]:
+                    _p = _sh.which(_bin)
+                    if _p:
+                        _candidates.append(_p)
 
                 _tmp_rar = None
                 _tmp_dir = tempfile.mkdtemp()
@@ -1348,34 +1361,38 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                         _f.write(data)
                         _tmp_rar = _f.name
 
-                    if _unrar_exe:
-                        subprocess.run(
-                            [_unrar_exe, "e", "-y", "-inul", _tmp_rar, _tmp_dir + os.sep],
-                            capture_output=True, timeout=120
-                        )
-                    elif _7z_exe:
-                        subprocess.run(
-                            [_7z_exe, "e", "-y", f"-o{_tmp_dir}", _tmp_rar],
-                            capture_output=True, timeout=120
-                        )
-                    else:
-                        # Fallback: rarfile (funciona para entradas sem compressão)
-                        import rarfile
-                        with rarfile.RarFile(_tmp_rar) as rf:
-                            for _entry in rf.namelist():
-                                try:
-                                    resultado.extend(extrair_xml_bytes(rf.read(_entry), _entry.split("/")[-1], excluir))
-                                except Exception:
-                                    pass
-                        raise StopIteration  # pula o listdir abaixo
+                    _done = False
+                    for _exe in _candidates:
+                        for _cmd in _rar_cmds(_exe, _tmp_rar, _tmp_dir):
+                            try:
+                                _r = subprocess.run(_cmd, capture_output=True, timeout=120)
+                                if os.listdir(_tmp_dir):   # extraiu pelo menos 1 arquivo
+                                    _done = True
+                                    break
+                            except Exception:
+                                pass
+                        if _done:
+                            break
 
-                    for _fname in sorted(os.listdir(_tmp_dir)):
-                        _fpath = os.path.join(_tmp_dir, _fname)
-                        if os.path.isfile(_fpath):
-                            with open(_fpath, "rb") as _fh:
-                                resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
-                except StopIteration:
-                    pass
+                    if _done:
+                        for _fname in sorted(os.listdir(_tmp_dir)):
+                            _fpath = os.path.join(_tmp_dir, _fname)
+                            if os.path.isfile(_fpath):
+                                with open(_fpath, "rb") as _fh:
+                                    resultado.extend(extrair_xml_bytes(_fh.read(), _fname, excluir))
+                    else:
+                        # Último recurso: rarfile puro Python (só entries sem compressão)
+                        try:
+                            import rarfile
+                            with rarfile.RarFile(_tmp_rar) as _rf:
+                                for _entry in _rf.namelist():
+                                    try:
+                                        resultado.extend(extrair_xml_bytes(
+                                            _rf.read(_entry), _entry.split("/")[-1], excluir))
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
                 finally:
                     if _tmp_rar:
                         try: os.unlink(_tmp_rar)
