@@ -1329,12 +1329,18 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         elif ext == "rar":
             try:
                 import subprocess, tempfile, os, shutil
+                import shutil as _shutil
                 _unrar_candidates = [
                     r"C:\Program Files\WinRAR\UnRAR.exe",
                     r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
                     r"C:\Program Files\WinRAR\WinRAR.exe",
+                    "/usr/bin/unrar",
+                    "/usr/local/bin/unrar",
                 ]
-                _unrar_exe = next((p for p in _unrar_candidates if os.path.isfile(p)), None)
+                _unrar_exe = (
+                    _shutil.which("unrar") or
+                    next((p for p in _unrar_candidates if os.path.isfile(p)), None)
+                )
                 if _unrar_exe:
                     _tmp_rar  = None
                     _tmp_dir  = tempfile.mkdtemp()
