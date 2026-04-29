@@ -4074,15 +4074,17 @@ def main():
                 st.rerun()
 
     # ── Fingerprint da fonte de dados ──
+    # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
+    _APP_CACHE_VER = "20260429_01"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
     if arquivos_upload:
-        _fp = ("uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     elif _pastas_validas:
-        _fp = ("pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     elif f_nfce:
-        _fp = ("excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
     else:
         _fp = None
 
