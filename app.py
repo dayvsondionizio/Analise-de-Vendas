@@ -2206,7 +2206,31 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
                    df_combos, df_metas,
                    cliente: str, periodo: str,
-                   sn_result=None) -> bytes:
+                   sn_result=None,
+                   df_all: pd.DataFrame = None) -> bytes:
+
+    _FMT_BRL  = 'R$ #,##0.00'
+    _FMT_PCT  = '0.00"%"'
+    _FMT_NUM  = '#,##0'
+
+    def _fmt(writer, sheet: str, formatos: dict):
+        """Aplica number_format por nome de coluna após to_excel.
+        formatos = {"Nome Coluna": "formato_excel", ...}
+        """
+        if sheet not in writer.sheets:
+            return
+        ws = writer.sheets[sheet]
+        # descobre índice de cada coluna pelo cabeçalho na linha 1
+        header = {cell.value: cell.column for cell in ws[1]}
+        for col_name, fmt in formatos.items():
+            col_idx = header.get(col_name)
+            if col_idx is None:
+                continue
+            col_letter = ws.cell(1, col_idx).column_letter
+            for cell in ws[col_letter][1:]:
+                if cell.value is not None:
+                    cell.number_format = fmt
+
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         # Resumo Geral
@@ -2224,62 +2248,89 @@ def exportar_excel(kpis, df_pares, df_trios,
         df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
 
         bcg_exp = df_bcg[["xProd", "BCG", "frequencia", "receita"]].copy()
-        bcg_exp["receita"] = bcg_exp["receita"].apply(brl)
-        bcg_exp.columns    = ["Produto", "Classificação", "Frequência", "Receita"]
+        bcg_exp.columns = ["Produto", "Classificação", "Frequência", "Receita"]
         bcg_exp.to_excel(writer, sheet_name="Classificação Produtos", index=False)
+        _fmt(writer, "Classificação Produtos", {"Receita": _FMT_BRL})
+
+        # ── Curva ABC — período completo ──────────────────────────────────
+        _MESES_PT_EXP = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
+                         7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
+        def _escreve_abc(df_src, sheet_name):
+            if df_src is None or df_src.empty:
+                return
+            _exp = df_src[["Rank","Produto","Curva","Frequência",
+                           "Receita (R$)","% Receita","% Acumulado"]].copy()
+            _exp.to_excel(writer, sheet_name=sheet_name, index=False)
+            _fmt(writer, sheet_name, {
+                "Receita (R$)": _FMT_BRL,
+                "% Receita":    _FMT_PCT,
+                "% Acumulado":  _FMT_PCT,
+                "Frequência":   _FMT_NUM,
+            })
 
         if df_abc is not None and not df_abc.empty:
-            abc_exp = df_abc.copy()
-            abc_exp["Receita (R$)"] = abc_exp["Receita (R$)"].apply(brl)
-            abc_exp["% Receita"]    = abc_exp["% Receita"].round(2).astype(str) + "%"
-            abc_exp["% Acumulado"]  = abc_exp["% Acumulado"].round(2).astype(str) + "%"
-            abc_exp.to_excel(writer, sheet_name="Curva ABC", index=False)
+            _escreve_abc(df_abc, "Curva ABC")
+
+        # ── Curva ABC — uma aba por mês ───────────────────────────────────
+        if df_all is not None and not df_all.empty and "dhEmi" in df_all.columns:
+            _periodos_exp = sorted(
+                df_all["dhEmi"].dropna().dt.to_period("M").unique())
+            for _per in _periodos_exp:
+                _df_mes = df_all[df_all["dhEmi"].dt.to_period("M") == _per]
+                if _df_mes.empty:
+                    continue
+                _abc_mes = calc_curva_abc(_df_mes)
+                _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
+                _escreve_abc(_abc_mes, _sheet)
 
         rem_exp = df_remocao.copy()
-        rem_exp["receita"] = rem_exp["receita"].apply(brl)
-        rem_exp.columns    = ["Produto", "Frequência", "Receita"]
+        rem_exp.columns = ["Produto", "Frequência", "Receita"]
         rem_exp.to_excel(writer, sheet_name="Candidatos Remoção", index=False)
+        _fmt(writer, "Candidatos Remoção", {"Receita": _FMT_BRL})
 
         if not df_elev.empty:
-            elev_exp = df_elev.copy()
-            for col in ["Ticket Médio c/ Produto", "Ticket Médio Geral", "Diferença R$"]:
-                if col in elev_exp.columns:
-                    elev_exp[col] = elev_exp[col].apply(brl)
-            elev_exp.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
+            df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
+            _fmt(writer, "Ticket Drivers Elevam", {
+                "Ticket Médio c/ Produto": _FMT_BRL,
+                "Ticket Médio Geral": _FMT_BRL,
+                "Diferença R$": _FMT_BRL,
+            })
 
         if not df_redu.empty:
-            redu_exp = df_redu.copy()
-            for col in ["Ticket Médio c/ Produto", "Ticket Médio Geral", "Diferença R$"]:
-                if col in redu_exp.columns:
-                    redu_exp[col] = redu_exp[col].apply(brl)
-            redu_exp.to_excel(writer, sheet_name="Ticket Drivers Reduzem", index=False)
+            df_redu.to_excel(writer, sheet_name="Ticket Drivers Reduzem", index=False)
+            _fmt(writer, "Ticket Drivers Reduzem", {
+                "Ticket Médio c/ Produto": _FMT_BRL,
+                "Ticket Médio Geral": _FMT_BRL,
+                "Diferença R$": _FMT_BRL,
+            })
 
         if not df_sim_rec.empty:
-            sim_rec_exp = df_sim_rec.copy()
-            for col in ["Impacto Mensal", "Impacto Anual"]:
-                sim_rec_exp[col] = sim_rec_exp[col].apply(brl)
-            sim_rec_exp.to_excel(writer, sheet_name="Simulação Receita", index=False)
+            df_sim_rec.to_excel(writer, sheet_name="Simulação Receita", index=False)
+            _fmt(writer, "Simulação Receita", {
+                "Impacto Mensal": _FMT_BRL, "Impacto Anual": _FMT_BRL})
 
         if not df_sim_preco.empty:
-            sp = df_sim_preco.copy()
-            for col in ["receita", "+10% preço (-5% vol)", "+15% preço (-5% vol)", "+20% preço (-5% vol)"]:
-                if col in sp.columns:
-                    sp[col] = sp[col].apply(brl)
-            sp.to_excel(writer, sheet_name="Simulação Preços", index=False)
+            df_sim_preco.to_excel(writer, sheet_name="Simulação Preços", index=False)
+            _fmt(writer, "Simulação Preços", {
+                "receita": _FMT_BRL,
+                "+10% preço (-5% vol)": _FMT_BRL,
+                "+15% preço (-5% vol)": _FMT_BRL,
+                "+20% preço (-5% vol)": _FMT_BRL,
+            })
 
         if not df_combos.empty:
-            cb = df_combos.copy()
-            for col in ["Preço A", "Preço B", "Total Individual", "Combo c/ 5% desc.", "Combo c/ 10% desc."]:
-                if col in cb.columns:
-                    cb[col] = cb[col].apply(brl)
-            cb.to_excel(writer, sheet_name="Combos Precificados", index=False)
+            df_combos.to_excel(writer, sheet_name="Combos Precificados", index=False)
+            _fmt(writer, "Combos Precificados", {
+                "Preço A": _FMT_BRL, "Preço B": _FMT_BRL,
+                "Total Individual": _FMT_BRL,
+                "Combo c/ 5% desc.": _FMT_BRL,
+                "Combo c/ 10% desc.": _FMT_BRL,
+            })
 
         if not df_metas.empty:
-            mt = df_metas.copy()
-            for col in ["receita", "Meta +10%", "Meta +20%"]:
-                if col in mt.columns:
-                    mt[col] = mt[col].apply(brl)
-            mt.to_excel(writer, sheet_name="Metas por Produto", index=False)
+            df_metas.to_excel(writer, sheet_name="Metas por Produto", index=False)
+            _fmt(writer, "Metas por Produto", {
+                "receita": _FMT_BRL, "Meta +10%": _FMT_BRL, "Meta +20%": _FMT_BRL})
 
         # ── Simples Nacional ──────────────────────────────────────────
         if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS"):
@@ -5441,7 +5492,8 @@ f"{_col_nfe}{_col_skip}"
                                      df_elev, df_redu, df_sim_preco, df_sim_rec,
                                      df_combos, df_metas,
                                      cli_label, per_label,
-                                     sn_result=sn_result)
+                                     sn_result=sn_result,
+                                     df_all=df_all)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
