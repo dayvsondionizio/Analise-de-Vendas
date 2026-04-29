@@ -18,6 +18,18 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
+# Regex para remover sufixos de POS como " Ped.: 4489 Nro. Item: 4489" do campo xProd
+_RE_XPROD_POS = re.compile(
+    r"\s+Ped\.+\s*:.*$|\s+Nro\.?\s*Item\s*:.*$",
+    re.IGNORECASE,
+)
+
+def _limpar_xprod(s) -> str:
+    """Remove artefatos de PDV do campo xProd (ex: ' Ped.: 123 Nro. Item: 1')."""
+    txt = str(s or "").strip()
+    txt = _RE_XPROD_POS.sub("", txt)
+    return txt.strip()
+
 st.set_page_config(
     page_title="Análise de Vendas CP",
     page_icon="",
@@ -251,7 +263,7 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "emitente":  emitente,
                     "cnpj_emit": cnpj_emit,
                     "CFOP":      cfop,
-                    "xProd":     gettxt(prod, "xProd"),
+                    "xProd":     _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":       gettxt(prod, "NCM"),
                     "qCom":      getfloat(prod, "qCom"),
                     "vUnCom":    getfloat(prod, "vUnCom"),
@@ -730,7 +742,7 @@ def carregar_zip(file_bytes: bytes):
                     continue
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
-                    "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
+                    "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
@@ -887,7 +899,7 @@ def carregar_xmls_multi(arquivos: tuple):
 
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
-                    "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
+                    "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
@@ -1038,7 +1050,7 @@ def carregar_pasta(caminho: str):
                     "nNF":          nNF,
                     "numItem":      numItem,
                     "cProd":        gettxt(prod, "cProd"),
-                    "xProd":        gettxt(prod, "xProd"),
+                    "xProd":        _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":          gettxt(prod, "NCM"),
                     "CFOP":         gettxt(prod, "CFOP"),
                     "qCom":         getfloat(prod, "qCom"),
@@ -1207,7 +1219,7 @@ def carregar_pastas(caminhos: tuple):
                     continue
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
-                    "cProd": gettxt(prod, "cProd"), "xProd": gettxt(prod, "xProd"),
+                    "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
@@ -1503,7 +1515,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 soma_vprod += vp
                 row = {
                     "chave": chave, "nNF": nNF, "numItem": numItem,
-                    "cProd": _gettxt(prod, "cProd"), "xProd": _gettxt(prod, "xProd"),
+                    "cProd": _gettxt(prod, "cProd"), "xProd": _limpar_xprod(_gettxt(prod, "xProd")),
                     "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
