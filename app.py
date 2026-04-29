@@ -1520,6 +1520,15 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     try: all_xml_bytes.extend(extrair_xml_bytes(xf.read_bytes(), xf.name))
                     except: pass
 
+    # Log de diagnóstico
+    try:
+        import os as _os
+        _os.makedirs(r"C:\Temp", exist_ok=True)
+        with open(r"C:\Temp\app_debug.log", "a", encoding="utf-8") as _lf:
+            _lf.write(f"[processar] total all_xml_bytes={len(all_xml_bytes)}\n")
+    except Exception:
+        pass
+
     # Parseia em paralelo
     from concurrent.futures import ThreadPoolExecutor
     rows_nfce, rows_nfe, skipped = [], [], 0
@@ -1530,6 +1539,12 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             if r_e: rows_nfe.extend(r_e)
             skipped += sk
             if chave_canc: chaves_canceladas.add(chave_canc)
+
+    try:
+        with open(r"C:\Temp\app_debug.log", "a", encoding="utf-8") as _lf:
+            _lf.write(f"[processar] rows_nfce={len(rows_nfce)} rows_nfe={len(rows_nfe)} skipped={skipped}\n")
+    except Exception:
+        pass
 
     # Remove notas cujo evento de cancelamento foi detectado
     if chaves_canceladas:
