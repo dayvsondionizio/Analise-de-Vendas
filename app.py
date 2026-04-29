@@ -1786,10 +1786,24 @@ def calc_curva_abc(df: pd.DataFrame) -> pd.DataFrame:
     _safe_total = _nota_vprod.where(_nota_vprod > 0, 1)
     _rec_item   = df["vProd"] / _safe_total * df["vNF"]
 
+    # Garante coluna fonte para agregar origem (NF-e / NFC-e)
+    if "fonte" not in df.columns:
+        df = df.copy()
+        df["fonte"] = ""
     _df2 = df.assign(_rec=_rec_item)
+
+    # Agrega origem: "NFC-e", "NF-e" ou "NFC-e + NF-e"
+    def _agg_origem(s):
+        fontes = sorted(set(v for v in s.dropna().astype(str) if v))
+        return " + ".join(fontes) if fontes else ""
+
     prod = (
         _df2.groupby("xProd")
-        .agg(frequencia=("chave", "nunique"), receita=("_rec", "sum"))
+        .agg(
+            frequencia=("chave", "nunique"),
+            receita=("_rec", "sum"),
+            origem=("fonte", _agg_origem),
+        )
         .reset_index()
         .sort_values("receita", ascending=False)
         .reset_index(drop=True)
@@ -1813,8 +1827,9 @@ def calc_curva_abc(df: pd.DataFrame) -> pd.DataFrame:
         "receita":      "Receita (R$)",
         "pct_receita":  "% Receita",
         "pct_acumulado":"% Acumulado",
+        "origem":       "Origem",
     })
-    return prod[["Rank", "Produto", "Curva", "Frequência", "Receita (R$)", "% Receita", "% Acumulado"]]
+    return prod[["Rank", "Produto", "Curva", "Frequência", "Receita (R$)", "% Receita", "% Acumulado", "Origem"]]
 
 
 def calc_crossell(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
@@ -2270,8 +2285,11 @@ def exportar_excel(kpis, df_pares, df_trios,
         def _escreve_abc(df_src, sheet_name):
             if df_src is None or df_src.empty:
                 return
-            _exp = df_src[["Rank","Produto","Curva","Frequência",
-                           "Receita (R$)","% Receita","% Acumulado"]].copy()
+            _cols = ["Rank","Produto","Curva","Frequência",
+                     "Receita (R$)","% Receita","% Acumulado"]
+            if "Origem" in df_src.columns:
+                _cols.append("Origem")
+            _exp = df_src[_cols].copy()
             _exp.to_excel(writer, sheet_name=sheet_name, index=False)
             _fmt(writer, sheet_name, {
                 "Receita (R$)": _FMT_BRL,
@@ -4870,6 +4888,16 @@ f"{_col_nfe}{_col_skip}"
             _df_display["Receita (R$)"] = _df_display["Receita (R$)"].apply(brl)
             _df_display["% Receita"]    = _df_display["% Receita"].round(2).astype(str) + "%"
             _df_display["% Acumulado"] = _df_display["% Acumulado"].round(2).astype(str) + "%"
+
+            # Badge de origem: ícone visual para NF-e (B2B) vs NFC-e (consumidor)
+            def _badge_origem(v):
+                if v == "NF-e":            return "🧾 NF-e (B2B)"
+                if v == "NFC-e":           return "🛒 NFC-e"
+                if "NF-e" in str(v) and "NFC-e" in str(v):
+                                           return "🧾🛒 NF-e + NFC-e"
+                return v or ""
+            if "Origem" in _df_display.columns:
+                _df_display["Origem"] = _df_display["Origem"].apply(_badge_origem)
 
             st.dataframe(_df_display, use_container_width=True, hide_index=True, height=420)
         else:
