@@ -2292,11 +2292,6 @@ def exportar_excel(kpis, df_pares, df_trios,
         df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
         df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
 
-        bcg_exp = df_bcg[["xProd", "BCG", "frequencia", "receita"]].copy()
-        bcg_exp.columns = ["Produto", "Classificação", "Frequência", "Receita"]
-        bcg_exp.to_excel(writer, sheet_name="Classificação Produtos", index=False)
-        _fmt(writer, "Classificação Produtos", {"Receita": _FMT_BRL})
-
         # ── Curva ABC — período completo ──────────────────────────────────
         _MESES_PT_EXP = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
                          7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
@@ -2335,11 +2330,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _abc_mes = calc_curva_abc(_df_mes)
                 _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
                 _escreve_abc(_abc_mes, _sheet)
-
-        rem_exp = df_remocao.copy()
-        rem_exp.columns = ["Produto", "Frequência", "Receita"]
-        rem_exp.to_excel(writer, sheet_name="Candidatos Remoção", index=False)
-        _fmt(writer, "Candidatos Remoção", {"Receita": _FMT_BRL})
 
         if not df_elev.empty:
             df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
