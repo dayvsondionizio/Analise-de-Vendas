@@ -1344,13 +1344,15 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 import shutil as _sh2
 
                 # Ferramentas disponíveis (testa cada uma até extrair com sucesso)
+                # Ordem: bsdtar primeiro (suporta RAR5 via libarchive),
+                # depois unrar, WinRAR, 7z (RAR4 apenas)
                 _tools = []
                 for _wp in [r"C:\Program Files\WinRAR\UnRAR.exe",
                             r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
                             r"C:\Program Files\WinRAR\WinRAR.exe"]:
                     if _os2.path.isfile(_wp):
                         _tools.append(_wp)
-                for _bin in ("unrar", "7z", "7za"):
+                for _bin in ("bsdtar", "unrar", "7z", "7za"):
                     _p = _sh2.which(_bin)
                     if _p:
                         _tools.append(_p)
@@ -1366,7 +1368,10 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     for _exe in _tools:
                         _base = _os2.path.basename(_exe).lower()
                         # monta comandos dependendo da ferramenta
-                        if "7z" in _base:
+                        if "bsdtar" in _base:
+                            # bsdtar suporta RAR5 via libarchive
+                            _cmds = [[_exe, "-x", "-f", _tmp_rar, "-C", _tmp_dir]]
+                        elif "7z" in _base:
                             _cmds = [[_exe, "e", "-y", f"-o{_tmp_dir}", _tmp_rar]]
                         else:  # unrar / UnRAR.exe
                             _cmds = [[_exe, "e", "-y", "-inul", _tmp_rar, _tmp_dir + _os2.sep],
