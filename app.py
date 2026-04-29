@@ -1388,9 +1388,10 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                             break
 
                     if _done:
-                        for _fn in sorted(_os2.listdir(_tmp_dir)):
-                            _fp = _os2.path.join(_tmp_dir, _fn)
-                            if _os2.path.isfile(_fp):
+                        # Busca recursiva: bsdtar preserva estrutura de pastas
+                        for _root, _dirs, _files in _os2.walk(_tmp_dir):
+                            for _fn in sorted(_files):
+                                _fp = _os2.path.join(_root, _fn)
                                 with open(_fp, "rb") as _fh:
                                     resultado.extend(extrair_xml_bytes(_fh.read(), _fn, excluir))
                     else:
