@@ -4991,21 +4991,29 @@ f"{_col_nfe}{_col_skip}"
         with subtab_sim[1]:
             st.markdown("#### Simulação de Ajuste de Preços")
             st.caption("Simula reajuste de 10%, 15% e 20% com queda estimada de 5% no volume")
-            sim_p = df_sim_preco.copy()
-            for col in ["receita", "+10% preço (-5% vol)", "+15% preço (-5% vol)", "+20% preço (-5% vol)"]:
-                sim_p[col] = sim_p[col].apply(brl)
-            for col in ["Δ +10%", "Δ +15%", "Δ +20%"]:
-                sim_p[col] = df_sim_preco[col].apply(lambda v: f"+{brl(v)}" if v > 0 else brl(v))
-            st.dataframe(
-                sim_p[["xProd", "preco_medio", "receita",
-                        "+10% preço (-5% vol)", "Δ +10%",
-                        "+15% preço (-5% vol)", "Δ +15%",
-                        "+20% preço (-5% vol)", "Δ +20%"]].rename(columns={
-                    "xProd": "Produto",
-                    "preco_medio": "Preço Médio Atual", "receita": "Receita Atual",
-                }),
-                use_container_width=True, hide_index=True, height=500,
-            )
+            if df_sim_preco.empty:
+                st.info("Sem dados suficientes para simulação de preços.")
+            else:
+                _cols_sim = ["xProd", "preco_medio", "receita",
+                             "+10% preço (-5% vol)", "Δ +10%",
+                             "+15% preço (-5% vol)", "Δ +15%",
+                             "+20% preço (-5% vol)", "Δ +20%"]
+                _missing = [c for c in _cols_sim if c not in df_sim_preco.columns]
+                if _missing:
+                    st.info("Dados de simulação de preços indisponíveis para este conjunto.")
+                else:
+                    sim_p = df_sim_preco.copy()
+                    for col in ["receita", "+10% preço (-5% vol)", "+15% preço (-5% vol)", "+20% preço (-5% vol)"]:
+                        sim_p[col] = sim_p[col].apply(brl)
+                    for col in ["Δ +10%", "Δ +15%", "Δ +20%"]:
+                        sim_p[col] = df_sim_preco[col].apply(lambda v: f"+{brl(v)}" if v > 0 else brl(v))
+                    st.dataframe(
+                        sim_p[_cols_sim].rename(columns={
+                            "xProd": "Produto",
+                            "preco_medio": "Preço Médio Atual", "receita": "Receita Atual",
+                        }),
+                        use_container_width=True, hide_index=True, height=500,
+                    )
 
         with subtab_sim[2]:
             st.markdown("#### Precificação de Combos")
@@ -5037,9 +5045,8 @@ f"{_col_nfe}{_col_skip}"
             use_container_width=True, hide_index=True, height=450,
         )
 
-        fat_total = df_metas["receita"].sum() if "receita" in df_metas.columns else 0
-        # recalcular com valores originais
-        fat_top10 = df.groupby("xProd")["vProd"].sum().nlargest(10).sum()
+        # fat_top10: usa df_metas que já calculou receita=sum(vProd) por produto top-10
+        fat_top10 = df_metas["receita"].sum() if not df_metas.empty and "receita" in df_metas.columns else 0
         st.metric("Receita atual (Top 10 produtos)", brl(fat_top10))
         c1, c2 = st.columns(2)
         c1.metric("Meta +10%", brl(fat_top10 * 1.10), f"+{brl(fat_top10 * 0.10)}")
