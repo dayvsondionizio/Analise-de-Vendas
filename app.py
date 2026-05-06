@@ -1868,6 +1868,397 @@ def calc_crossell(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  ANÁLISE DE COMPRAS — Planilha Questor
+# ══════════════════════════════════════════════════════════════════════
+
+_MESES_PT_COMPRAS = {
+    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+    5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+    9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
+}
+_MESES_ABREV_COMPRAS = {
+    1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
+    7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez",
+}
+
+
+def parse_planilha_compras(arquivo) -> pd.DataFrame:
+    """Lê planilha de entradas exportada do Questor (.xlsx/.xls) e retorna
+    DataFrame normalizado com colunas: fornecedor, cnpj, num_nota, data,
+    chave, produto, ncm, cfop, unidade, quantidade, valor, mes, mes_nome.
+    """
+    import io as _io_cmp
+    raw = arquivo.read() if hasattr(arquivo, "read") else arquivo
+    df_raw = pd.read_excel(_io_cmp.BytesIO(raw), sheet_name=0, header=0)
+
+    # Mapeamento flexível de colunas (busca parcial, case-insensitive,
+    # tolerante a encoding quebrado: ç→? etc.)
+    col_map = {}
+    for col in df_raw.columns:
+        c = str(col).lower()
+        if "raz" in c and ("social" in c or "o social" in c or "o" in c):
+            col_map.setdefault("fornecedor", col)
+        elif "cnpj" in c or "cpf" in c or "cno" in c:
+            col_map.setdefault("cnpj", col)
+        elif "n" in c and "mero" in c or c.strip() == "número" or "numero" in c or c.strip() == "n":
+            col_map.setdefault("num_nota", col)
+        elif "entrada" in c or ("data" in c and "entrada" in c):
+            col_map.setdefault("data", col)
+        elif "chave" in c or "acesso" in c:
+            col_map.setdefault("chave", col)
+        elif "descri" in c:
+            col_map.setdefault("produto", col)
+        elif "classif" in c or "fiscal" in c or "ncm" in c:
+            col_map.setdefault("ncm", col)
+        elif "natureza" in c or "cfop" in c:
+            col_map.setdefault("cfop", col)
+        elif "unidade" in c or "un." in c or c.strip() == "un":
+            col_map.setdefault("unidade", col)
+        elif "quantidade" in c or c.strip() == "qtd" or c.strip() == "qtde":
+            col_map.setdefault("quantidade", col)
+        elif "valor total" in c or ("valor" in c and "total" in c):
+            col_map.setdefault("valor", col)
+        elif "tipo" in c and "forn" in c:
+            col_map.setdefault("regime", col)
+
+    # Fallback por índice de coluna (0-based conforme especificação)
+    _idx_fallback = {
+        "fornecedor": 1, "cnpj": 2, "regime": 3, "num_nota": 4, "data": 5,
+        "chave": 6, "produto": 8, "ncm": 9, "cfop": 10,
+        "unidade": 11, "quantidade": 12, "valor": 14,
+    }
+    cols_list = list(df_raw.columns)
+    for dest, idx in _idx_fallback.items():
+        if dest not in col_map and idx < len(cols_list):
+            col_map[dest] = cols_list[idx]
+
+    df = pd.DataFrame()
+    for dest, src in col_map.items():
+        if src in df_raw.columns:
+            df[dest] = df_raw[src].values
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # Data
+    if "data" in df.columns:
+        df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y", errors="coerce")
+        df = df[df["data"].notna()].copy()
+        df["mes"] = df["data"].dt.to_period("M")
+        df["mes_nome"] = df["data"].apply(
+            lambda d: f"{_MESES_PT_COMPRAS[d.month]} {d.year}" if pd.notna(d) else ""
+        )
+    else:
+        df["mes"] = pd.NaT
+        df["mes_nome"] = ""
+
+    # Numéricos
+    for col in ["quantidade", "valor"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(",", ".").str.replace(r"[^\d.\-]", "", regex=True),
+                errors="coerce"
+            ).fillna(0.0)
+
+    # Strings
+    for col in ["fornecedor", "cnpj", "regime", "num_nota", "chave", "produto", "ncm", "cfop", "unidade"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str).str.strip()
+
+    # Remove linhas sem valor positivo
+    if "valor" in df.columns:
+        df = df[df["valor"] > 0].copy()
+
+    return df.reset_index(drop=True)
+
+
+def calc_kpis_compras(df: pd.DataFrame) -> dict:
+    """KPIs principais da análise de compras."""
+    total_compras = df["valor"].sum() if "valor" in df.columns else 0.0
+    # Conta notas únicas: prefere chave, usa num_nota como fallback
+    if "chave" in df.columns and df["chave"].str.strip().ne("").any():
+        n_notas = df["chave"].nunique()
+    elif "num_nota" in df.columns:
+        n_notas = df["num_nota"].nunique()
+    else:
+        n_notas = 0
+    n_fornecedores = df["fornecedor"].nunique() if "fornecedor" in df.columns else 0
+    n_produtos = df["produto"].nunique() if "produto" in df.columns else 0
+    ticket_medio_nota = total_compras / n_notas if n_notas else 0.0
+    return {
+        "total_compras": total_compras,
+        "n_notas": n_notas,
+        "n_fornecedores": n_fornecedores,
+        "n_produtos": n_produtos,
+        "ticket_medio_nota": ticket_medio_nota,
+    }
+
+
+def calc_evolucao_mensal_compras(df: pd.DataFrame) -> pd.DataFrame:
+    """Evolução mensal das compras."""
+    if "mes" not in df.columns or df["mes"].isna().all():
+        return pd.DataFrame()
+
+    _df = df.copy()
+    # Identifica nota única por chave ou num_nota
+    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+        _nota_col = "chave"
+    else:
+        _nota_col = "num_nota"
+
+    grp = _df.groupby("mes").agg(
+        total=("valor", "sum"),
+        n_notas=(_nota_col, "nunique"),
+        n_produtos=("produto", "nunique"),
+    ).reset_index()
+    grp["valor_medio_nota"] = grp["total"] / grp["n_notas"].replace(0, 1)
+    grp = grp.sort_values("mes")
+    grp["mes_nome"] = grp["mes"].apply(
+        lambda p: f"{_MESES_ABREV_COMPRAS[p.month]}/{str(p.year)[2:]}"
+    )
+    grp = grp.rename(columns={
+        "mes_nome": "Mês",
+        "total": "Total (R$)",
+        "n_notas": "Nº Notas",
+        "n_produtos": "Produtos Distintos",
+        "valor_medio_nota": "Valor Médio/Nota (R$)",
+    })
+    return grp[["mes", "Mês", "Total (R$)", "Nº Notas", "Produtos Distintos", "Valor Médio/Nota (R$)"]]
+
+
+def calc_ranking_fornecedores_compras(df: pd.DataFrame) -> pd.DataFrame:
+    """Ranking de fornecedores com colunas mensais e classificação de frequência."""
+    if df.empty or "fornecedor" not in df.columns:
+        return pd.DataFrame()
+
+    _df = df.copy()
+    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+        _nota_col = "chave"
+    else:
+        _nota_col = "num_nota"
+
+    grp_cols = ["fornecedor"]
+    if "cnpj" in _df.columns:
+        grp_cols.append("cnpj")
+
+    # Regime: pega o valor mais frequente por fornecedor
+    _regime_map = {}
+    if "regime" in _df.columns:
+        _regime_map = _df.groupby("fornecedor")["regime"].agg(
+            lambda x: x.mode().iloc[0] if not x.mode().empty else ""
+        ).to_dict()
+
+    grp = _df.groupby(grp_cols).agg(
+        total=("valor", "sum"),
+        n_notas=(_nota_col, "nunique"),
+        n_itens=("produto", "nunique"),
+    ).reset_index()
+
+    if _regime_map:
+        grp["regime"] = grp["fornecedor"].map(_regime_map).fillna("")
+
+    # Colunas mensais
+    _meses = []
+    if "mes" in _df.columns and not _df["mes"].isna().all():
+        _meses = sorted(_df["mes"].dropna().unique())
+        for _m in _meses:
+            _col_nome = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}"
+            _sub = _df[_df["mes"] == _m].groupby(grp_cols[0])["valor"].sum().rename(_col_nome)
+            grp = grp.merge(_sub.reset_index(), on=grp_cols[0], how="left")
+            grp[_col_nome] = grp[_col_nome].fillna(0.0)
+
+    # Frequência
+    n_meses_total = len(_meses) if _meses else 1
+    _meses_por_forn = {
+        row[grp_cols[0]]: sum(
+            1 for _m in _meses
+            if row.get(f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}", 0) > 0
+        )
+        for _, row in grp.iterrows()
+    }
+    def _freq_label(forn):
+        pct = _meses_por_forn.get(forn, 0) / n_meses_total * 100
+        if pct >= 75:
+            return "Alta"
+        elif pct >= 40:
+            return "Média"
+        return "Baixa"
+
+    grp["frequencia"] = grp[grp_cols[0]].apply(_freq_label)
+
+    total_geral = grp["total"].sum()
+    grp["pct"] = grp["total"] / total_geral * 100 if total_geral else 0.0
+    grp = grp.sort_values("total", ascending=False).reset_index(drop=True)
+    grp.insert(0, "Rank", range(1, len(grp) + 1))
+
+    # Renomeia
+    rename_map = {"fornecedor": "Fornecedor", "total": "Total (R$)",
+                  "n_notas": "Nº Notas", "n_itens": "Itens Distintos",
+                  "pct": "% do Total", "frequencia": "Frequência",
+                  "regime": "Regime"}
+    if "cnpj" in grp.columns:
+        rename_map["cnpj"] = "CNPJ"
+    grp = grp.rename(columns=rename_map)
+
+    # Ordena colunas finais
+    _base_cols = ["Rank", "Fornecedor"]
+    if "CNPJ" in grp.columns:
+        _base_cols.append("CNPJ")
+    if "Regime" in grp.columns:
+        _base_cols.append("Regime")
+    _base_cols += ["Total (R$)", "Nº Notas", "Itens Distintos"]
+    _mes_cols = [f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" for _m in _meses]
+    _mes_cols = [c for c in _mes_cols if c in grp.columns]
+    _base_cols += _mes_cols + ["% do Total", "Frequência"]
+    _base_cols = [c for c in _base_cols if c in grp.columns]
+    return grp[_base_cols]
+
+
+def calc_ranking_produtos_compras(df: pd.DataFrame) -> pd.DataFrame:
+    """Ranking de produtos com curva ABC e colunas mensais."""
+    if df.empty or "produto" not in df.columns:
+        return pd.DataFrame()
+
+    _df = df.copy()
+    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+        _nota_col = "chave"
+    else:
+        _nota_col = "num_nota"
+
+    grp = _df.groupby("produto").agg(
+        total=("valor", "sum"),
+        qtd_total=("quantidade", "sum"),
+        n_notas=(_nota_col, "nunique"),
+    ).reset_index()
+
+    # NCM e unidade (pega o mais frequente)
+    if "ncm" in _df.columns:
+        _ncm = _df.groupby("produto")["ncm"].agg(lambda x: x.mode()[0] if len(x) else "")
+        grp = grp.merge(_ncm.rename("ncm").reset_index(), on="produto", how="left")
+    else:
+        grp["ncm"] = ""
+
+    if "unidade" in _df.columns:
+        _un = _df.groupby("produto")["unidade"].agg(lambda x: x.mode()[0] if len(x) else "")
+        grp = grp.merge(_un.rename("unidade").reset_index(), on="produto", how="left")
+    else:
+        grp["unidade"] = ""
+
+    # Colunas mensais
+    _meses = []
+    if "mes" in _df.columns and not _df["mes"].isna().all():
+        _meses = sorted(_df["mes"].dropna().unique())
+        for _m in _meses:
+            _col_nome = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}"
+            _sub = _df[_df["mes"] == _m].groupby("produto")["valor"].sum().rename(_col_nome)
+            grp = grp.merge(_sub.reset_index(), on="produto", how="left")
+            grp[_col_nome] = grp[_col_nome].fillna(0.0)
+
+    total_geral = grp["total"].sum()
+    grp["pct"] = grp["total"] / total_geral * 100 if total_geral else 0.0
+    grp = grp.sort_values("total", ascending=False).reset_index(drop=True)
+    grp["pct_acum"] = grp["pct"].cumsum()
+
+    def _abc(acum):
+        if acum <= 80:
+            return "A"
+        elif acum <= 95:
+            return "B"
+        return "C"
+
+    grp["ABC"] = grp["pct_acum"].apply(_abc)
+    grp.insert(0, "Rank", range(1, len(grp) + 1))
+
+    rename_map = {
+        "produto": "Produto", "ncm": "NCM", "unidade": "Un.",
+        "total": "Total (R$)", "qtd_total": "Qtd. Total",
+        "n_notas": "Nº Notas", "pct": "% do Total", "pct_acum": "% Acumulado",
+    }
+    grp = grp.rename(columns=rename_map)
+
+    _base_cols = ["Rank", "Produto", "NCM", "Un.", "Total (R$)", "Qtd. Total", "Nº Notas"]
+    _mes_cols = [f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" for _m in _meses]
+    _mes_cols = [c for c in _mes_cols if c in grp.columns]
+    _base_cols += _mes_cols + ["% do Total", "% Acumulado", "ABC"]
+    _base_cols = [c for c in _base_cols if c in grp.columns]
+    return grp[_base_cols]
+
+
+def calc_cross_fornecedor_item_compras(df: pd.DataFrame) -> pd.DataFrame:
+    """Cruzamento fornecedor × produto."""
+    if df.empty or "fornecedor" not in df.columns or "produto" not in df.columns:
+        return pd.DataFrame()
+
+    _df = df.copy()
+    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+        _nota_col = "chave"
+    else:
+        _nota_col = "num_nota"
+
+    grp = _df.groupby(["fornecedor", "produto"]).agg(
+        total=("valor", "sum"),
+        qtd=("quantidade", "sum"),
+        n_notas=(_nota_col, "nunique"),
+    ).reset_index()
+    grp = grp.sort_values(["fornecedor", "total"], ascending=[True, False]).reset_index(drop=True)
+    grp = grp.rename(columns={
+        "fornecedor": "Fornecedor", "produto": "Produto",
+        "total": "Total (R$)", "qtd": "Qtd. Total", "n_notas": "Nº Notas",
+    })
+    return grp[["Fornecedor", "Produto", "Total (R$)", "Qtd. Total", "Nº Notas"]]
+
+
+def calc_evolucao_precos_compras(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preço médio ponderado por produto × mês = sum(valor) / sum(qtd).
+    Retorna pivot: Produto (linhas) × meses (colunas) com preço R$/unidade.
+    Inclui todos os meses do período, mesmo que um produto não tenha dados num mês.
+    Só faz sentido com mais de 1 mês — verificar antes de chamar.
+    """
+    if df.empty or "mes" not in df.columns or "quantidade" not in df.columns:
+        return pd.DataFrame()
+    # Todos os meses do período original (antes de filtrar por qty)
+    _todos_meses = sorted(df["mes"].dropna().unique())
+    if len(_todos_meses) <= 1:
+        return pd.DataFrame()
+    _df = df[df["quantidade"].fillna(0).gt(0)].copy()
+    if _df.empty:
+        return pd.DataFrame()
+    _agg = (
+        _df.groupby(["produto", "unidade", "mes"])
+        .agg(total_valor=("valor", "sum"), total_qtd=("quantidade", "sum"))
+        .reset_index()
+    )
+    _agg["preco_unit"] = (_agg["total_valor"] / _agg["total_qtd"].replace(0, float("nan"))).round(4)
+    _pivot = _agg.pivot_table(
+        index=["produto", "unidade"], columns="mes", values="preco_unit", aggfunc="mean"
+    )
+    # Garante que todos os meses do período aparecem como colunas
+    for _m_missing in _todos_meses:
+        if _m_missing not in _pivot.columns:
+            _pivot[_m_missing] = float("nan")
+    _pivot = _pivot[sorted(_pivot.columns)]  # ordena colunas cronologicamente
+    _mes_nomes = {
+        m: f"{_MESES_ABREV_COMPRAS[m.month]} {m.year}"
+        for m in _todos_meses if hasattr(m, "month")
+    }
+    _pivot = _pivot.rename(columns=_mes_nomes).reset_index()
+    _pivot.columns.name = None
+    _pivot = _pivot.rename(columns={"produto": "Produto", "unidade": "Un."})
+    # Ordena pelo volume total decrescente
+    _vol = _df.groupby("produto")["valor"].sum().rename("_vol")
+    _pivot = _pivot.merge(
+        _vol.reset_index().rename(columns={"produto": "Produto"}), on="Produto", how="left"
+    ).sort_values("_vol", ascending=False).drop(columns=["_vol"]).reset_index(drop=True)
+    return _pivot
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  FIM — ANÁLISE DE COMPRAS
+# ══════════════════════════════════════════════════════════════════════
+
+
 def calc_remocao(df: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
     prod = (
         df.groupby("xProd")
@@ -2487,6 +2878,90 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _sn_conf.to_excel(writer, sheet_name="SN Confronto", index=False)
 
         # Ajusta largura de todas as colunas em todas as abas
+        _autofit(writer)
+
+    return buf.getvalue()
+
+
+def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str) -> bytes:
+    """Gera Excel com todas as análises de compras — uma aba por análise."""
+    def _autofit(writer):
+        for ws in writer.sheets.values():
+            for col_cells in ws.columns:
+                max_len = 0
+                col_letter = col_cells[0].column_letter
+                for cell in col_cells:
+                    try:
+                        val = str(cell.value) if cell.value is not None else ""
+                        max_len = max(max_len, len(val))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 60)
+
+    _n_meses = df_compras["mes"].nunique() if "mes" in df_compras.columns else 1
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+
+        # 1. Resumo Geral
+        _kpis_c = calc_kpis_compras(df_compras)
+        pd.DataFrame({
+            "Indicador": ["Total em Compras", "Notas Fiscais", "Fornecedores",
+                          "Produtos Únicos", "Ticket Médio/NF"],
+            "Valor": [brl(_kpis_c["total_compras"]), fmt_num(_kpis_c["n_notas"]),
+                      fmt_num(_kpis_c["n_fornecedores"]), fmt_num(_kpis_c["n_produtos"]),
+                      brl(_kpis_c["ticket_medio_nota"])],
+        }).to_excel(writer, sheet_name="Resumo", index=False)
+
+        # 2. Evolução Mensal (só se > 1 mês)
+        if _n_meses > 1:
+            _ev_c = calc_evolucao_mensal_compras(df_compras)
+            if not _ev_c.empty:
+                _ev_c.drop(columns=["mes"], errors="ignore").to_excel(
+                    writer, sheet_name="Evolução Mensal", index=False)
+
+        # 3. Fornecedores
+        _forn_c = calc_ranking_fornecedores_compras(df_compras)
+        if not _forn_c.empty:
+            _forn_c.to_excel(writer, sheet_name="Fornecedores", index=False)
+
+        # 4. Curva ABC Produtos
+        _prod_c = calc_ranking_produtos_compras(df_compras)
+        if not _prod_c.empty:
+            _prod_c.to_excel(writer, sheet_name="Curva ABC Produtos", index=False)
+
+        # 5. Fornecedor × Produto
+        _cross_c = calc_cross_fornecedor_item_compras(df_compras)
+        if not _cross_c.empty:
+            _cross_c.to_excel(writer, sheet_name="Fornecedor x Produto", index=False)
+
+        # 6. Regime dos Fornecedores
+        if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
+            _tot_all_e = _kpis_c["total_compras"] or 1
+            _nota_col_e = next((c for c in ["chave_nf", "chave", "nota"] if c in df_compras.columns), None)
+            _agg_e = {"Total (R$)": ("valor", "sum")}
+            if _nota_col_e:
+                _agg_e["Nº Notas"] = (_nota_col_e, "nunique")
+            _reg_tbl_e = (
+                df_compras.groupby("fornecedor").agg(**_agg_e).reset_index()
+                .rename(columns={"fornecedor": "Fornecedor"})
+            )
+            _reg_map_e = (
+                df_compras.groupby("fornecedor")["regime"]
+                .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "")
+                .rename("Regime")
+            )
+            _reg_tbl_e = _reg_tbl_e.merge(_reg_map_e, left_on="Fornecedor", right_index=True, how="left")
+            _reg_tbl_e["% do Total"] = (_reg_tbl_e["Total (R$)"] / _tot_all_e * 100).round(2)
+            _reg_tbl_e = _reg_tbl_e.sort_values("Total (R$)", ascending=False).reset_index(drop=True)
+            _reg_tbl_e.to_excel(writer, sheet_name="Regime Fornecedores", index=False)
+
+        # 7. Evolução de Preços (só se > 1 mês)
+        if _n_meses > 1:
+            _preco_c = calc_evolucao_precos_compras(df_compras)
+            if not _preco_c.empty:
+                _preco_c.to_excel(writer, sheet_name="Evolução de Preços", index=False)
+
         _autofit(writer)
 
     return buf.getvalue()
@@ -4093,6 +4568,24 @@ def main():
         top_n   = st.slider("Itens no Market Basket", 5, 20, 10)
         st.divider()
 
+        # ── Upload Análise de Compras ─────────────────────
+        st.markdown("**📦 Análise de Compras**")
+        st.caption("Planilha de entradas exportada do Questor (.xlsx)")
+        arquivo_compras = st.file_uploader(
+            "Planilha Questor",
+            type=["xlsx", "xls"],
+            accept_multiple_files=False,
+            label_visibility="collapsed",
+            key=f"uploader_compras_{st.session_state.get('_upload_key', 0)}",
+        )
+        if arquivo_compras:
+            st.success(f"✅ **{arquivo_compras.name}** carregado")
+
+        # Defaults — serão sobrescritos abaixo se _so_compras for True
+        _cnpj_compras_input = ""
+        _nome_compras_input = ""
+        st.divider()
+
         # ── Área única de upload ─────────────────────────────
         st.markdown("**📂 Arquivos de Notas Fiscais**")
         st.caption("ZIP, RAR, 7z, XML ou Excel — qualquer formato, qualquer quantidade")
@@ -4115,42 +4608,28 @@ def main():
             if _n_xls:  _partes.append(f"{_n_xls} Excel(s)")
             st.success("✅ " + " · ".join(_partes))
 
-        # ── Pasta local (só desktop) ──────────────────────────
-        if not _is_cloud():
-            st.markdown("**📁 Ou selecione uma pasta**")
-            if "pastas_xml" not in st.session_state:
-                st.session_state["pastas_xml"] = []
-            if st.button("+ Adicionar pasta", use_container_width=True, key="btn_add_pasta"):
-                _caminho = _abrir_seletor_pasta()
-                if _caminho and _caminho not in st.session_state["pastas_xml"]:
-                    st.session_state["pastas_xml"].append(_caminho)
-            _pastas_validas = []
-            for _idx, _p in enumerate(list(st.session_state["pastas_xml"])):
-                _n    = _contar_xmls_pasta(_p)
-                _nome = _Path(_p).name
-                _cor     = "#D1FAE5" if _n > 0 else "#FEE2E2"
-                _txt_cor = "#065F46" if _n > 0 else "#991B1B"
-                _col_info, _col_rm = st.columns([5, 1])
-                with _col_info:
-                    st.markdown(
-                        f"<div style='background:{_cor};border-radius:6px;padding:5px 9px;"
-                        f"font-size:11px;color:{_txt_cor};margin:2px 0'>"
-                        f"<b>{_nome}</b> · {_n} XMLs</div>",
-                        unsafe_allow_html=True)
-                with _col_rm:
-                    if st.button("✕", key=f"rm_pasta_{_idx}"):
-                        st.session_state["pastas_xml"].pop(_idx)
-                        st.rerun()
-                if _n > 0:
-                    _pastas_validas.append(_p)
-        else:
-            if "pastas_xml" not in st.session_state:
-                st.session_state["pastas_xml"] = []
-            _pastas_validas = []
+        if "pastas_xml" not in st.session_state:
+            st.session_state["pastas_xml"] = []
+        _pastas_validas = []
+
+        # ── Campos obrigatórios quando só há planilha de compras (sem XMLs) ──
+        _so_compras = arquivo_compras is not None and not arquivos_upload and not _pastas_validas
+        if _so_compras:
+            st.info("Análise somente de compras — preencha os dados abaixo:")
+            _cnpj_compras_input = st.text_input(
+                "CNPJ da Empresa",
+                placeholder="00.000.000/0000-00",
+                key="cnpj_compras_input",
+            )
+            _nome_compras_input = st.text_input(
+                "Nome da Empresa",
+                placeholder="Razão Social",
+                key="nome_compras_input",
+            )
 
         # ── Determina fonte ativa ─────────────────────────────
         f_nfce, f_nfe = None, None  # legado Excel não mais exposto na UI
-        _tem_dados = bool(arquivos_upload) or bool(_pastas_validas)
+        _tem_dados = bool(arquivos_upload) or bool(_pastas_validas) or (arquivo_compras is not None)
 
         st.divider()
         # ── Simples Nacional ──────────────────────────────────
@@ -4244,12 +4723,15 @@ def main():
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
+    _fp_compras = (arquivo_compras.name, arquivo_compras.size) if arquivo_compras is not None else ()
     if arquivos_upload:
-        _fp = (_APP_CACHE_VER, "uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "uploads", tuple(sorted((f.name, f.size) for f in arquivos_upload)), tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped, _fp_compras)
     elif _pastas_validas:
-        _fp = (_APP_CACHE_VER, "pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "pastas", tuple(sorted(_pastas_validas)), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped, _fp_compras)
     elif f_nfce:
-        _fp = (_APP_CACHE_VER, "excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped)
+        _fp = (_APP_CACHE_VER, "excel", f_nfce.name, getattr(f_nfce, "size", 0), top_n, is_simples, _fp_entrada, _fp_pe, _fp_sped, _fp_compras)
+    elif arquivo_compras is not None:
+        _fp = (_APP_CACHE_VER, "compras_only", _fp_compras, top_n)
     else:
         _fp = None
 
@@ -4281,6 +4763,8 @@ def main():
                 st.info(f"📎 **{_nomes}** carregado(s). Clique em **▶ Analisar** para iniciar.")
             elif _pastas_validas:
                 st.info(f"📁 **{len(_pastas_validas)} pasta(s)** selecionada(s). Clique em **▶ Analisar** para iniciar.")
+            elif arquivo_compras is not None:
+                st.info(f"📦 **{arquivo_compras.name}** carregado. Clique em **▶ Analisar** para iniciar.")
         else:
             col1, col2, col3 = st.columns(3)
             col1.info("**Formatos aceitos**\n\nZIP · RAR · 7z · XML · Excel")
@@ -4325,6 +4809,7 @@ def main():
         df_entradas    = _R.get("df_entradas", pd.DataFrame())
         sn_result      = _R.get("sn_result", None)
         df_sped_parsed = _R.get("df_sped_parsed", pd.DataFrame())
+        df_compras     = _R.get("df_compras", pd.DataFrame())
 
     else:
         # ── CARREGAR + CALCULAR com tela de progresso ──
@@ -4398,13 +4883,17 @@ def main():
                 except Exception:
                     _n_skip += 1
 
-        if df_nfce.empty and df_nfe.empty:
-            st.error("Nenhum dado encontrado nos arquivos enviados. Verifique o formato.")
-            return
+        _only_compras = df_nfce.empty and df_nfe.empty
+        if _only_compras:
+            if arquivo_compras is None:
+                st.error("Nenhum dado encontrado nos arquivos enviados. Verifique o formato.")
+                return
+            # Compras-only: não há XMLs, segue com dataframes de vendas vazios
 
         # ── Validação: apenas uma empresa por análise ─────────
-        _df_check_emp = df_nfce if not df_nfce.empty else df_nfe
-        if "emitente" in _df_check_emp.columns:
+        if not _only_compras:
+         _df_check_emp = df_nfce if not df_nfce.empty else df_nfe
+         if "emitente" in _df_check_emp.columns:
             _em_check = _df_check_emp["emitente"].dropna()
             _em_check = _em_check[_em_check != ""]
             _em_unicas = sorted(_em_check.unique())
@@ -4418,111 +4907,131 @@ def main():
                 )
                 return
 
-        # df = base principal para análises de ticket, turno, basket etc.
-        # Se só tem NF-e (distribuidora / atacado), usa df_nfe como base e
-        # adiciona as colunas de tempo para que as análises por horário funcionem.
-        if not df_nfce.empty:
-            df = df_nfce.copy()
-        else:
-            df = df_nfe.copy()
-            if "dhEmi" in df.columns and df["dhEmi"].notna().any():
-                df["hora"]       = df["dhEmi"].dt.hour
-                df["dia_semana"] = df["dhEmi"].dt.day_name()
-                df["turno"]      = df["hora"].apply(
-                    lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
-                    if pd.notna(h) else None
-                )
-
-        if not df_nfce.empty and not df_nfe.empty:
-            df_all = pd.concat([df_nfce, df_nfe], ignore_index=True)
-        elif not df_nfce.empty:
-            df_all = df_nfce.copy()
-        else:
-            df_all = df_nfe.copy()
-
         _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
-        # Auto-detectar nome e CNPJ da empresa a partir das notas
-        _auto_cli = ""
-        cnpj_label = ""
-        if "emitente" in df.columns:
-            _em_vals = df["emitente"].dropna()
-            _em_vals = _em_vals[_em_vals != ""]
-            if not _em_vals.empty:
-                _auto_cli = _em_vals.mode()[0]
-        if "cnpj_emit" in df.columns:
-            _cn_vals = df["cnpj_emit"].dropna()
-            _cn_vals = _cn_vals[_cn_vals != ""]
-            if not _cn_vals.empty:
-                _raw_cnpj = _cn_vals.mode()[0]
-                # Formata: 00.000.000/0000-00
-                _d = "".join(c for c in str(_raw_cnpj) if c.isdigit())
-                if len(_d) == 14:
-                    cnpj_label = f"{_d[:2]}.{_d[2:5]}.{_d[5:8]}/{_d[8:12]}-{_d[12:]}"
-                else:
-                    cnpj_label = _raw_cnpj
-        cli_label = cliente or _auto_cli or "Cliente"
 
-        if periodo:
-            per_label = periodo
-        elif "dhEmi" in df.columns and df["dhEmi"].notna().any():
-            _meses = sorted(df["dhEmi"].dropna().dt.to_period("M").unique())
-            if len(_meses) == 1:
-                per_label = f"{_MESES_PT[_meses[0].month]} {_meses[0].year}"
-            elif len(_meses) >= 2:
-                _m1, _m2 = _meses[0], _meses[-1]
-                if _m1.year == _m2.year:
-                    per_label = f"{_MESES_PT[_m1.month]} - {_MESES_PT[_m2.month]} {_m1.year}"
-                else:
-                    per_label = f"{_MESES_PT[_m1.month]} {_m1.year} - {_MESES_PT[_m2.month]} {_m2.year}"
+        if not _only_compras:
+            # ── df: base principal de vendas ──────────────────────
+            if not df_nfce.empty:
+                df = df_nfce.copy()
+            else:
+                df = df_nfe.copy()
+                if "dhEmi" in df.columns and df["dhEmi"].notna().any():
+                    df["hora"]       = df["dhEmi"].dt.hour
+                    df["dia_semana"] = df["dhEmi"].dt.day_name()
+                    df["turno"]      = df["hora"].apply(
+                        lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
+                        if pd.notna(h) else None
+                    )
+
+            if not df_nfce.empty and not df_nfe.empty:
+                df_all = pd.concat([df_nfce, df_nfe], ignore_index=True)
+            elif not df_nfce.empty:
+                df_all = df_nfce.copy()
+            else:
+                df_all = df_nfe.copy()
+
+            # Auto-detectar nome e CNPJ da empresa a partir das notas
+            _auto_cli = ""
+            cnpj_label = ""
+            if "emitente" in df.columns:
+                _em_vals = df["emitente"].dropna()
+                _em_vals = _em_vals[_em_vals != ""]
+                if not _em_vals.empty:
+                    _auto_cli = _em_vals.mode()[0]
+            if "cnpj_emit" in df.columns:
+                _cn_vals = df["cnpj_emit"].dropna()
+                _cn_vals = _cn_vals[_cn_vals != ""]
+                if not _cn_vals.empty:
+                    _raw_cnpj = _cn_vals.mode()[0]
+                    _d = "".join(c for c in str(_raw_cnpj) if c.isdigit())
+                    if len(_d) == 14:
+                        cnpj_label = f"{_d[:2]}.{_d[2:5]}.{_d[5:8]}/{_d[8:12]}-{_d[12:]}"
+                    else:
+                        cnpj_label = _raw_cnpj
+            cli_label = cliente or _auto_cli or "Cliente"
+
+            if periodo:
+                per_label = periodo
+            elif "dhEmi" in df.columns and df["dhEmi"].notna().any():
+                _meses_v = sorted(df["dhEmi"].dropna().dt.to_period("M").unique())
+                if len(_meses_v) == 1:
+                    per_label = f"{_MESES_PT[_meses_v[0].month]} {_meses_v[0].year}"
+                elif len(_meses_v) >= 2:
+                    _m1, _m2 = _meses_v[0], _meses_v[-1]
+                    if _m1.year == _m2.year:
+                        per_label = f"{_MESES_PT[_m1.month]} - {_MESES_PT[_m2.month]} {_m1.year}"
+                    else:
+                        per_label = f"{_MESES_PT[_m1.month]} {_m1.year} - {_MESES_PT[_m2.month]} {_m2.year}"
+            else:
+                per_label = "Período"
+
+            tem_nfe  = not df_nfe.empty
+            tem_nfce = not df_nfce.empty
+            if tem_nfce and tem_nfe:
+                fonte_label = "NFC-e + NF-e"
+            elif tem_nfe:
+                fonte_label = "NF-e"
+            else:
+                fonte_label = "NFC-e"
+
+            # ── Análises de vendas ────────────────────────────────
+            _render_prog(12, "📊 Calculando faturamento e KPIs...", _t0, _box_txt, _box_bar)
+            kpis      = calc_kpis(df_all)
+            kpis_nfce = calc_kpis(df)
+
+            _render_prog(20, "🛒 Market Basket — pares de produtos... (pode demorar)", _t0, _box_txt, _box_bar)
+            df_pares = calc_basket_pares(df, top_n)
+
+            _render_prog(42, "🛍️ Market Basket — combos de 3 produtos... (pode demorar)", _t0, _box_txt, _box_bar)
+            df_trios = calc_basket_trios(df, top_n)
+
+            _render_prog(55, "🧺 Distribuição da cesta de compras...", _t0, _box_txt, _box_bar)
+            df_cesta = calc_cesta(df)
+
+            _render_prog(60, "🏷️ Classificando produtos (BCG, remoção, solo)...", _t0, _box_txt, _box_bar)
+            df_bcg     = calc_bcg(df_all)
+            df_abc     = calc_curva_abc(df_all)
+            df_remocao = calc_remocao(df_all)
+            df_solo    = calc_solo_produtos(df)
+            df_anti    = calc_anti_pares(df)
+
+            _render_prog(67, "🌅 Análise por turno e dia da semana...", _t0, _box_txt, _box_bar)
+            df_turno = calc_turno(df)
+            df_dia_tipo, df_dia_semana = calc_por_dia_semana(df)
+
+            _render_prog(80, "💡 Identificando ticket drivers...", _t0, _box_txt, _box_bar)
+            df_elev, df_redu = calc_ticket_drivers(df)
+
+            _render_prog(87, "🧮 Gerando simulações de preço e receita...", _t0, _box_txt, _box_bar)
+            df_sim_preco = calc_simulacao_precos(df_all)
+            df_sim_rec   = calc_simulacao_receita(kpis, df_all)
+            df_combos    = calc_combo_pricing(df_pares, df)
+            df_metas     = calc_metas(df_all)
+
+            _render_prog(93, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
+            df_horas = calc_horas_oportunidade(df)
+            df_por_hora, df_por_turno = calc_vendas_horario(df)
+
         else:
-            per_label = "Período"
-        tem_nfe     = not df_nfe.empty
-        tem_nfce    = not df_nfce.empty
-        if tem_nfce and tem_nfe:
-            fonte_label = "NFC-e + NF-e"
-        elif tem_nfe:
-            fonte_label = "NF-e"
-        else:
-            fonte_label = "NFC-e"
-
-        # ── Análises ──
-        _render_prog(12, "📊 Calculando faturamento e KPIs...", _t0, _box_txt, _box_bar)
-        kpis      = calc_kpis(df_all)
-        kpis_nfce = calc_kpis(df)
-
-        _render_prog(20, "🛒 Market Basket — pares de produtos... (pode demorar)", _t0, _box_txt, _box_bar)
-        df_pares = calc_basket_pares(df, top_n)
-
-        _render_prog(42, "🛍️ Market Basket — combos de 3 produtos... (pode demorar)", _t0, _box_txt, _box_bar)
-        df_trios = calc_basket_trios(df, top_n)
-
-        _render_prog(55, "🧺 Distribuição da cesta de compras...", _t0, _box_txt, _box_bar)
-        df_cesta = calc_cesta(df)
-
-        _render_prog(60, "🏷️ Classificando produtos (BCG, remoção, solo)...", _t0, _box_txt, _box_bar)
-        df_bcg     = calc_bcg(df_all)
-        df_abc     = calc_curva_abc(df_all)
-        df_remocao = calc_remocao(df_all)
-        df_solo    = calc_solo_produtos(df)
-        df_anti    = calc_anti_pares(df)
-
-        _render_prog(67, "🌅 Análise por turno e dia da semana...", _t0, _box_txt, _box_bar)
-        df_turno = calc_turno(df)
-        df_dia_tipo, df_dia_semana = calc_por_dia_semana(df)
-
-        _render_prog(80, "💡 Identificando ticket drivers...", _t0, _box_txt, _box_bar)
-        df_elev, df_redu = calc_ticket_drivers(df)
-
-        _render_prog(87, "🧮 Gerando simulações de preço e receita...", _t0, _box_txt, _box_bar)
-        df_sim_preco = calc_simulacao_precos(df_all)
-        df_sim_rec   = calc_simulacao_receita(kpis, df_all)
-        df_combos    = calc_combo_pricing(df_pares, df)
-        df_metas     = calc_metas(df_all)
-
-        _render_prog(93, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
-        df_horas = calc_horas_oportunidade(df)
-        df_por_hora, df_por_turno = calc_vendas_horario(df)
+            # ── Compras-only: sem XMLs — tudo de vendas vazio ────
+            df = pd.DataFrame()
+            df_all = pd.DataFrame()
+            cnpj_label  = _cnpj_compras_input or ""
+            cli_label   = _nome_compras_input or cliente or "Empresa"
+            per_label   = periodo or "Período"
+            tem_nfe = tem_nfce = False
+            fonte_label = ""
+            _kpis_zero  = {"faturamento": 0, "n_pedidos": 0, "ticket_medio": 0,
+                           "ipc": 0, "total_itens": 0}
+            kpis = kpis_nfce = _kpis_zero.copy()
+            df_pares = df_trios = df_cesta = df_bcg = df_abc = pd.DataFrame()
+            df_remocao = df_solo = df_anti = pd.DataFrame()
+            df_turno = df_dia_tipo = df_dia_semana = pd.DataFrame()
+            df_elev = df_redu = pd.DataFrame()
+            df_sim_preco = df_sim_rec = df_combos = df_metas = pd.DataFrame()
+            df_horas = df_por_hora = df_por_turno = pd.DataFrame()
+            _render_prog(50, "📦 Processando planilha de compras...", _t0, _box_txt, _box_bar)
 
         # ── Simples Nacional ──────────────────────────────────
         df_entradas = pd.DataFrame()
@@ -4646,6 +5155,37 @@ f"{_col_nfe}{_col_skip}"
             )
             st.markdown(_html_card, unsafe_allow_html=True)
 
+        # ── Processa planilha de compras (se enviada) ──────────────────
+        df_compras = pd.DataFrame()
+        if arquivo_compras is not None:
+            try:
+                arquivo_compras.seek(0)
+            except Exception:
+                pass
+            try:
+                df_compras = parse_planilha_compras(arquivo_compras)
+            except Exception:
+                df_compras = pd.DataFrame()
+
+        # ── Compras-only: derivar per_label a partir da planilha de compras ──
+        if _only_compras and not df_compras.empty and per_label == "Período":
+            if "mes" in df_compras.columns and df_compras["mes"].notna().any():
+                _meses_c = sorted(df_compras["mes"].dropna().unique())
+                if len(_meses_c) == 1:
+                    _mc = _meses_c[0]
+                    per_label = f"{_MESES_PT_COMPRAS.get(_mc.month, '')} {_mc.year}" if hasattr(_mc, "month") else str(_mc)
+                elif len(_meses_c) >= 2:
+                    _mc1, _mc2 = _meses_c[0], _meses_c[-1]
+                    if hasattr(_mc1, "month"):
+                        if _mc1.year == _mc2.year:
+                            per_label = f"{_MESES_PT_COMPRAS.get(_mc1.month, '')} - {_MESES_PT_COMPRAS.get(_mc2.month, '')} {_mc1.year}"
+                        else:
+                            per_label = f"{_MESES_PT_COMPRAS.get(_mc1.month, '')} {_mc1.year} - {_MESES_PT_COMPRAS.get(_mc2.month, '')} {_mc2.year}"
+
+        # ── Compras-only: forçar modo dashboard para Compras ──
+        if _only_compras:
+            st.session_state["_modo_dashboard"] = "Compras"
+
         # ── Salva tudo no cache de sessão ──
         st.session_state["_analise_fp"] = _fp
         st.session_state["_analise"] = {
@@ -4663,6 +5203,7 @@ f"{_col_nfe}{_col_skip}"
             "df_horas": df_horas,    "df_por_hora": df_por_hora, "df_por_turno": df_por_turno,
             "df_entradas": df_entradas, "sn_result": sn_result,
             "df_sped_parsed": df_sped_parsed,
+            "df_compras": df_compras,
         }
         # Força re-render para o painel lateral enxergar o cache
         # (sidebar é renderizado antes da análise rodar)
@@ -4670,14 +5211,393 @@ f"{_col_nfe}{_col_skip}"
 
     _cnpj_line = (f'<p style="margin:2px 0 0;opacity:.6;font-size:12px;letter-spacing:.4px">CNPJ {cnpj_label}</p>'
                   if cnpj_label else "")
-    st.markdown(
-        '<div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);'
-        'padding:20px 28px;border-radius:10px;color:white;margin-bottom:16px">'
-        f'<h2 style="margin:0">{cli_label} — Análise Estratégica de Vendas</h2>'
-        + _cnpj_line +
-        f'<p style="margin:6px 0 0;opacity:.75;font-size:14px">{per_label} &nbsp;·&nbsp; {fonte_label}</p>'
-        '</div>',
-        unsafe_allow_html=True)
+
+    # ── Modo determinado antes de qualquer renderização ─────────────
+    _modo = st.session_state.get("_modo_dashboard", "Vendas")
+
+    # ── Header (sempre primeiro — baseado no modo ativo) ─────────────
+    if _modo == "Compras" and not df_compras.empty:
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#064E3B,#059669);'
+            'padding:20px 28px;border-radius:10px;color:white;margin-bottom:12px">'
+            f'<h2 style="margin:0">{cli_label} — Análise de Compras</h2>'
+            + _cnpj_line +
+            f'<p style="margin:6px 0 0;opacity:.75;font-size:14px">{per_label}</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);'
+            'padding:20px 28px;border-radius:10px;color:white;margin-bottom:12px">'
+            f'<h2 style="margin:0">{cli_label} — Análise Estratégica de Vendas</h2>'
+            + _cnpj_line +
+            f'<p style="margin:6px 0 0;opacity:.75;font-size:14px">{per_label} &nbsp;·&nbsp; {fonte_label}</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Toggle Vendas / Compras (abaixo do header) ───────────────────
+    if not df_compras.empty:
+        _col_mv, _col_mc, _col_ms = st.columns([1.3, 1.3, 7.4])
+        with _col_mv:
+            if st.button(
+                "📊 Vendas",
+                use_container_width=True,
+                type="primary" if _modo == "Vendas" else "secondary",
+                key="btn_modo_vendas",
+            ):
+                st.session_state["_modo_dashboard"] = "Vendas"
+                st.rerun()
+        with _col_mc:
+            if st.button(
+                "📦 Compras",
+                use_container_width=True,
+                type="primary" if _modo == "Compras" else "secondary",
+                key="btn_modo_compras",
+            ):
+                st.session_state["_modo_dashboard"] = "Compras"
+                st.rerun()
+
+    # ── MODO COMPRAS (dashboard completo + export + saída antecipada) ─
+    if _modo == "Compras" and not df_compras.empty:
+
+        _kpis_c = calc_kpis_compras(df_compras)
+        _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
+        _cc1.metric("Total em Compras", brl(_kpis_c["total_compras"]))
+        _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
+        _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
+        _cc4.metric("Produtos Únicos",  fmt_num(_kpis_c["n_produtos"]))
+        _cc5.metric("Ticket Médio/NF",  brl(_kpis_c["ticket_medio_nota"]))
+
+        if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
+            _df_sn  = df_compras[df_compras["regime"].str.contains("Simples", case=False, na=False)]
+            _df_nor = df_compras[~df_compras["regime"].str.contains("Simples", case=False, na=False)]
+            _tot_sn  = _df_sn["valor"].sum()
+            _tot_nor = _df_nor["valor"].sum()
+            _tot_all = _kpis_c["total_compras"] or 1
+            st.markdown(
+                f"<div style='background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;"
+                f"padding:10px 18px;margin-top:8px;display:flex;gap:36px;align-items:center;flex-wrap:wrap'>"
+                f"<span style='font-size:13px;color:#065F46;font-weight:700'>Regime dos Fornecedores</span>"
+                f"<span style='font-size:13px;color:#374151'>"
+                f"<b>Simples Nacional:</b> {brl(_tot_sn)} &nbsp;·&nbsp; {_tot_sn/_tot_all*100:.1f}% "
+                f"&nbsp;·&nbsp; {_df_sn['fornecedor'].nunique()} fornecedor(es)</span>"
+                f"<span style='font-size:13px;color:#374151'>"
+                f"<b>Regime Normal:</b> {brl(_tot_nor)} &nbsp;·&nbsp; {_tot_nor/_tot_all*100:.1f}% "
+                f"&nbsp;·&nbsp; {_df_nor['fornecedor'].nunique()} fornecedor(es)</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+
+        # ── helper local: formata quantidade com 2 casas decimais se não-inteiro ─
+        def _fmt_qtd(x):
+            try:
+                v = float(x)
+                if pd.isna(v):
+                    return ""
+                if v == int(v):
+                    return fmt_num(int(v))
+                return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            except Exception:
+                return str(x)
+
+        # ── define abas condicionalmente ─────────────────────────────
+        _n_meses_c = df_compras["mes"].nunique() if "mes" in df_compras.columns else 1
+        _abas_c = []
+        if _n_meses_c > 1:
+            _abas_c.append("Evolução Mensal")
+        _abas_c += ["Fornecedores", "Curva ABC", "Fornecedor × Produto", "Regime"]
+        if _n_meses_c > 1:
+            _abas_c.append("Evolução de Preços")
+        _subtabs_c = st.tabs(_abas_c)
+        _tidx_c = {name: i for i, name in enumerate(_abas_c)}
+
+        # ── Evolução Mensal (só com > 1 mês) ─────────────────────────
+        if "Evolução Mensal" in _tidx_c:
+            with _subtabs_c[_tidx_c["Evolução Mensal"]]:
+                _ev = calc_evolucao_mensal_compras(df_compras)
+                if not _ev.empty:
+                    _fig_ev = px.bar(_ev, x="Mês", y="Total (R$)",
+                                     text_auto=".2s",
+                                     color_discrete_sequence=["#059669"],
+                                     title="Evolução Mensal das Compras")
+                    _fig_ev.update_layout(showlegend=False, height=350)
+                    st.plotly_chart(_fig_ev, use_container_width=True)
+                    _ev_disp = _ev.drop(columns=["mes"], errors="ignore").copy()
+                    _ev_disp["Total (R$)"] = _ev_disp["Total (R$)"].apply(brl)
+                    _ev_disp["Valor Médio/Nota (R$)"] = _ev_disp["Valor Médio/Nota (R$)"].apply(brl)
+                    st.dataframe(_ev_disp, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Sem dados mensais disponíveis.")
+
+        # ── Fornecedores ──────────────────────────────────────────────
+        with _subtabs_c[_tidx_c["Fornecedores"]]:
+            _rank_forn = calc_ranking_fornecedores_compras(df_compras)
+            if not _rank_forn.empty:
+                _rank_forn_disp = _rank_forn.copy()
+                _rank_forn_disp["Total (R$)"] = _rank_forn["Total (R$)"].apply(brl)
+                _rank_forn_disp["% do Total"] = _rank_forn["% do Total"].round(2).astype(str) + "%"
+                _mes_prefixes = ("Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                                 "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+                for _mc in _rank_forn_disp.columns:
+                    if _mc.startswith(_mes_prefixes):
+                        _rank_forn_disp[_mc] = _rank_forn[_mc].apply(brl)
+                st.dataframe(_rank_forn_disp, use_container_width=True, hide_index=True, height=420)
+            else:
+                st.info("Sem dados de fornecedores.")
+
+        # ── Curva ABC ─────────────────────────────────────────────────
+        with _subtabs_c[_tidx_c["Curva ABC"]]:
+            _rank_abc = calc_ranking_produtos_compras(df_compras)
+            if not _rank_abc.empty:
+                _total_abc = _rank_abc["Total (R$)"].sum()
+                _ga_c = _rank_abc[_rank_abc["ABC"] == "A"]
+                _gb_c = _rank_abc[_rank_abc["ABC"] == "B"]
+                _gc_c = _rank_abc[_rank_abc["ABC"] == "C"]
+                _ca, _cb, _cc2_col = st.columns(3)
+                with _ca:
+                    _pct_a = _ga_c["Total (R$)"].sum() / _total_abc * 100 if _total_abc else 0
+                    st.markdown(
+                        f"<div style='background:#D1FAE5;border-left:5px solid #059669;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#065F46'>GRUPO A</div>"
+                        f"<div style='font-size:13px;color:#065F46'>{len(_ga_c)} produtos · {_pct_a:.1f}%</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#059669'>"
+                        f"{brl(_ga_c['Total (R$)'].sum())}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                with _cb:
+                    _pct_b = _gb_c["Total (R$)"].sum() / _total_abc * 100 if _total_abc else 0
+                    st.markdown(
+                        f"<div style='background:#FEF3C7;border-left:5px solid #D97706;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#92400E'>GRUPO B</div>"
+                        f"<div style='font-size:13px;color:#92400E'>{len(_gb_c)} produtos · {_pct_b:.1f}%</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#D97706'>"
+                        f"{brl(_gb_c['Total (R$)'].sum())}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                with _cc2_col:
+                    _pct_c = _gc_c["Total (R$)"].sum() / _total_abc * 100 if _total_abc else 0
+                    st.markdown(
+                        f"<div style='background:#F3F4F6;border-left:5px solid #6B7280;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#374151'>GRUPO C</div>"
+                        f"<div style='font-size:13px;color:#374151'>{len(_gc_c)} produtos · {_pct_c:.1f}%</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#6B7280'>"
+                        f"{brl(_gc_c['Total (R$)'].sum())}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                st.markdown("---")
+                _filtro_abc_c = st.radio(
+                    "Filtrar:", ["Todos", "A", "B", "C"],
+                    horizontal=True, key="radio_abc_compras_modo",
+                )
+                _df_abc_c_show = (
+                    _rank_abc if _filtro_abc_c == "Todos"
+                    else _rank_abc[_rank_abc["ABC"] == _filtro_abc_c]
+                )
+                _abc_c_disp = _df_abc_c_show.copy()
+                _abc_c_disp["Total (R$)"] = _abc_c_disp["Total (R$)"].apply(brl)
+                if "Qtd. Total" in _abc_c_disp.columns:
+                    _abc_c_disp["Qtd. Total"] = _df_abc_c_show["Qtd. Total"].apply(_fmt_qtd)
+                _abc_c_disp["% do Total"] = _abc_c_disp["% do Total"].round(2).astype(str) + "%"
+                if "% Acumulado" in _abc_c_disp.columns:
+                    _abc_c_disp["% Acumulado"] = _df_abc_c_show["% Acumulado"].round(2).astype(str) + "%"
+                _abc_cols_show = [c for c in ["Rank", "Produto", "NCM", "Un.", "ABC",
+                                               "Total (R$)", "Qtd. Total", "Nº Notas",
+                                               "% do Total", "% Acumulado"]
+                                  if c in _abc_c_disp.columns]
+                st.dataframe(_abc_c_disp[_abc_cols_show],
+                             use_container_width=True, hide_index=True, height=420)
+            else:
+                st.info("Sem dados para curva ABC.")
+
+        # ── Fornecedor × Produto ──────────────────────────────────────
+        with _subtabs_c[_tidx_c["Fornecedor × Produto"]]:
+            _cross = calc_cross_fornecedor_item_compras(df_compras)
+            if not _cross.empty:
+                _cross_disp = _cross.copy()
+                _cross_disp["Total (R$)"] = _cross_disp["Total (R$)"].apply(brl)
+                if "Qtd. Total" in _cross_disp.columns:
+                    _cross_disp["Qtd. Total"] = _cross["Qtd. Total"].apply(_fmt_qtd)
+                st.dataframe(_cross_disp, use_container_width=True, hide_index=True, height=500)
+            else:
+                st.info("Sem dados de cruzamento.")
+
+        # ── Regime ───────────────────────────────────────────────────
+        with _subtabs_c[_tidx_c["Regime"]]:
+            if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
+                _df_sn_r  = df_compras[df_compras["regime"].str.contains("Simples", case=False, na=False)]
+                _df_nor_r = df_compras[~df_compras["regime"].str.contains("Simples", case=False, na=False)]
+                _tot_all_r = df_compras["valor"].sum() or 1
+                _tot_sn_r  = _df_sn_r["valor"].sum()
+                _tot_nor_r = _df_nor_r["valor"].sum()
+
+                _rcol1, _rcol2 = st.columns(2)
+                with _rcol1:
+                    st.markdown(
+                        f"<div style='background:#D1FAE5;border-left:5px solid #059669;"
+                        f"padding:18px 20px;border-radius:8px;margin-bottom:12px'>"
+                        f"<div style='font-size:20px;font-weight:700;color:#065F46'>SIMPLES NACIONAL</div>"
+                        f"<div style='font-size:28px;font-weight:800;color:#059669;margin:6px 0'>"
+                        f"{brl(_tot_sn_r)}</div>"
+                        f"<div style='font-size:14px;color:#065F46'>"
+                        f"{_tot_sn_r/_tot_all_r*100:.1f}% do total &nbsp;·&nbsp; "
+                        f"{_df_sn_r['fornecedor'].nunique()} fornecedor(es)</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                with _rcol2:
+                    st.markdown(
+                        f"<div style='background:#EFF6FF;border-left:5px solid #2563EB;"
+                        f"padding:18px 20px;border-radius:8px;margin-bottom:12px'>"
+                        f"<div style='font-size:20px;font-weight:700;color:#1E3A5F'>REGIME NORMAL</div>"
+                        f"<div style='font-size:28px;font-weight:800;color:#2563EB;margin:6px 0'>"
+                        f"{brl(_tot_nor_r)}</div>"
+                        f"<div style='font-size:14px;color:#1E3A5F'>"
+                        f"{_tot_nor_r/_tot_all_r*100:.1f}% do total &nbsp;·&nbsp; "
+                        f"{_df_nor_r['fornecedor'].nunique()} fornecedor(es)</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown("---")
+                _filtro_reg = st.radio(
+                    "Filtrar por regime:", ["Todos", "Simples Nacional", "Normal"],
+                    horizontal=True, key="radio_regime_compras",
+                )
+
+                # monta tabela de fornecedores por regime
+                _nota_col_r = next((c for c in ["chave_nf", "chave", "nota"] if c in df_compras.columns), None)
+                _agg_kws_r = {"Total (R$)": ("valor", "sum")}
+                if _nota_col_r:
+                    _agg_kws_r["Nº Notas"] = (_nota_col_r, "nunique")
+                _reg_tbl = (
+                    df_compras.groupby("fornecedor")
+                    .agg(**_agg_kws_r)
+                    .reset_index()
+                    .rename(columns={"fornecedor": "Fornecedor"})
+                )
+                _reg_map = (
+                    df_compras.groupby("fornecedor")["regime"]
+                    .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "")
+                    .rename("Regime")
+                )
+                _reg_tbl = _reg_tbl.merge(_reg_map, left_on="Fornecedor", right_index=True, how="left")
+                _reg_tbl["% do Total"] = (_reg_tbl["Total (R$)"] / _tot_all_r * 100).round(2)
+                _reg_tbl = _reg_tbl.sort_values("Total (R$)", ascending=False).reset_index(drop=True)
+
+                if _filtro_reg == "Simples Nacional":
+                    _reg_tbl = _reg_tbl[_reg_tbl["Regime"].str.contains("Simples", case=False, na=False)]
+                elif _filtro_reg == "Normal":
+                    _reg_tbl = _reg_tbl[~_reg_tbl["Regime"].str.contains("Simples", case=False, na=False)]
+
+                _reg_disp = _reg_tbl.copy()
+                _reg_disp["Total (R$)"] = _reg_tbl["Total (R$)"].apply(brl)
+                _reg_disp["% do Total"] = _reg_tbl["% do Total"].astype(str) + "%"
+                _reg_cols = [c for c in ["Fornecedor", "Regime", "Total (R$)", "% do Total", "Nº Notas"]
+                             if c in _reg_disp.columns]
+                st.dataframe(_reg_disp[_reg_cols], use_container_width=True, hide_index=True, height=460)
+            else:
+                st.info("Dados de regime não disponíveis (coluna 'Tipo Fornecedor' ausente na planilha Questor).")
+
+        # ── Evolução de Preços (só com > 1 mês) ──────────────────────
+        if "Evolução de Preços" in _tidx_c:
+            with _subtabs_c[_tidx_c["Evolução de Preços"]]:
+                _ev_preco = calc_evolucao_precos_compras(df_compras)
+                if not _ev_preco.empty:
+                    _mes_cols_p = [c for c in _ev_preco.columns if c not in ("Produto", "Un.")]
+                    st.caption(
+                        "Preço médio ponderado = valor total pago ÷ quantidade total, por produto e mês. "
+                        "Comprar mais ou menos quantidade não distorce o indicador — "
+                        "cada mês reflete o custo real por unidade/kg naquele período."
+                    )
+
+                    # ── Resumo: maiores altas e baixas (1º mês vs último mês) ─
+                    if len(_mes_cols_p) >= 2:
+                        _first_m = _mes_cols_p[0]
+                        _last_m  = _mes_cols_p[-1]
+                        # Inclui TODOS os meses para exibir a evolução completa
+                        _chg = _ev_preco[["Produto", "Un."] + _mes_cols_p].dropna(
+                            subset=[_first_m, _last_m]
+                        ).copy()
+                        _chg["Variação (%)"] = (
+                            (_chg[_last_m] - _chg[_first_m]) / _chg[_first_m].replace(0, float("nan")) * 100
+                        ).round(2)
+                        # Renomeia colunas de mês para exibição
+                        _rename_m = {m: f"Preço {m}" for m in _mes_cols_p}
+                        _chg = _chg.rename(columns=_rename_m)
+                        _preco_cols = [f"Preço {m}" for m in _mes_cols_p]
+
+                        _altas  = _chg[_chg["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(10)
+                        _quedas = _chg[_chg["Variação (%)"] < 0].sort_values("Variação (%)").head(10)
+
+                        _col_up, _col_dn = st.columns(2)
+                        with _col_up:
+                            st.markdown(
+                                f"<div style='background:#FEE2E2;border-left:4px solid #DC2626;"
+                                f"padding:10px 14px;border-radius:6px;margin-bottom:8px'>"
+                                f"<span style='font-weight:700;color:#991B1B'>📈 Maiores Aumentos</span>"
+                                f"<span style='font-size:12px;color:#7F1D1D'> — {_first_m} → {_last_m}</span>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                            if not _altas.empty:
+                                _altas_disp = _altas[["Produto", "Un."] + _preco_cols + ["Variação (%)"]].copy()
+                                for _pc in _preco_cols:
+                                    _altas_disp[_pc] = _altas[_pc].apply(lambda v: brl(v) if pd.notna(v) else "—")
+                                _altas_disp["Variação (%)"] = _altas["Variação (%)"].apply(lambda v: f"+{v:.2f}%")
+                                st.dataframe(_altas_disp, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("Nenhum produto com aumento de preço no período.")
+
+                        with _col_dn:
+                            st.markdown(
+                                f"<div style='background:#D1FAE5;border-left:4px solid #059669;"
+                                f"padding:10px 14px;border-radius:6px;margin-bottom:8px'>"
+                                f"<span style='font-weight:700;color:#065F46'>📉 Maiores Quedas</span>"
+                                f"<span style='font-size:12px;color:#064E3B'> — {_first_m} → {_last_m}</span>"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                            if not _quedas.empty:
+                                _quedas_disp = _quedas[["Produto", "Un."] + _preco_cols + ["Variação (%)"]].copy()
+                                for _pc in _preco_cols:
+                                    _quedas_disp[_pc] = _quedas[_pc].apply(lambda v: brl(v) if pd.notna(v) else "—")
+                                _quedas_disp["Variação (%)"] = _quedas["Variação (%)"].apply(lambda v: f"{v:.2f}%")
+                                st.dataframe(_quedas_disp, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("Nenhum produto com queda de preço no período.")
+
+                    # ── Tabela completa de preços por mês ──────────────
+                    st.markdown("---")
+                    st.markdown("**Preço médio ponderado por produto e mês (R$/unidade)**")
+                    _ev_p_disp = _ev_preco.copy()
+                    for _mc_p in _mes_cols_p:
+                        _ev_p_disp[_mc_p] = _ev_preco[_mc_p].apply(
+                            lambda v: brl(v) if pd.notna(v) else "—"
+                        )
+                    st.dataframe(_ev_p_disp, use_container_width=True, hide_index=True, height=460)
+                else:
+                    st.info("Sem dados suficientes para análise de preços.")
+
+        # ── Exportar Compras ──────────────────────────────────────────
+        st.divider()
+        st.subheader("Exportar Relatório de Compras")
+        _nome_base_c = (
+            f"Analise_de_Compras_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
+        )
+        _xlsx_compras = exportar_excel_compras(df_compras, cli_label, per_label)
+        st.download_button(
+            label="⬇️ Baixar Excel de Compras (.xlsx)",
+            data=_xlsx_compras,
+            file_name=f"{_nome_base_c}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        return  # ← saída antecipada: modo Compras não passa pelo bloco de vendas
 
     #  KPIs PRINCIPAIS
     if tem_nfe and "vNF" in df_nfe.columns and "chave" in df_nfe.columns:
@@ -4739,7 +5659,6 @@ f"{_col_nfe}{_col_skip}"
         abas.append("NF-e (B2B)")
     if sn_result is not None:
         abas.append("Simples Nacional")
-
     tabs = st.tabs(abas)
     tab_idx = {name: i for i, name in enumerate(abas)}
 
