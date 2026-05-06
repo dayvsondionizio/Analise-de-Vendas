@@ -2730,17 +2730,18 @@ def exportar_excel(kpis, df_pares, df_trios,
         if df_abc is not None and not df_abc.empty:
             _escreve_abc(df_abc, "Curva ABC")
 
-        # ── Curva ABC — uma aba por mês ───────────────────────────────────
+        # ── Curva ABC — uma aba por mês (só quando há mais de 1 mês) ────────
         if df_all is not None and not df_all.empty and "dhEmi" in df_all.columns:
             _periodos_exp = sorted(
                 df_all["dhEmi"].dropna().dt.to_period("M").unique())
-            for _per in _periodos_exp:
-                _df_mes = df_all[df_all["dhEmi"].dt.to_period("M") == _per]
-                if _df_mes.empty:
-                    continue
-                _abc_mes = calc_curva_abc(_df_mes)
-                _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
-                _escreve_abc(_abc_mes, _sheet)
+            if len(_periodos_exp) > 1:
+                for _per in _periodos_exp:
+                    _df_mes = df_all[df_all["dhEmi"].dt.to_period("M") == _per]
+                    if _df_mes.empty:
+                        continue
+                    _abc_mes = calc_curva_abc(_df_mes)
+                    _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
+                    _escreve_abc(_abc_mes, _sheet)
 
         if not df_elev.empty:
             df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
@@ -2756,20 +2757,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "Ticket Médio c/ Produto": _FMT_BRL,
                 "Ticket Médio Geral": _FMT_BRL,
                 "Diferença R$": _FMT_BRL,
-            })
-
-        if not df_sim_rec.empty:
-            df_sim_rec.to_excel(writer, sheet_name="Simulação Receita", index=False)
-            _fmt(writer, "Simulação Receita", {
-                "Impacto Mensal": _FMT_BRL, "Impacto Anual": _FMT_BRL})
-
-        if not df_sim_preco.empty:
-            df_sim_preco.to_excel(writer, sheet_name="Simulação Preços", index=False)
-            _fmt(writer, "Simulação Preços", {
-                "receita": _FMT_BRL,
-                "+10% preço (-5% vol)": _FMT_BRL,
-                "+15% preço (-5% vol)": _FMT_BRL,
-                "+20% preço (-5% vol)": _FMT_BRL,
             })
 
         if not df_combos.empty:
@@ -4641,23 +4628,11 @@ def main():
         )
         st.session_state["_chk_simples"] = is_simples
         if is_simples:
-            st.caption("📥 Informe as compras — planilha do sistema (recomendado) e/ou XMLs de entrada")
+            st.caption("📥 Informe os XMLs de entrada para verificação da regra dos 80%")
+            arquivo_sped = None
 
-            # ── Planilha SPED (fonte primária — classificação do analista) ──
-            st.markdown("**📊 Planilha do sistema fiscal** *(fonte preferida)*")
-            st.caption("Relatório de itens exportado do sistema: colunas Natureza (CFOP) + Valor Contábil")
-            arquivo_sped = st.file_uploader(
-                "Planilha SPED",
-                type=["xlsx", "xls"],
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                key=f"uploader_sped_{st.session_state.get('_upload_key', 0)}",
-            )
-            if arquivo_sped:
-                st.success(f"✅ Planilha **{arquivo_sped.name}** carregada")
-
-            # ── XMLs de entrada (complemento / confronto) ──────────────────
-            st.markdown("**📋 XMLs de entrada** *(opcional — para confronto)*")
+            # ── XMLs de entrada ────────────────────────────────────────────
+            st.markdown("**📋 XMLs de entrada**")
             arquivos_entrada = st.file_uploader(
                 "XMLs de Entrada",
                 type=["xml", "zip"],
@@ -6105,59 +6080,15 @@ f"{_col_nfe}{_col_skip}"
 
     #  SIMULAÇÕES 
     with tabs[tab_idx["Simulações"]]:
-        st.subheader("Simulações de Crescimento")
-
-        subtab_sim = st.tabs(["Crescimento de Receita", "Simulação de Preços", "Combos"])
-
-        with subtab_sim[0]:
-            st.markdown("#### Simulação de Crescimento de Receita")
-            sim = df_sim_rec.copy()
-            sim["Impacto Mensal"] = sim["Impacto Mensal"].apply(brl)
-            sim["Impacto Anual"]  = sim["Impacto Anual"].apply(brl)
-            st.dataframe(sim, use_container_width=True, hide_index=True)
-
-            melhor = df_sim_rec.nlargest(1, "Impacto Mensal").iloc[0]
-            st.success(f"Maior oportunidade: **{melhor['Estratégia']}**"
-                       f" — {brl(melhor['Impacto Mensal'])} por mês"
-                       f" — {brl(melhor['Impacto Anual'])} por ano")
-
-        with subtab_sim[1]:
-            st.markdown("#### Simulação de Ajuste de Preços")
-            st.caption("Simula reajuste de 10%, 15% e 20% com queda estimada de 5% no volume")
-            if df_sim_preco.empty:
-                st.info("Sem dados suficientes para simulação de preços.")
-            else:
-                _cols_sim = ["xProd", "preco_medio", "receita",
-                             "+10% preço (-5% vol)", "Δ +10%",
-                             "+15% preço (-5% vol)", "Δ +15%",
-                             "+20% preço (-5% vol)", "Δ +20%"]
-                _missing = [c for c in _cols_sim if c not in df_sim_preco.columns]
-                if _missing:
-                    st.info("Dados de simulação de preços indisponíveis para este conjunto.")
-                else:
-                    sim_p = df_sim_preco.copy()
-                    for col in ["receita", "+10% preço (-5% vol)", "+15% preço (-5% vol)", "+20% preço (-5% vol)"]:
-                        sim_p[col] = sim_p[col].apply(brl)
-                    for col in ["Δ +10%", "Δ +15%", "Δ +20%"]:
-                        sim_p[col] = df_sim_preco[col].apply(lambda v: f"+{brl(v)}" if v > 0 else brl(v))
-                    st.dataframe(
-                        sim_p[_cols_sim].rename(columns={
-                            "xProd": "Produto",
-                            "preco_medio": "Preço Médio Atual", "receita": "Receita Atual",
-                        }),
-                        use_container_width=True, hide_index=True, height=500,
-                    )
-
-        with subtab_sim[2]:
-            st.markdown("#### Precificação de Combos")
-            if df_combos.empty:
-                st.info("Sem dados suficientes de preço para calcular combos.")
-            else:
-                tbl_c = df_combos.copy()
-                for col in ["Preço A", "Preço B", "Total Individual", "Combo c/ 5% desc.", "Combo c/ 10% desc."]:
-                    tbl_c[col] = tbl_c[col].apply(brl)
-                st.dataframe(tbl_c, use_container_width=True, hide_index=True)
-                st.info("O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor.")
+        st.subheader("Precificação de Combos")
+        if df_combos.empty:
+            st.info("Sem dados suficientes de preço para calcular combos.")
+        else:
+            tbl_c = df_combos.copy()
+            for col in ["Preço A", "Preço B", "Total Individual", "Combo c/ 5% desc.", "Combo c/ 10% desc."]:
+                tbl_c[col] = tbl_c[col].apply(brl)
+            st.dataframe(tbl_c, use_container_width=True, hide_index=True)
+            st.info("O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor.")
 
     #  METAS 
     with tabs[tab_idx["Metas"]]:
