@@ -31,7 +31,7 @@ def _limpar_xprod(s) -> str:
     return txt.strip()
 
 st.set_page_config(
-    page_title="Análise de Vendas CP",
+    page_title="Análise de Vendas e Compras",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -3181,7 +3181,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
             ax_ft = fig.add_axes([0, 0, 1, 0.04])
             ax_ft.set_facecolor(AZUL)
             ax_ft.axis("off")
-            ax_ft.text(0.5, 0.5, f"{cliente}  ·  {periodo}  ·  Análise de Vendas CP",
+            ax_ft.text(0.5, 0.5, f"{cliente}  ·  {periodo}  ·  Análise de Vendas e Compras",
                        color="white", fontsize=12, va="center", ha="center",
                        transform=ax_ft.transAxes)
             return fig
@@ -3257,7 +3257,7 @@ def exportar_pdf(kpis, kpis_nfce, df_pares, df_bcg,
         ax_ft2 = fig.add_axes([0, 0, 1, 0.06])
         ax_ft2.set_facecolor("#0f1f3a")
         ax_ft2.axis("off")
-        ax_ft2.text(0.5, 0.5, "Análise de Vendas CP  ·  Dados Fiscais NFC-e",
+        ax_ft2.text(0.5, 0.5, "Análise de Vendas e Compras  ·  Dados Fiscais NFC-e",
                     color="white", fontsize=13, ha="center", va="center",
                     transform=ax_ft2.transAxes, alpha=0.7)
         pdf.savefig(fig, bbox_inches="tight")
@@ -4580,7 +4580,7 @@ def main():
         _logo_sidebar = _Path(__file__).parent / "LOGO S FUNDO 2.png"
         if _logo_sidebar.exists():
             st.image(str(_logo_sidebar), use_container_width=True)
-        st.markdown("## Análise de Vendas CP")
+        st.markdown("## Análise de Vendas e Compras")
         st.divider()
 
         # Auto-detectar empresa e período dos XMLs já processados
@@ -4788,7 +4788,7 @@ def main():
         <div style="background:linear-gradient(135deg,#1e3a5f,#2563eb);
                     padding:36px 40px;border-radius:16px;color:white;margin-bottom:20px">
           <h1 style="margin:0;font-size:32px;font-weight:700;letter-spacing:-0.5px">
-            Análise de Vendas CP
+            Análise de Vendas e Compras
           </h1>
           <p style="margin:10px 0 0;opacity:.8;font-size:15px">
             Carregue os arquivos na barra lateral e clique em <b>▶ Analisar</b>.
