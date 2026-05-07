@@ -2701,15 +2701,21 @@ def exportar_excel(kpis, df_pares, df_trios,
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Resumo Geral
-        resumo = pd.DataFrame({
-            "Indicador": ["Faturamento Total", "Nº de Pedidos",
-                          "Ticket Médio", "Itens por Pedido", "Total de Itens"],
-            "Valor": [brl(kpis["faturamento"]), fmt_num(kpis["n_pedidos"]),
-                      brl(kpis["ticket_medio"]), f"{kpis['ipc']:.2f}",
-                      fmt_num(kpis["total_itens"])],
-        })
+        # Resumo Geral — gravar como números reais (evita "número formatado como texto")
+        _resumo_rows = [
+            ("Faturamento Total", kpis["faturamento"],   _FMT_BRL),
+            ("Nº de Pedidos",     kpis["n_pedidos"],     _FMT_NUM),
+            ("Ticket Médio",      kpis["ticket_medio"],  _FMT_BRL),
+            ("Itens por Pedido",  kpis["ipc"],           "0.00"),
+            ("Total de Itens",    kpis["total_itens"],   _FMT_NUM),
+        ]
+        resumo = pd.DataFrame(
+            [(r[0], r[1]) for r in _resumo_rows], columns=["Indicador", "Valor"]
+        )
         resumo.to_excel(writer, sheet_name="Resumo Geral", index=False)
+        _ws_resumo = writer.sheets["Resumo Geral"]
+        for _ri, (_, _, _rfmt) in enumerate(_resumo_rows, start=2):
+            _ws_resumo.cell(_ri, 2).number_format = _rfmt
 
         df_pares.to_excel(writer, sheet_name="Pares de Produtos", index=False)
         df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
@@ -2825,42 +2831,42 @@ def exportar_excel(kpis, df_pares, df_trios,
             _df_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
             if not _df_cfop.empty:
                 _sn_cfop = _df_cfop.copy()
-                # Calcula totais ANTES de converter para string
-                _cfop_tot_compras = _sn_cfop["total_compras"].sum()
-                _cfop_tot_notas   = _sn_cfop["notas"].sum() if "notas" in _sn_cfop.columns else ""
-                _cfop_tot_itens   = _sn_cfop["itens"].sum() if "itens" in _sn_cfop.columns else ""
-                _sn_cfop["total_compras"] = _sn_cfop["total_compras"].apply(brl)
                 _sn_cfop = _sn_cfop.rename(columns={
                     "CFOP": "CFOP", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
-                # Linha de total
+                # Linha de total (valores numéricos — number_format cuida da exibição)
                 _sn_cfop = pd.concat([
                     _sn_cfop,
-                    pd.DataFrame([{"CFOP": "TOTAL", "Total Compras": brl(_cfop_tot_compras),
-                                   "Notas/Docs": _cfop_tot_notas, "Itens": _cfop_tot_itens}])
+                    pd.DataFrame([{
+                        "CFOP": "TOTAL",
+                        "Total Compras": _sn_cfop["Total Compras"].sum(),
+                        "Notas/Docs":    _sn_cfop["Notas/Docs"].sum() if "Notas/Docs" in _sn_cfop.columns else "",
+                        "Itens":         _sn_cfop["Itens"].sum() if "Itens" in _sn_cfop.columns else "",
+                    }])
                 ], ignore_index=True)
                 _sn_cfop.to_excel(writer, sheet_name="SN Por CFOP", index=False)
+                _fmt(writer, "SN Por CFOP", {"Total Compras": _FMT_BRL})
 
             _df_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
             if not _df_forn.empty:
                 _sn_forn = _df_forn.copy()
-                # Calcula totais ANTES de converter para string
-                _forn_tot_compras = _sn_forn["total_compras"].sum()
-                _forn_tot_notas   = _sn_forn["notas"].sum() if "notas" in _sn_forn.columns else ""
-                _forn_tot_itens   = _sn_forn["itens"].sum() if "itens" in _sn_forn.columns else ""
-                _sn_forn["total_compras"] = _sn_forn["total_compras"].apply(brl)
                 _sn_forn = _sn_forn.rename(columns={
                     "emitente": "Fornecedor", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
-                # Linha de total
+                # Linha de total (valores numéricos)
                 _sn_forn = pd.concat([
                     _sn_forn,
-                    pd.DataFrame([{"Fornecedor": "TOTAL", "Total Compras": brl(_forn_tot_compras),
-                                   "Notas/Docs": _forn_tot_notas, "Itens": _forn_tot_itens}])
+                    pd.DataFrame([{
+                        "Fornecedor":    "TOTAL",
+                        "Total Compras": _sn_forn["Total Compras"].sum(),
+                        "Notas/Docs":    _sn_forn["Notas/Docs"].sum() if "Notas/Docs" in _sn_forn.columns else "",
+                        "Itens":         _sn_forn["Itens"].sum() if "Itens" in _sn_forn.columns else "",
+                    }])
                 ], ignore_index=True)
                 _sn_forn.to_excel(writer, sheet_name="SN Fornecedores", index=False)
+                _fmt(writer, "SN Fornecedores", {"Total Compras": _FMT_BRL})
 
             # Itens de compra — adapta para SPED ou XML
             _df_items = sn_result.get("df_entradas_filtradas", pd.DataFrame())
@@ -2876,6 +2882,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _sel = {k: v for k, v in _cols_desejadas.items() if k in _sn_items.columns}
                 _sn_items = _sn_items[list(_sel.keys())].rename(columns=_sel)
                 _sn_items.to_excel(writer, sheet_name="SN Itens Compra", index=False)
+                _fmt(writer, "SN Itens Compra", {"Vl Unit": _FMT_BRL, "Vl Total": _FMT_BRL})
 
             # Itens excluídos pelo analista
             _df_exc = sn_result.get("df_excluidos", pd.DataFrame())
@@ -2890,20 +2897,22 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _sel_exc = {k: v for k, v in _cols_exc.items() if k in _sn_exc.columns}
                 _sn_exc = _sn_exc[list(_sel_exc.keys())].rename(columns=_sel_exc)
                 _sn_exc.to_excel(writer, sheet_name="SN Excluídos", index=False)
+                _fmt(writer, "SN Excluídos", {"Valor": _FMT_BRL})
 
             # Confronto SPED × XMLs
             _df_conf = sn_result.get("df_confronto", pd.DataFrame())
             if not _df_conf.empty and "total_sped" in _df_conf.columns:
                 _sn_conf = _df_conf.copy()
-                for _cc in ["total_sped", "total_xml", "diferenca"]:
-                    if _cc in _sn_conf.columns:
-                        _sn_conf[_cc] = _sn_conf[_cc].apply(brl)
+                # Manter como números — _fmt aplica o formato BRL
                 _sn_conf = _sn_conf.rename(columns={
                     "CFOP": "CFOP", "total_sped": "Total SPED",
                     "total_xml": "Total XMLs", "diferenca": "Diferença",
                     "itens_sped": "Itens SPED", "itens_xml": "Itens XML",
                 })
                 _sn_conf.to_excel(writer, sheet_name="SN Confronto", index=False)
+                _fmt(writer, "SN Confronto", {
+                    "Total SPED": _FMT_BRL, "Total XMLs": _FMT_BRL, "Diferença": _FMT_BRL,
+                })
 
         # Ajusta largura de todas as colunas em todas as abas
         _autofit(writer)
