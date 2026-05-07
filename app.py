@@ -5986,11 +5986,20 @@ f"{_col_nfe}{_col_skip}"
                     # Cards por turno
                     st.markdown("**Resumo por turno**")
                     if df_por_turno is not None and not df_por_turno.empty:
-                        desc_turno = {
-                            "Manhã":  "Das 05h às 11h — café, pães e salgados dominam",
-                            "Tarde":  "Das 12h às 17h — lanche e refeição rápida",
-                            "Noite":  "Das 18h em diante — finalização do dia",
+                        # Calcula intervalo real de horas por turno a partir dos dados
+                        _sufixo_turno = {
+                            "Manhã":  "café, pães e salgados dominam",
+                            "Tarde":  "lanche e refeição rápida",
+                            "Noite":  "finalização do dia",
                         }
+                        desc_turno = {}
+                        if df_por_hora is not None and not df_por_hora.empty:
+                            for _t in ["Manhã", "Tarde", "Noite"]:
+                                _horas_t = df_por_hora[df_por_hora["turno"] == _t]["hora"]
+                                if not _horas_t.empty:
+                                    _h_ini = int(_horas_t.min())
+                                    _h_fim = int(_horas_t.max())
+                                    desc_turno[_t] = f"Das {_h_ini:02d}h às {_h_fim:02d}h — {_sufixo_turno.get(_t, '')}"
                         cols_turno = st.columns(len(df_por_turno))
                         for col_c, (_, row) in zip(cols_turno, df_por_turno.iterrows()):
                             cor = CORES_TURNO.get(row["turno"], "#555")
