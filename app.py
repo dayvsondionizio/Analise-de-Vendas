@@ -6219,11 +6219,11 @@ f"{_col_nfe}{_col_skip}"
             elif _sn_fonte == "ambos":
                 st.info("📊 **Fontes: Planilha SPED + XMLs de entrada** — cálculo pela planilha SPED (comercialização). XMLs usados para conferência do total de notas.")
             else:
-                st.info("📋 **Fonte: XMLs de entrada** — soma do **Valor Contábil (vNF − vST − vIPI)** das NF-e válidas, excluindo notas de devolução. Espelha exatamente o Valor Contábil registrado no Questor/SPED.")
+                st.info("📋 **Fonte: XMLs de entrada** — considera **todas as notas de entrada** (todos os CFOPs), sem exceção. Valor = vNF − vST de cada NF-e válida, excluindo apenas notas de devolução.")
 
             st.caption(
-                "A legislação do Simples Nacional exige que as compras para comercialização "
-                "não ultrapassem **80% do faturamento total**. Aqui você confere se a empresa está dentro do limite."
+                "A legislação do Simples Nacional limita as compras a **80% do faturamento total**. "
+                "O cálculo usa o total de todas as entradas do período."
             )
 
             _sn_total   = sn_result["total_compras_comercializacao"]
@@ -6235,7 +6235,7 @@ f"{_col_nfe}{_col_skip}"
             c1, c2, c3, c4 = st.columns(4)
             _lbl_compras = (
                 "Compras de Comercialização" if _sn_fonte in ("sped_xlsx", "ambos")
-                else "Total Compras (Valor Contábil)"
+                else "Total de Entradas (vNF − vST)"
             )
             c1.metric("Faturamento Total",  brl(_sn_fat))
             c2.metric(_lbl_compras,         brl(_sn_total))
@@ -6266,20 +6266,21 @@ f"{_col_nfe}{_col_skip}"
                 unsafe_allow_html=True,
             )
 
+            _lbl_entradas = "compras" if _sn_fonte in ("sped_xlsx", "ambos") else "total de entradas"
             if _sn_status == "EXCEDIDO":
                 st.error(
-                    f"🔴 **ALERTA FISCAL**: as compras de comercialização representam **{_sn_pct:.1f}%** do faturamento — "
+                    f"🔴 **ALERTA FISCAL**: o {_lbl_entradas} representa **{_sn_pct:.1f}%** do faturamento — "
                     f"acima do limite de 80% exigido pelo Simples Nacional. "
                     f"Isso pode indicar subfaturamento ou excesso de estoques. Consulte o contador."
                 )
             elif _sn_status == "ALERTA":
                 st.warning(
-                    f"⚠️ **Atenção**: as compras estão em **{_sn_pct:.1f}%** do faturamento — "
+                    f"⚠️ **Atenção**: o {_lbl_entradas} está em **{_sn_pct:.1f}%** do faturamento — "
                     f"próximo do limite de 80%. Acompanhe de perto para não ultrapassar."
                 )
             else:
                 st.success(
-                    f"✅ **Dentro do limite**: as compras de comercialização representam **{_sn_pct:.1f}%** "
+                    f"✅ **Dentro do limite**: o {_lbl_entradas} representa **{_sn_pct:.1f}%** "
                     f"do faturamento — abaixo dos 80% exigidos."
                 )
 
