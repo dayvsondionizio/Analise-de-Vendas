@@ -2658,15 +2658,25 @@ def exportar_excel(kpis, df_pares, df_trios,
     _FMT_NUM  = '#,##0'
 
     def _autofit(writer):
-        """Ajusta a largura de todas as colunas de todas as abas ao conteúdo."""
+        """Ajusta a largura de todas as colunas de todas as abas ao conteúdo.
+        Estima a largura de exibição correta mesmo para células com number_format BRL.
+        """
         for ws in writer.sheets.values():
             for col_cells in ws.columns:
                 max_len = 0
                 col_letter = col_cells[0].column_letter
                 for cell in col_cells:
                     try:
-                        val = str(cell.value) if cell.value is not None else ""
-                        max_len = max(max_len, len(val))
+                        if cell.value is None:
+                            continue
+                        fmt = getattr(cell, "number_format", "") or ""
+                        if isinstance(cell.value, (int, float)) and ("R$" in fmt or "#,##0" in fmt):
+                            # Estima largura real da exibição formatada como moeda
+                            # ex: R$ 184.766,85 → ~16 chars
+                            est = len(f"R$ {abs(float(cell.value)):>12,.2f}") + 1
+                            max_len = max(max_len, est)
+                        else:
+                            max_len = max(max_len, len(str(cell.value)))
                     except Exception:
                         pass
                 ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 60)
@@ -2771,7 +2781,17 @@ def exportar_excel(kpis, df_pares, df_trios,
             })
 
         if not df_metas.empty:
-            df_metas.to_excel(writer, sheet_name="Metas por Produto", index=False)
+            _metas_exp = df_metas.copy()
+            # Linha de total
+            _metas_tot = {c: "" for c in _metas_exp.columns}
+            _metas_tot["xProd"]      = "TOTAL"
+            _metas_tot["volume"]     = _metas_exp["volume"].sum() if "volume" in _metas_exp.columns else ""
+            _metas_tot["receita"]    = _metas_exp["receita"].sum() if "receita" in _metas_exp.columns else ""
+            _metas_tot["frequencia"] = _metas_exp["frequencia"].sum() if "frequencia" in _metas_exp.columns else ""
+            _metas_tot["Meta +10%"]  = _metas_exp["Meta +10%"].sum() if "Meta +10%" in _metas_exp.columns else ""
+            _metas_tot["Meta +20%"]  = _metas_exp["Meta +20%"].sum() if "Meta +20%" in _metas_exp.columns else ""
+            _metas_exp = pd.concat([_metas_exp, pd.DataFrame([_metas_tot])], ignore_index=True)
+            _metas_exp.to_excel(writer, sheet_name="Metas por Produto", index=False)
             _fmt(writer, "Metas por Produto", {
                 "receita": _FMT_BRL, "Meta +10%": _FMT_BRL, "Meta +20%": _FMT_BRL})
 
@@ -2805,22 +2825,41 @@ def exportar_excel(kpis, df_pares, df_trios,
             _df_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
             if not _df_cfop.empty:
                 _sn_cfop = _df_cfop.copy()
+                # Calcula totais ANTES de converter para string
+                _cfop_tot_compras = _sn_cfop["total_compras"].sum()
+                _cfop_tot_notas   = _sn_cfop["notas"].sum() if "notas" in _sn_cfop.columns else ""
+                _cfop_tot_itens   = _sn_cfop["itens"].sum() if "itens" in _sn_cfop.columns else ""
                 _sn_cfop["total_compras"] = _sn_cfop["total_compras"].apply(brl)
-                # Renomeia colunas pelo nome (não por posição) para ser robusto
                 _sn_cfop = _sn_cfop.rename(columns={
                     "CFOP": "CFOP", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
+                # Linha de total
+                _sn_cfop = pd.concat([
+                    _sn_cfop,
+                    pd.DataFrame([{"CFOP": "TOTAL", "Total Compras": brl(_cfop_tot_compras),
+                                   "Notas/Docs": _cfop_tot_notas, "Itens": _cfop_tot_itens}])
+                ], ignore_index=True)
                 _sn_cfop.to_excel(writer, sheet_name="SN Por CFOP", index=False)
 
             _df_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
             if not _df_forn.empty:
                 _sn_forn = _df_forn.copy()
+                # Calcula totais ANTES de converter para string
+                _forn_tot_compras = _sn_forn["total_compras"].sum()
+                _forn_tot_notas   = _sn_forn["notas"].sum() if "notas" in _sn_forn.columns else ""
+                _forn_tot_itens   = _sn_forn["itens"].sum() if "itens" in _sn_forn.columns else ""
                 _sn_forn["total_compras"] = _sn_forn["total_compras"].apply(brl)
                 _sn_forn = _sn_forn.rename(columns={
                     "emitente": "Fornecedor", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
+                # Linha de total
+                _sn_forn = pd.concat([
+                    _sn_forn,
+                    pd.DataFrame([{"Fornecedor": "TOTAL", "Total Compras": brl(_forn_tot_compras),
+                                   "Notas/Docs": _forn_tot_notas, "Itens": _forn_tot_itens}])
+                ], ignore_index=True)
                 _sn_forn.to_excel(writer, sheet_name="SN Fornecedores", index=False)
 
             # Itens de compra — adapta para SPED ou XML
@@ -2881,8 +2920,14 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str)
                 col_letter = col_cells[0].column_letter
                 for cell in col_cells:
                     try:
-                        val = str(cell.value) if cell.value is not None else ""
-                        max_len = max(max_len, len(val))
+                        if cell.value is None:
+                            continue
+                        fmt = getattr(cell, "number_format", "") or ""
+                        if isinstance(cell.value, (int, float)) and ("R$" in fmt or "#,##0" in fmt):
+                            est = len(f"R$ {abs(float(cell.value)):>12,.2f}") + 1
+                            max_len = max(max_len, est)
+                        else:
+                            max_len = max(max_len, len(str(cell.value)))
                     except Exception:
                         pass
                 ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 60)
