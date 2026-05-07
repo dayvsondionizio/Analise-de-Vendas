@@ -5591,7 +5591,8 @@ f"{_col_nfe}{_col_skip}"
         c2.metric("Pedidos",       fmt_num(kpis["n_pedidos"]))
         c3.metric("Ticket Médio",  brl(kpis["ticket_medio"]))
         c4.metric("Itens por Pedido (Média)",           f"{kpis['ipc']:.2f} itens")
-        c5.metric("Total de Itens",fmt_num(kpis["total_itens"]))
+        c5.metric("Total de Itens",fmt_num(kpis["total_itens"]),
+                  help="Total de linhas de produto em todas as notas. Inclui o mesmo produto contado separadamente em cada pedido onde aparece.")
 
         st.markdown(
             f"""<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;
@@ -5616,7 +5617,8 @@ f"{_col_nfe}{_col_skip}"
         c2.metric("Pedidos",           fmt_num(kpis["n_pedidos"]))
         c3.metric("Ticket Médio",      brl(kpis["ticket_medio"]))
         c4.metric("Itens por Pedido (Média)",               f"{kpis['ipc']:.2f} itens")
-        c5.metric("Total de Itens",    fmt_num(kpis["total_itens"]))
+        c5.metric("Total de Itens",    fmt_num(kpis["total_itens"]),
+                  help="Total de linhas de produto em todas as notas. Inclui o mesmo produto contado separadamente em cada pedido onde aparece.")
 
     st.divider()
 
@@ -5745,6 +5747,11 @@ f"{_col_nfe}{_col_skip}"
     #  CURVA ABC
     with tabs[tab_idx["Curva ABC"]]:
         st.subheader("Curva ABC — Relevância dos Produtos")
+        st.caption(
+            "**Frequência** = nº de pedidos distintos que contêm o produto (não o total de itens vendidos). "
+            "Um produto vendido 3x no mesmo pedido conta como frequência 1. "
+            "Por isso a soma das frequências da ABC é menor que o 'Total de Itens' do cabeçalho — são métricas diferentes."
+        )
 
         # ── Filtro por mês ──────────────────────────────────────────────────
         _MESES_PT2 = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
