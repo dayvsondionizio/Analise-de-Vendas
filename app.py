@@ -1748,6 +1748,7 @@ def calc_basket_trios(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 def calc_cesta(df: pd.DataFrame) -> pd.DataFrame:
     ipc = df.groupby("chave")["numItem"].count().reset_index(name="itens")
+    ipc = ipc[ipc["itens"] > 0]  # Remove notas sem itens válidos (numItem = NaN em todas as linhas)
     dist = ipc["itens"].value_counts().sort_index().reset_index()
     dist.columns = ["Itens/Pedido", "Nº Pedidos"]
     dist["% do Total"] = (dist["Nº Pedidos"] / dist["Nº Pedidos"].sum() * 100).round(1)
