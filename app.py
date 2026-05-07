@@ -4685,7 +4685,16 @@ def main():
         # ── Botão Nova Análise ────────────────────────────────
         if "_analise" in st.session_state or _tem_dados:
             if st.button("🔄 Nova Análise", use_container_width=True, key="btn_nova_analise"):
-                for _k in ["_analise", "_analise_fp", "pastas_xml"]:
+                # Limpa TODOS os estados relacionados à análise atual para evitar
+                # contaminação entre análises de clientes diferentes no mesmo dia
+                _KEYS_RESETAR = [
+                    "_analise", "_analise_fp",   # dados da análise
+                    "_export_xlsx", "_export_pptx", "_export_fp",  # exports cacheados
+                    "_modo_dashboard",             # aba ativa (Vendas/Compras)
+                    "_pasta_entrada",              # pasta de XMLs de entrada
+                    "pastas_xml",                  # pastas de XMLs de venda
+                ]
+                for _k in _KEYS_RESETAR:
                     if _k in st.session_state:
                         del st.session_state[_k]
                 # Limpa cache de dados para forçar reprocessamento dos arquivos
@@ -4696,7 +4705,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260429_01"
+    _APP_CACHE_VER = "20260507_01"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
