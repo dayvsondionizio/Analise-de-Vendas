@@ -6316,6 +6316,35 @@ f"{_col_nfe}{_col_skip}"
                 else:
                     st.info("Sem dados de fornecedores.")
 
+            # ── Nota explicativa sobre divergências esperadas ─────────
+            st.divider()
+            with st.expander("ℹ️ Por que os totais podem divergir levemente do sistema fiscal?", expanded=False):
+                st.markdown("""
+**É normal existir pequenas diferenças entre o valor apresentado aqui e o total do seu sistema (Questor, SPED, etc.).** As causas mais comuns são:
+
+**1. Despesas acessórias embutidas nas notas (frete, seguro, outras)**
+O XML de cada NF-e pode conter valores de frete, seguro e outras despesas no cabeçalho da nota (`vFrete`, `vSeg`, `vOutro`).
+Alguns sistemas fiscais registram essas despesas como um item separado (ex.: "Produto Padrão" com NCM genérico).
+Este app calcula com base nos **itens com NCM válido**, excluindo lançamentos auxiliares — por isso o total pode ser ligeiramente menor que o do sistema.
+
+**2. Diferença entre vNF e vProd**
+O total da nota fiscal (`vNF`) inclui IPI e outras cobranças além do valor dos produtos (`vProd`).
+A tabela de fornecedores usa `vNF` (valor total da nota), enquanto a tabela de itens usa `vProd` (valor dos produtos).
+Isso pode gerar uma diferença entre as duas visões do mesmo fornecedor.
+
+**3. Devoluções**
+Notas de devolução (CFOP iniciando em 2 ou 5) são **excluídas automaticamente** do cálculo de compras.
+Se o sistema fiscal não excluiu essas notas, o total dele será maior.
+
+**4. Descontos**
+Descontos concedidos pelo fornecedor reduzem o `vProd` de cada item.
+Dependendo de como o sistema registrou o desconto, pode haver diferença de centavos.
+
+---
+📌 **Diferenças pequenas (abaixo de 1% do total) estão dentro da margem esperada** e não representam erro contábil.
+Diferenças maiores devem ser investigadas com o contador.
+""")
+
             # ── Itens excluídos pelo analista (uso e consumo etc.) ─────
             df_excluidos = sn_result.get("df_excluidos", pd.DataFrame())
             if not df_excluidos.empty:
