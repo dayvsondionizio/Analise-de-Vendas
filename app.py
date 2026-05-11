@@ -366,6 +366,211 @@ def parse_sped_xlsx(arquivo) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Classificação de CFOP de saída ────────────────────────────────────────────
+# Baseado na tabela oficial SEFAZ. Usado para separar vendas de transferências,
+# devoluções e outras saídas que NÃO devem compor o faturamento.
+
+_CFOP_VENDA = frozenset({
+    # Vendas internas (5.1xx)
+    "5101","5102","5103","5104","5105","5106","5107","5108","5109",
+    "5110","5111","5112","5113","5114","5115","5116","5117","5118","5119",
+    # Vendas com ST (5.4xx)
+    "5401","5402","5403","5404","5405","5406","5407",
+    # Vendas interestaduais (6.1xx)
+    "6101","6102","6103","6104","6105","6106","6107","6108","6109",
+    "6110","6111","6112","6113","6114","6115","6116","6117","6118","6119",
+    # Vendas interestaduais com ST (6.4xx)
+    "6401","6402","6403","6404","6405","6406","6407",
+    # Exportação (7.1xx, 7.2xx)
+    "7101","7102","7105","7127","7129","7201","7202","7205","7211","7212",
+})
+
+_CFOP_TRANSFERENCIA = frozenset({
+    # Transferências internas (5.15x) e interestaduais (6.15x)
+    "5151","5152","5153","5154","5155",
+    "6151","6152","6153","6154","6155",
+    # Transferências com ST
+    "5408","5409","5412","5413","5414","5415","5416",
+    "6408","6409","6412","6413","6414","6415","6416",
+    # Transferência de ativo/uso/consumo (5.55x / 6.55x)
+    "5551","5552","5553","5554","5555","5556","5557",
+    "6551","6552","6553","6554","6555","6556","6557",
+})
+
+_CFOP_DEVOLUCAO = frozenset({
+    # Devoluções de compra (saída — retorno ao fornecedor)
+    "5201","5202","5203","5204","5205","5206","5207","5208","5209","5210",
+    "6201","6202","6203","6204","6205","6206","6207","6208","6209","6210",
+    # Devoluções com ST
+    "5410","5411","5413","5414","5415","5416",
+    "6410","6411","6413","6414","6415","6416",
+})
+
+_CFOP_OUTROS_NAO_VENDA = frozenset({
+    # Remessas para industrialização, conserto, demonstração, etc.
+    "5901","5902","5903","5904","5905","5906","5907","5908","5909",
+    "5910","5911","5912","5913","5914","5915","5916","5917","5918","5919",
+    "5920","5921","5922","5923","5924","5925","5926","5927","5928","5929",
+    "6901","6902","6903","6904","6905","6906","6907","6908","6909",
+    "6910","6911","6912","6913","6914","6915","6916","6917","6918","6919",
+    "6920","6921","6922","6923","6924","6925","6926","6927","6928","6929",
+    # Ativo imobilizado
+    "5501","5502","5503","5504","5505","5506","5601","5602","5605","5606",
+    "6501","6502","6503","6504","6505","6506","6601","6602","6605","6606",
+})
+
+
+def _classifica_cfop(cfop: str, xnatop: str = "") -> str:
+    """Classifica a operação de saída: VENDA | TRANSFERÊNCIA | DEVOLUÇÃO | OUTROS.
+
+    Prioridade:
+      1. xNatOp (texto livre do emissor), se preenchido
+      2. CFOP (tabela oficial SEFAZ), como fallback
+      3. 'VENDA' por padrão quando CFOP não identificado
+    """
+    nat = str(xnatop or "").strip().upper()
+    c4  = str(cfop or "").replace(".", "").strip()[:4]
+
+    if nat:
+        if "VENDA" in nat:
+            return "VENDA"
+        for kw in ("TRANSFER", "TRANSF", "REMESSA", "FILIAL"):
+            if kw in nat:
+                return "TRANSFERÊNCIA"
+        for kw in ("DEVOLUC", "DEVOLU", "RETORNO"):
+            if kw in nat:
+                return "DEVOLUÇÃO"
+        # xNatOp preenchido mas não identificado → usa CFOP abaixo
+
+    # Fallback por CFOP
+    if c4 in _CFOP_TRANSFERENCIA:   return "TRANSFERÊNCIA"
+    if c4 in _CFOP_DEVOLUCAO:       return "DEVOLUÇÃO"
+    if c4 in _CFOP_OUTROS_NAO_VENDA: return "OUTROS"
+    if c4 in _CFOP_VENDA:           return "VENDA"
+    return "VENDA"   # CFOP desconhecido → assume venda
+
+
+# ── Classificação de CFOP de ENTRADA ──────────────────────────────────────────
+
+_CFOP_COMPRA_ENTRADA = frozenset({
+    # Compras internas (1.1xx) — industrialização, comercialização, uso/consumo
+    "1101","1102","1103","1104","1105","1106","1107","1108","1109",
+    "1111","1113","1116","1117","1118","1119",
+    # Compras com ST (1.4xx) — apenas aquisições, não transferências
+    "1401","1403","1406","1407",
+    # Compra de ativo imobilizado e material de uso/consumo (são COMPRAS, não transferências)
+    "1551","1556","2551","2556",  # 1.551=compra ativo | 1.556=compra uso/consumo
+    # Compras interestaduais (2.1xx)
+    "2101","2102","2103","2104","2105","2106","2107","2108","2109",
+    "2111","2113","2116","2117","2118","2119",
+    # Compras interestaduais com ST (2.4xx)
+    "2401","2403","2406","2407",
+    # Importação (3.1xx, 3.4xx)
+    "3101","3102","3126","3127","3128","3401","3403",
+    # Bonificação, doação ou brinde recebidos — entrada de mercadoria sem custo
+    "1910","2910",
+})
+
+_CFOP_TRANSFERENCIA_ENTRADA = frozenset({
+    # Transferências internas recebidas (1.15x)
+    "1151","1152","1153","1154","1155",
+    # Transferências com ST recebidas
+    "1408","1409","1412","1413","1414","1415","1416",
+    # Transferências de ativo/uso/consumo — exceto 1551 e 1556 que são COMPRAS
+    "1552","1553","1554","1555","1557",
+    # Interestaduais
+    "2151","2152","2153","2154","2155",
+    "2408","2409","2412","2413","2414","2415","2416",
+    "2552","2553","2554","2555","2557",
+})
+
+_CFOP_DEVOLUCAO_ENTRADA = frozenset({
+    # Devoluções de venda recebidas do cliente (1.2xx)
+    "1201","1202","1203","1204","1205","1206","1207","1208","1209","1210",
+    # Devoluções com ST
+    "1410","1411","1413","1414","1415","1416",
+    # Interestaduais
+    "2201","2202","2203","2204","2205","2206","2207","2208","2209","2210",
+    "2410","2411",
+})
+
+_CFOP_SERVICO_ENTRADA = frozenset({
+    # Serviços (1.3xx / 2.3xx)
+    "1301","1302","1303","1304","1305","1306","1307","1308","1309","1310",
+    "1311","1312","1313","1314","1315","1316","1317","1318","1319","1320",
+    "2301","2302","2303","2306","2307","2308","2309","2316",
+})
+
+_CFOP_OUTROS_ENTRADA = frozenset({
+    # Remessas para industrialização/conserto/demonstração (1.9xx / 2.9xx)
+    # Nota: 1.910 (bonificação/brinde) fica em COMPRA pois é entrada de mercadoria
+    "1901","1902","1903","1904","1905","1906","1907","1908","1909",
+    "1911","1912","1913","1914","1915","1916","1917","1918","1919",
+    "1920","1921","1922","1923","1924","1925","1926","1927","1928","1929",
+    "2901","2902","2903","2904","2905","2906","2907","2908","2909",
+    "2910","2911","2912","2913","2914","2915","2916","2917","2918","2919",
+    "2920","2921","2922","2923","2924","2925","2926","2927","2928","2929",
+})
+
+
+def _classifica_cfop_entrada(cfop: str, xnatop: str = "") -> str:
+    """Classifica operação de ENTRADA: COMPRA | TRANSFERÊNCIA | DEVOLUÇÃO | SERVIÇO | OUTROS.
+
+    Prioridade:
+      1. xNatOp (texto livre do emissor), se preenchido
+      2. CFOP (tabela oficial SEFAZ)
+      3. 'COMPRA' por padrão quando CFOP não identificado
+    """
+    nat = str(xnatop or "").strip().upper()
+    c4  = str(cfop or "").replace(".", "").strip()[:4]
+
+    if nat:
+        for kw in ("COMPRA", "AQUISICAO", "AQUISIÇÃO", "AQUISI"):
+            if kw in nat: return "COMPRA"
+        for kw in ("TRANSFER", "TRANSF", "REMESSA", "FILIAL"):
+            if kw in nat: return "TRANSFERÊNCIA"
+        for kw in ("DEVOLUC", "DEVOLU", "RETORNO"):
+            if kw in nat: return "DEVOLUÇÃO"
+        for kw in ("SERVIC", "SERVIÇ", "PRESTAC", "PRESTAÇÃO"):
+            if kw in nat: return "SERVIÇO"
+
+    if c4 in _CFOP_TRANSFERENCIA_ENTRADA: return "TRANSFERÊNCIA"
+    if c4 in _CFOP_DEVOLUCAO_ENTRADA:     return "DEVOLUÇÃO"
+    if c4 in _CFOP_SERVICO_ENTRADA:       return "SERVIÇO"
+    if c4 in _CFOP_OUTROS_ENTRADA:        return "OUTROS"
+    if c4 in _CFOP_COMPRA_ENTRADA:        return "COMPRA"
+    return "COMPRA"   # CFOP desconhecido → assume compra
+
+
+def _classifica_cfop_entrada_xlsx(cfop: str) -> str:
+    """Classifica entrada da planilha Questor para análise de compras.
+
+    São COMPRA para comercialização (entram no total):
+      • 1.102 / 1.102xxx — compra interna p/ comercialização
+      • 1.403 / 1.403xxx — compra interna p/ comercialização (c/ ST)
+      • 2.102 / 2.403    — idem interestadual
+
+    Vão para 'Outras Entradas':
+      • 1.910 / 2.910    — bonificação / brinde
+      • 1.556 / 2.556    — material de uso/consumo
+      • 1.551 / 2.551    — ativo imobilizado
+      • 1.15x            — transferências entre filiais
+      • 1.2xx            — devoluções de venda
+    """
+    c4 = str(cfop or "").replace(".", "").strip()[:4]
+    _COMPRA_COMERC = {"1102", "1403", "2102", "2403"}
+    if c4 in _COMPRA_COMERC:
+        return "COMPRA"
+    if c4 in ("1910", "2910"): return "BONIFICAÇÃO"
+    if c4 in ("1556", "2556"): return "USO/CONSUMO"
+    if c4 in ("1551", "2551"): return "ATIVO IMOBILIZADO"
+    if c4 in ("1151", "1152", "1153", "1154", "1155",
+              "2151", "2152", "2153", "2154", "2155"): return "TRANSFERÊNCIA"
+    if c4 in ("1201", "1202", "1203", "1204", "1205", "1206",
+              "2201", "2202", "2203", "2204"):          return "DEVOLUÇÃO"
+    return "OUTROS"
+
+
 def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
                           df_sped: pd.DataFrame = None) -> dict:
     """Calcula métricas para verificação da regra dos 80% do Simples Nacional.
@@ -707,9 +912,10 @@ def carregar_zip(file_bytes: bytes):
             if ide is None:
                 return [], [], 0
 
-            mod   = gettxt(ide, "mod")
-            nNF   = gettxt(ide, "nNF")
-            dhEmi = gettxt(ide, "dhEmi") or None
+            mod    = gettxt(ide, "mod")
+            nNF    = gettxt(ide, "nNF")
+            dhEmi  = gettxt(ide, "dhEmi") or None
+            xNatOp = gettxt(ide, "xNatOp")
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -746,7 +952,7 @@ def carregar_zip(file_bytes: bytes):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -865,9 +1071,10 @@ def carregar_xmls_multi(arquivos: tuple):
             if ide is None:
                 continue
 
-            mod   = gettxt(ide, "mod")
-            nNF   = gettxt(ide, "nNF")
-            dhEmi = gettxt(ide, "dhEmi") or None
+            mod    = gettxt(ide, "mod")
+            nNF    = gettxt(ide, "nNF")
+            dhEmi  = gettxt(ide, "dhEmi") or None
+            xNatOp = gettxt(ide, "xNatOp")
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -903,7 +1110,7 @@ def carregar_xmls_multi(arquivos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
                 }
 
                 if mod == "65":
@@ -1013,9 +1220,10 @@ def carregar_pasta(caminho: str):
             if ide is None:
                 continue
 
-            mod   = gettxt(ide, "mod")
-            nNF   = gettxt(ide, "nNF")
-            dhEmi = gettxt(ide, "dhEmi") or None
+            mod    = gettxt(ide, "mod")
+            nNF    = gettxt(ide, "nNF")
+            dhEmi  = gettxt(ide, "dhEmi") or None
+            xNatOp = gettxt(ide, "xNatOp")
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -1062,6 +1270,7 @@ def carregar_pasta(caminho: str):
                     "emitente":     emitente,
                     "cnpj_emit":    cnpj_emit,
                     "situacao":     situacao,
+                    "xNatOp":       xNatOp,
                 }
 
                 if mod == "65":
@@ -1184,9 +1393,10 @@ def carregar_pastas(caminhos: tuple):
             if ide is None:
                 return [], [], 0
 
-            mod   = gettxt(ide, "mod")
-            nNF   = gettxt(ide, "nNF")
-            dhEmi = gettxt(ide, "dhEmi") or None
+            mod    = gettxt(ide, "mod")
+            nNF    = gettxt(ide, "nNF")
+            dhEmi  = gettxt(ide, "dhEmi") or None
+            xNatOp = gettxt(ide, "xNatOp")
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -1223,7 +1433,7 @@ def carregar_pastas(caminhos: tuple):
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -1488,9 +1698,10 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             chave  = inf_id[3:] if inf_id.startswith("NFe") else inf_id
             ide    = infNFe.find(_t("ide"))
             if ide is None: return None, None, 0, None
-            mod   = _gettxt(ide, "mod")
-            nNF   = _gettxt(ide, "nNF")
-            dhEmi = _gettxt(ide, "dhEmi") or None
+            mod    = _gettxt(ide, "mod")
+            nNF    = _gettxt(ide, "nNF")
+            dhEmi  = _gettxt(ide, "dhEmi") or None
+            xNatOp = _gettxt(ide, "xNatOp")
             situacao = "Autorizada"
             if prot_el is not None:
                 infProt = prot_el.find(_t("infProt"))
@@ -1525,7 +1736,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
-                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao,
+                    "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
                 }
                 if mod == "65": rows_n.append(row)
                 elif mod == "55": rows_e.append(row)
@@ -1889,6 +2100,16 @@ def parse_planilha_compras(arquivo) -> pd.DataFrame:
     """Lê planilha de entradas exportada do Questor (.xlsx/.xls) e retorna
     DataFrame normalizado com colunas: fornecedor, cnpj, num_nota, data,
     chave, produto, ncm, cfop, unidade, quantidade, valor, mes, mes_nome.
+
+    Usa o formato padrão de exportação por item do Questor (Razão Social,
+    Número, Data Entrada, Natureza, Valor Total). Cada linha = um item de nota.
+    Inclui 'Tipo Fornecedor' (regime: Normal / Simples Nacional).
+
+    Nota: o total por CFOP pode apresentar pequena diferença (tipicamente
+    < 0,2%) em relação ao relatório 'Totais ICMS por Natureza' do Questor,
+    pois esse relatório inclui fretes e despesas acessórias no Valor Contábil
+    da nota, enquanto esta planilha exporta o valor unitário × quantidade
+    por item.
     """
     import io as _io_cmp
     raw = arquivo.read() if hasattr(arquivo, "read") else arquivo
@@ -2920,8 +3141,15 @@ def exportar_excel(kpis, df_pares, df_trios,
     return buf.getvalue()
 
 
-def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str) -> bytes:
-    """Gera Excel com todas as análises de compras — uma aba por análise."""
+def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
+                           df_compras_outros: pd.DataFrame = None) -> bytes:
+    """Gera Excel com todas as análises de compras — mesmo estilo do de vendas (sem cores)."""
+
+    _FMT_BRL = 'R$ #,##0.00'
+    _FMT_PCT = '0.00"%"'
+    _FMT_NUM = '#,##0'
+    _FMT_NUM2 = '#,##0.00'
+
     def _autofit(writer):
         for ws in writer.sheets.values():
             for col_cells in ws.columns:
@@ -2933,7 +3161,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str)
                             continue
                         fmt = getattr(cell, "number_format", "") or ""
                         if isinstance(cell.value, (int, float)) and ("R$" in fmt or "#,##0" in fmt):
-                            est = len(f"R$ {abs(float(cell.value)):>12,.2f}") + 1
+                            est = len(f"R$ {abs(float(cell.value)):>14,.2f}") + 2
                             max_len = max(max_len, est)
                         else:
                             max_len = max(max_len, len(str(cell.value)))
@@ -2941,46 +3169,92 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str)
                         pass
                 ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 60)
 
+    def _fmt(writer, sheet: str, formatos: dict):
+        if sheet not in writer.sheets:
+            return
+        ws = writer.sheets[sheet]
+        header = {cell.value: cell.column for cell in ws[1]}
+        for col_name, fmt in formatos.items():
+            col_idx = header.get(col_name)
+            if col_idx is None:
+                continue
+            from openpyxl.utils import get_column_letter
+            col_letter = get_column_letter(col_idx)
+            for cell in ws[col_letter][1:]:
+                if cell.value is not None:
+                    cell.number_format = fmt
+
     _n_meses = df_compras["mes"].nunique() if "mes" in df_compras.columns else 1
+    _kpis_c  = calc_kpis_compras(df_compras)
+    _tot_all = _kpis_c["total_compras"] or 1
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
 
         # 1. Resumo Geral
-        _kpis_c = calc_kpis_compras(df_compras)
-        pd.DataFrame({
-            "Indicador": ["Total em Compras", "Notas Fiscais", "Fornecedores",
-                          "Produtos Únicos", "Ticket Médio/NF"],
-            "Valor": [brl(_kpis_c["total_compras"]), fmt_num(_kpis_c["n_notas"]),
-                      fmt_num(_kpis_c["n_fornecedores"]), fmt_num(_kpis_c["n_produtos"]),
-                      brl(_kpis_c["ticket_medio_nota"])],
-        }).to_excel(writer, sheet_name="Resumo", index=False)
+        _resumo_rows = [
+            ("Cliente",          cliente,                      None),
+            ("Período",          periodo,                      None),
+            ("Total em Compras", _kpis_c["total_compras"],     _FMT_BRL),
+            ("Notas Fiscais",    _kpis_c["n_notas"],           _FMT_NUM),
+            ("Fornecedores",     _kpis_c["n_fornecedores"],    _FMT_NUM),
+            ("Produtos Únicos",  _kpis_c["n_produtos"],        _FMT_NUM),
+            ("Ticket Médio/NF",  _kpis_c["ticket_medio_nota"], _FMT_BRL),
+            ("Obs.",
+             "Valores de compras para comercialização (CFOP 1.102 e 1.403). "
+             "Pequena diferença vs. Questor deve-se a fretes e despesas acessórias.", None),
+        ]
+        resumo = pd.DataFrame([(r[0], r[1]) for r in _resumo_rows],
+                              columns=["Indicador", "Valor"])
+        resumo.to_excel(writer, sheet_name="Resumo", index=False)
+        _ws_res = writer.sheets["Resumo"]
+        for _ri, (_, _, _rfmt) in enumerate(_resumo_rows, start=2):
+            if _rfmt:
+                _ws_res.cell(_ri, 2).number_format = _rfmt
 
-        # 2. Evolução Mensal (só se > 1 mês)
+        # 2. Evolução Mensal
         if _n_meses > 1:
             _ev_c = calc_evolucao_mensal_compras(df_compras)
             if not _ev_c.empty:
-                _ev_c.drop(columns=["mes"], errors="ignore").to_excel(
-                    writer, sheet_name="Evolução Mensal", index=False)
+                _ev_c_exp = _ev_c.drop(columns=["mes"], errors="ignore")
+                _ev_c_exp.to_excel(writer, sheet_name="Evolução Mensal", index=False)
+                _fmt(writer, "Evolução Mensal",
+                     {c: _FMT_BRL for c in _ev_c_exp.columns if c != "Mês"})
 
         # 3. Fornecedores
         _forn_c = calc_ranking_fornecedores_compras(df_compras)
         if not _forn_c.empty:
-            _forn_c.to_excel(writer, sheet_name="Fornecedores", index=False)
+            _forn_exp = _forn_c.copy()
+            _tot_f = {c: "" for c in _forn_exp.columns}
+            _tot_f[_forn_exp.columns[0]] = "TOTAL"
+            for _col in _forn_exp.select_dtypes("number").columns:
+                _tot_f[_col] = _forn_exp[_col].sum()
+            _forn_exp = pd.concat([_forn_exp, pd.DataFrame([_tot_f])], ignore_index=True)
+            _forn_exp.to_excel(writer, sheet_name="Fornecedores", index=False)
+            _fmt(writer, "Fornecedores",
+                 {**{c: _FMT_BRL for c in _forn_exp.select_dtypes("number").columns},
+                  **{c: _FMT_PCT for c in _forn_exp.columns if "%" in str(c)}})
 
         # 4. Curva ABC Produtos
         _prod_c = calc_ranking_produtos_compras(df_compras)
         if not _prod_c.empty:
             _prod_c.to_excel(writer, sheet_name="Curva ABC Produtos", index=False)
+            _fmt(writer, "Curva ABC Produtos",
+                 {**{c: _FMT_BRL for c in _prod_c.select_dtypes("number").columns
+                     if "%" not in str(c) and "Rank" not in str(c)},
+                  **{c: _FMT_PCT for c in _prod_c.columns if "%" in str(c)},
+                  **{c: _FMT_NUM2 for c in _prod_c.columns
+                     if "qtd" in str(c).lower() or "quant" in str(c).lower()}})
 
         # 5. Fornecedor × Produto
         _cross_c = calc_cross_fornecedor_item_compras(df_compras)
         if not _cross_c.empty:
             _cross_c.to_excel(writer, sheet_name="Fornecedor x Produto", index=False)
+            _fmt(writer, "Fornecedor x Produto",
+                 {c: _FMT_BRL for c in _cross_c.select_dtypes("number").columns})
 
         # 6. Regime dos Fornecedores
         if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
-            _tot_all_e = _kpis_c["total_compras"] or 1
             _nota_col_e = next((c for c in ["chave_nf", "chave", "nota"] if c in df_compras.columns), None)
             _agg_e = {"Total (R$)": ("valor", "sum")}
             if _nota_col_e:
@@ -2995,15 +3269,82 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str)
                 .rename("Regime")
             )
             _reg_tbl_e = _reg_tbl_e.merge(_reg_map_e, left_on="Fornecedor", right_index=True, how="left")
-            _reg_tbl_e["% do Total"] = (_reg_tbl_e["Total (R$)"] / _tot_all_e * 100).round(2)
+            _reg_tbl_e["% do Total"] = (_reg_tbl_e["Total (R$)"] / _tot_all * 100).round(4)
             _reg_tbl_e = _reg_tbl_e.sort_values("Total (R$)", ascending=False).reset_index(drop=True)
+            _tot_reg = {c: "" for c in _reg_tbl_e.columns}
+            _tot_reg["Fornecedor"] = "TOTAL"
+            _tot_reg["Total (R$)"] = _reg_tbl_e["Total (R$)"].sum()
+            _tot_reg["% do Total"] = _reg_tbl_e["% do Total"].sum()
+            _reg_tbl_e = pd.concat([_reg_tbl_e, pd.DataFrame([_tot_reg])], ignore_index=True)
             _reg_tbl_e.to_excel(writer, sheet_name="Regime Fornecedores", index=False)
+            _fmt(writer, "Regime Fornecedores",
+                 {"Total (R$)": _FMT_BRL, "% do Total": _FMT_PCT, "Nº Notas": _FMT_NUM})
 
-        # 7. Evolução de Preços (só se > 1 mês)
+        # 7. Evolução de Preços + Maiores Aumentos + Maiores Quedas
         if _n_meses > 1:
             _preco_c = calc_evolucao_precos_compras(df_compras)
             if not _preco_c.empty:
+                _mes_cols_p = [c for c in _preco_c.columns if c not in ("Produto", "Un.")]
+
+                # 7a. Tabela completa
                 _preco_c.to_excel(writer, sheet_name="Evolução de Preços", index=False)
+                _fmt(writer, "Evolução de Preços", {c: _FMT_BRL for c in _mes_cols_p})
+
+                # 7b. Maiores Aumentos / Maiores Quedas (só se >= 2 meses)
+                if len(_mes_cols_p) >= 2:
+                    _fm = _mes_cols_p[0]
+                    _lm = _mes_cols_p[-1]
+                    _chg_xl = _preco_c[["Produto", "Un."] + _mes_cols_p].dropna(
+                        subset=[_fm, _lm]
+                    ).copy()
+                    _chg_xl["Variação (%)"] = (
+                        (_chg_xl[_lm] - _chg_xl[_fm]) / _chg_xl[_fm].replace(0, float("nan")) * 100
+                    ).round(2)
+
+                    _altas_xl  = _chg_xl[_chg_xl["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20)
+                    _quedas_xl = _chg_xl[_chg_xl["Variação (%)"] < 0].sort_values("Variação (%)").head(20)
+
+                    if not _altas_xl.empty:
+                        _altas_xl.to_excel(writer, sheet_name="Maiores Aumentos", index=False)
+                        _fmt(writer, "Maiores Aumentos",
+                             {c: _FMT_BRL for c in _mes_cols_p} | {"Variação (%)": _FMT_PCT})
+
+                    if not _quedas_xl.empty:
+                        _quedas_xl.to_excel(writer, sheet_name="Maiores Quedas", index=False)
+                        _fmt(writer, "Maiores Quedas",
+                             {c: _FMT_BRL for c in _mes_cols_p} | {"Variação (%)": _FMT_PCT})
+
+        # 8. Outras Entradas
+        if df_compras_outros is not None and not df_compras_outros.empty:
+            _ot = df_compras_outros.copy()
+            _cols_ot = [c for c in ["_tipo_op", "cfop", "fornecedor", "produto",
+                                    "num_nota", "data", "valor"] if c in _ot.columns]
+            _ot = _ot[_cols_ot].rename(columns={
+                "_tipo_op": "Tipo", "cfop": "CFOP", "fornecedor": "Fornecedor",
+                "produto": "Produto", "num_nota": "Nº Nota",
+                "data": "Data", "valor": "Valor (R$)",
+            })
+            _tot_ot = {c: "" for c in _ot.columns}
+            _tot_ot[_ot.columns[0]] = "TOTAL"
+            if "Valor (R$)" in _ot.columns:
+                _tot_ot["Valor (R$)"] = _ot["Valor (R$)"].sum()
+            _ot = pd.concat([_ot, pd.DataFrame([_tot_ot])], ignore_index=True)
+            _ot.to_excel(writer, sheet_name="Outras Entradas", index=False)
+            _fmt(writer, "Outras Entradas", {"Valor (R$)": _FMT_BRL})
+
+        # 9. Dados Brutos
+        _raw = df_compras.copy()
+        _raw_cols = [c for c in ["fornecedor", "cnpj", "regime", "num_nota", "data",
+                                  "cfop", "produto", "ncm", "unidade", "quantidade",
+                                  "valor", "mes_nome"] if c in _raw.columns]
+        _raw = _raw[_raw_cols].rename(columns={
+            "fornecedor": "Fornecedor", "cnpj": "CNPJ", "regime": "Regime",
+            "num_nota": "Nº Nota", "data": "Data", "cfop": "CFOP",
+            "produto": "Produto", "ncm": "NCM", "unidade": "Un.",
+            "quantidade": "Qtd", "valor": "Valor (R$)", "mes_nome": "Mês",
+        })
+        _raw.to_excel(writer, sheet_name="Dados Brutos", index=False)
+        _fmt(writer, "Dados Brutos", {"Valor (R$)": _FMT_BRL, "Qtd": _FMT_NUM2})
 
         _autofit(writer)
 
@@ -4818,6 +5159,7 @@ def main():
         _R           = st.session_state["_analise"]
         df_nfce      = _R["df_nfce"]
         df_nfe       = _R["df_nfe"]
+        df_nfe_outros = _R.get("df_nfe_outros", pd.DataFrame())
         df           = df_nfce
         df_all       = _R["df_all"]
         cli_label    = _R["cli_label"]
@@ -4847,10 +5189,12 @@ def main():
         df_horas     = _R["df_horas"]
         df_por_hora  = _R["df_por_hora"]
         df_por_turno = _R["df_por_turno"]
-        df_entradas    = _R.get("df_entradas", pd.DataFrame())
-        sn_result      = _R.get("sn_result", None)
-        df_sped_parsed = _R.get("df_sped_parsed", pd.DataFrame())
-        df_compras     = _R.get("df_compras", pd.DataFrame())
+        df_entradas        = _R.get("df_entradas", pd.DataFrame())
+        df_entradas_outros = _R.get("df_entradas_outros", pd.DataFrame())
+        sn_result          = _R.get("sn_result", None)
+        df_sped_parsed     = _R.get("df_sped_parsed", pd.DataFrame())
+        df_compras         = _R.get("df_compras", pd.DataFrame())
+        df_compras_outros  = _R.get("df_compras_outros", pd.DataFrame())
 
     else:
         # ── CARREGAR + CALCULAR com tela de progresso ──
@@ -4952,6 +5296,22 @@ def main():
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
 
         if not _only_compras:
+            # ── Separa NF-e por tipo de operação ──────────────────────
+            # Usa _classifica_cfop() que combina xNatOp (texto) + CFOP (tabela SEFAZ).
+            # Apenas "VENDA" entra no faturamento; TRANSFERÊNCIA, DEVOLUÇÃO e OUTROS
+            # vão para df_nfe_outros (exibição informativa na aba dedicada).
+            df_nfe_outros = pd.DataFrame()
+            if not df_nfe.empty and "CFOP" in df_nfe.columns:
+                _xnatop_col = df_nfe["xNatOp"] if "xNatOp" in df_nfe.columns else pd.Series("", index=df_nfe.index)
+                df_nfe["_tipo_op"] = [
+                    _classifica_cfop(cfop, nat)
+                    for cfop, nat in zip(df_nfe["CFOP"].fillna(""), _xnatop_col.fillna(""))
+                ]
+                _mask_venda   = df_nfe["_tipo_op"] == "VENDA"
+                df_nfe_outros = df_nfe[~_mask_venda].copy()
+                df_nfe        = df_nfe[_mask_venda].drop(columns=["_tipo_op"], errors="ignore").copy()
+                # mantém _tipo_op em df_nfe_outros para exibir na aba informativa
+
             # ── df: base principal de vendas ──────────────────────
             if not df_nfce.empty:
                 df = df_nfce.copy()
@@ -5075,9 +5435,11 @@ def main():
             _render_prog(50, "📦 Processando planilha de compras...", _t0, _box_txt, _box_bar)
 
         # ── Simples Nacional ──────────────────────────────────
-        df_entradas = pd.DataFrame()
-        df_sped_parsed = pd.DataFrame()
-        sn_result   = None
+        df_entradas        = pd.DataFrame()
+        df_entradas_outros = pd.DataFrame()
+        df_compras_outros  = pd.DataFrame()
+        df_sped_parsed     = pd.DataFrame()
+        sn_result          = None
         _tem_entradas = is_simples and (bool(arquivos_entrada) or bool(_pasta_entrada) or arquivo_sped is not None)
         if _tem_entradas:
             _render_prog(97, "📋 Verificando regra dos 80% — Simples Nacional...", _t0, _box_txt, _box_bar)
@@ -5130,6 +5492,20 @@ def main():
                 except Exception as _e_sped:
                     st.warning(f"⚠️ Não foi possível ler a planilha SPED: {_e_sped}")
                     df_sped_parsed = pd.DataFrame()
+
+            # ── Separa entradas por tipo de operação (mesmo critério das saídas) ──
+            # COMPRA → base para SN 80% e análise de compras
+            # TRANSFERÊNCIA / DEVOLUÇÃO / SERVIÇO / OUTROS → aba informativa
+            df_entradas_outros = pd.DataFrame()
+            if not df_entradas.empty and "CFOP" in df_entradas.columns:
+                _xnatop_ent = df_entradas["xNatOp"] if "xNatOp" in df_entradas.columns else pd.Series("", index=df_entradas.index)
+                df_entradas["_tipo_op"] = [
+                    _classifica_cfop_entrada(cfop, nat)
+                    for cfop, nat in zip(df_entradas["CFOP"].fillna(""), _xnatop_ent.fillna(""))
+                ]
+                _mask_compra      = df_entradas["_tipo_op"] == "COMPRA"
+                df_entradas_outros = df_entradas[~_mask_compra].copy()
+                df_entradas        = df_entradas[_mask_compra].drop(columns=["_tipo_op"], errors="ignore").copy()
 
             sn_result = calc_simples_nacional(
                 df_entradas, kpis["faturamento"],
@@ -5197,7 +5573,8 @@ f"{_col_nfe}{_col_skip}"
             st.markdown(_html_card, unsafe_allow_html=True)
 
         # ── Processa planilha de compras (se enviada) ──────────────────
-        df_compras = pd.DataFrame()
+        df_compras        = pd.DataFrame()
+        df_compras_outros = pd.DataFrame()
         if arquivo_compras is not None:
             try:
                 arquivo_compras.seek(0)
@@ -5207,6 +5584,18 @@ f"{_col_nfe}{_col_skip}"
                 df_compras = parse_planilha_compras(arquivo_compras)
             except Exception:
                 df_compras = pd.DataFrame()
+
+            # ── Separa compras para comercialização de outras entradas ──────────────
+            # Só 1.102 e 1.403 (e variantes interestaduais) = COMPRA para comercialização
+            # Bonificação (1.910), uso/consumo (1.556), ativo (1.551) → aba informativa
+            if not df_compras.empty and "cfop" in df_compras.columns:
+                df_compras["_tipo_op"] = [
+                    _classifica_cfop_entrada_xlsx(cfop)
+                    for cfop in df_compras["cfop"].fillna("")
+                ]
+                _mask_compra_xlsx  = df_compras["_tipo_op"] == "COMPRA"
+                df_compras_outros  = df_compras[~_mask_compra_xlsx].copy()
+                df_compras         = df_compras[_mask_compra_xlsx].drop(columns=["_tipo_op"], errors="ignore").copy()
 
         # ── Compras-only: derivar per_label a partir da planilha de compras ──
         if _only_compras and not df_compras.empty and per_label == "Período":
@@ -5231,6 +5620,7 @@ f"{_col_nfe}{_col_skip}"
         st.session_state["_analise_fp"] = _fp
         st.session_state["_analise"] = {
             "df_nfce": df_nfce,      "df_nfe": df_nfe,        "df_all": df_all,
+            "df_nfe_outros": df_nfe_outros if not _only_compras else pd.DataFrame(),
             "cli_label": cli_label,  "per_label": per_label,  "cnpj_label": cnpj_label,
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
@@ -5245,6 +5635,8 @@ f"{_col_nfe}{_col_skip}"
             "df_entradas": df_entradas, "sn_result": sn_result,
             "df_sped_parsed": df_sped_parsed,
             "df_compras": df_compras,
+            "df_compras_outros": df_compras_outros,
+            "df_entradas_outros": df_entradas_outros if not _only_compras else pd.DataFrame(),
         }
         # Força re-render para o painel lateral enxergar o cache
         # (sidebar é renderizado antes da análise rodar)
@@ -5305,7 +5697,12 @@ f"{_col_nfe}{_col_skip}"
 
         _kpis_c = calc_kpis_compras(df_compras)
         _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
-        _cc1.metric("Total em Compras", brl(_kpis_c["total_compras"]))
+        _cc1.metric("Total em Compras", brl(_kpis_c["total_compras"]),
+                    help="Soma das compras para comercialização (CFOP 1.102 e 1.403). "
+                         "Pode apresentar pequena diferença em relação ao relatório "
+                         "'Totais ICMS por Natureza' do Questor, pois esse relatório "
+                         "inclui fretes e despesas acessórias no Valor Contábil da nota, "
+                         "enquanto esta planilha exporta o valor por item (Qtd × Preço Unit.).")
         _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
         _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
         _cc4.metric("Produtos Únicos",  fmt_num(_kpis_c["n_produtos"]))
@@ -5331,6 +5728,15 @@ f"{_col_nfe}{_col_skip}"
                 unsafe_allow_html=True,
             )
 
+        st.info(
+            "ℹ️ **Atenção — pequena diferença esperada vs. Questor:** "
+            "O total acima considera o **valor por item** (Qtd × Preço Unitário) conforme exportado na planilha. "
+            "O relatório *Totais ICMS por Natureza* do Questor utiliza o **Valor Contábil da nota fiscal**, "
+            "que pode incluir **fretes, seguros e outras despesas acessórias** não detalhadas por item. "
+            "Por isso, o Questor tende a apresentar um valor **ligeiramente superior** — "
+            "a diferença costuma ser inferior a **0,2%** do total de compras e não representa erro contábil."
+        )
+
         st.divider()
 
         # ── helper local: formata quantidade com 2 casas decimais se não-inteiro ─
@@ -5353,6 +5759,8 @@ f"{_col_nfe}{_col_skip}"
         _abas_c += ["Fornecedores", "Curva ABC", "Fornecedor × Produto", "Regime"]
         if _n_meses_c > 1:
             _abas_c.append("Evolução de Preços")
+        if not df_compras_outros.empty:
+            _abas_c.append("Outras Entradas")
         _subtabs_c = st.tabs(_abas_c)
         _tidx_c = {name: i for i, name in enumerate(_abas_c)}
 
@@ -5556,73 +5964,156 @@ f"{_col_nfe}{_col_skip}"
                         "cada mês reflete o custo real por unidade/kg naquele período."
                     )
 
-                    # ── Resumo: maiores altas e baixas (1º mês vs último mês) ─
+                    # ── Sub-abas: Maiores Aumentos / Maiores Quedas / Tabela Completa ─
+                    _preco_subtabs = st.tabs(["📈 Maiores Aumentos", "📉 Maiores Quedas", "📊 Tabela Completa"])
+
+                    # Calcula variações (usado nas duas primeiras abas)
                     if len(_mes_cols_p) >= 2:
                         _first_m = _mes_cols_p[0]
                         _last_m  = _mes_cols_p[-1]
-                        # Inclui TODOS os meses para exibir a evolução completa
                         _chg = _ev_preco[["Produto", "Un."] + _mes_cols_p].dropna(
                             subset=[_first_m, _last_m]
                         ).copy()
                         _chg["Variação (%)"] = (
                             (_chg[_last_m] - _chg[_first_m]) / _chg[_first_m].replace(0, float("nan")) * 100
                         ).round(2)
-                        # Renomeia colunas de mês para exibição
-                        _rename_m = {m: f"Preço {m}" for m in _mes_cols_p}
-                        _chg = _chg.rename(columns=_rename_m)
+                        _rename_m   = {m: f"Preço {m}" for m in _mes_cols_p}
+                        _chg        = _chg.rename(columns=_rename_m)
                         _preco_cols = [f"Preço {m}" for m in _mes_cols_p]
+                        _altas      = _chg[_chg["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20)
+                        _quedas     = _chg[_chg["Variação (%)"] < 0].sort_values("Variação (%)").head(20)
+                    else:
+                        _first_m = _last_m = _preco_cols = None
+                        _altas = _quedas = pd.DataFrame()
 
-                        _altas  = _chg[_chg["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(10)
-                        _quedas = _chg[_chg["Variação (%)"] < 0].sort_values("Variação (%)").head(10)
-
-                        _col_up, _col_dn = st.columns(2)
-                        with _col_up:
+                    # ── Aba 1: Maiores Aumentos ────────────────────────
+                    with _preco_subtabs[0]:
+                        if _first_m:
                             st.markdown(
                                 f"<div style='background:#FEE2E2;border-left:4px solid #DC2626;"
-                                f"padding:10px 14px;border-radius:6px;margin-bottom:8px'>"
-                                f"<span style='font-weight:700;color:#991B1B'>📈 Maiores Aumentos</span>"
-                                f"<span style='font-size:12px;color:#7F1D1D'> — {_first_m} → {_last_m}</span>"
+                                f"padding:10px 14px;border-radius:6px;margin-bottom:12px'>"
+                                f"<span style='font-weight:700;color:#991B1B;font-size:15px'>📈 Produtos com maior alta de preço</span>"
+                                f"&nbsp;&nbsp;<span style='font-size:12px;color:#7F1D1D'>Comparativo: {_first_m} → {_last_m}</span>"
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
                             if not _altas.empty:
+                                # KPIs resumo
+                                _a_k1, _a_k2, _a_k3 = st.columns(3)
+                                _a_k1.metric("Produtos com Alta", fmt_num(len(_altas)))
+                                _a_k2.metric("Maior Alta",
+                                             f"+{_altas['Variação (%)'].max():.2f}%",
+                                             help=_altas.iloc[0]["Produto"])
+                                _a_k3.metric("Alta Média (Top 20)",
+                                             f"+{_altas['Variação (%)'].mean():.2f}%")
+                                st.markdown("")
                                 _altas_disp = _altas[["Produto", "Un."] + _preco_cols + ["Variação (%)"]].copy()
                                 for _pc in _preco_cols:
                                     _altas_disp[_pc] = _altas[_pc].apply(lambda v: brl(v) if pd.notna(v) else "—")
                                 _altas_disp["Variação (%)"] = _altas["Variação (%)"].apply(lambda v: f"+{v:.2f}%")
-                                st.dataframe(_altas_disp, use_container_width=True, hide_index=True)
+                                st.dataframe(_altas_disp, use_container_width=True, hide_index=True, height=460)
                             else:
                                 st.info("Nenhum produto com aumento de preço no período.")
+                        else:
+                            st.info("Necessário pelo menos 2 meses para calcular variação.")
 
-                        with _col_dn:
+                    # ── Aba 2: Maiores Quedas ──────────────────────────
+                    with _preco_subtabs[1]:
+                        if _first_m:
                             st.markdown(
                                 f"<div style='background:#D1FAE5;border-left:4px solid #059669;"
-                                f"padding:10px 14px;border-radius:6px;margin-bottom:8px'>"
-                                f"<span style='font-weight:700;color:#065F46'>📉 Maiores Quedas</span>"
-                                f"<span style='font-size:12px;color:#064E3B'> — {_first_m} → {_last_m}</span>"
+                                f"padding:10px 14px;border-radius:6px;margin-bottom:12px'>"
+                                f"<span style='font-weight:700;color:#065F46;font-size:15px'>📉 Produtos com maior queda de preço</span>"
+                                f"&nbsp;&nbsp;<span style='font-size:12px;color:#064E3B'>Comparativo: {_first_m} → {_last_m}</span>"
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )
                             if not _quedas.empty:
+                                # KPIs resumo
+                                _q_k1, _q_k2, _q_k3 = st.columns(3)
+                                _q_k1.metric("Produtos com Queda", fmt_num(len(_quedas)))
+                                _q_k2.metric("Maior Queda",
+                                             f"{_quedas['Variação (%)'].min():.2f}%",
+                                             help=_quedas.iloc[0]["Produto"])
+                                _q_k3.metric("Queda Média (Top 20)",
+                                             f"{_quedas['Variação (%)'].mean():.2f}%")
+                                st.markdown("")
                                 _quedas_disp = _quedas[["Produto", "Un."] + _preco_cols + ["Variação (%)"]].copy()
                                 for _pc in _preco_cols:
                                     _quedas_disp[_pc] = _quedas[_pc].apply(lambda v: brl(v) if pd.notna(v) else "—")
                                 _quedas_disp["Variação (%)"] = _quedas["Variação (%)"].apply(lambda v: f"{v:.2f}%")
-                                st.dataframe(_quedas_disp, use_container_width=True, hide_index=True)
+                                st.dataframe(_quedas_disp, use_container_width=True, hide_index=True, height=460)
                             else:
                                 st.info("Nenhum produto com queda de preço no período.")
+                        else:
+                            st.info("Necessário pelo menos 2 meses para calcular variação.")
 
-                    # ── Tabela completa de preços por mês ──────────────
-                    st.markdown("---")
-                    st.markdown("**Preço médio ponderado por produto e mês (R$/unidade)**")
-                    _ev_p_disp = _ev_preco.copy()
-                    for _mc_p in _mes_cols_p:
-                        _ev_p_disp[_mc_p] = _ev_preco[_mc_p].apply(
-                            lambda v: brl(v) if pd.notna(v) else "—"
-                        )
-                    st.dataframe(_ev_p_disp, use_container_width=True, hide_index=True, height=460)
+                    # ── Aba 3: Tabela Completa ─────────────────────────
+                    with _preco_subtabs[2]:
+                        st.markdown("**Preço médio ponderado por produto e mês (R$/unidade)**")
+                        _ev_p_disp = _ev_preco.copy()
+                        for _mc_p in _mes_cols_p:
+                            _ev_p_disp[_mc_p] = _ev_preco[_mc_p].apply(
+                                lambda v: brl(v) if pd.notna(v) else "—"
+                            )
+                        st.dataframe(_ev_p_disp, use_container_width=True, hide_index=True, height=460)
                 else:
                     st.info("Sem dados suficientes para análise de preços.")
+
+        # ── Outras Entradas (bonificação, uso/consumo, ativo, etc.) ─────
+        if "Outras Entradas" in _tidx_c:
+            with _subtabs_c[_tidx_c["Outras Entradas"]]:
+                st.subheader("Outras Entradas — Não Computadas no Total de Compras")
+                st.caption(
+                    "Linhas da planilha de compras (Questor) com CFOP que **não são compra para comercialização** "
+                    "(ex: bonificação 1.910, material de uso/consumo 1.556, ativo imobilizado 1.551). "
+                    "Somente **1.102** e **1.403** entram no total de compras exibido no painel principal."
+                )
+
+                _cmp_out_val_col = "valor" if "valor" in df_compras_outros.columns else None
+                _cmp_out_total   = df_compras_outros[_cmp_out_val_col].sum() if _cmp_out_val_col else 0
+                _cmp_out_n       = len(df_compras_outros)
+                _cmp_tipo_col    = "_tipo_op" if "_tipo_op" in df_compras_outros.columns else None
+                _tipos_contagem  = df_compras_outros["_tipo_op"].value_counts() if _cmp_tipo_col else pd.Series(dtype=int)
+
+                cc1, cc2, cc3, cc4 = st.columns(4)
+                cc1.metric("Total Excluído (R$)",  brl(_cmp_out_total))
+                cc2.metric("Linhas Excluídas",     fmt_num(_cmp_out_n))
+                cc3.metric("Bonificações",         fmt_num(_tipos_contagem.get("BONIFICAÇÃO", 0)))
+                cc4.metric("Uso/Consumo / Outros", fmt_num(_cmp_out_n - _tipos_contagem.get("BONIFICAÇÃO", 0)))
+
+                if "cfop" in df_compras_outros.columns and _cmp_out_val_col:
+                    st.markdown("#### Resumo por Tipo e CFOP")
+                    _grp_keys_c = (["_tipo_op"] if _cmp_tipo_col else []) + ["cfop"]
+                    _grp_cmp_ot = (
+                        df_compras_outros
+                        .groupby(_grp_keys_c, dropna=False)
+                        .agg(total=(_cmp_out_val_col, "sum"), linhas=(_cmp_out_val_col, "count"))
+                        .reset_index()
+                        .sort_values("total", ascending=False)
+                    )
+                    _tot_row_c = {c: "" for c in _grp_cmp_ot.columns}
+                    _tot_row_c["cfop"]   = "TOTAL"
+                    _tot_row_c["total"]  = _grp_cmp_ot["total"].sum()
+                    _tot_row_c["linhas"] = _grp_cmp_ot["linhas"].sum()
+                    _grp_cmp_ot = pd.concat([_grp_cmp_ot, pd.DataFrame([_tot_row_c])], ignore_index=True)
+                    _grp_cmp_ot["Vlr Contábil"] = _grp_cmp_ot["total"].apply(lambda v: brl(v) if v != "" else "")
+                    _grp_cmp_ot = _grp_cmp_ot.rename(columns={"_tipo_op": "Tipo", "cfop": "CFOP", "linhas": "Linhas"})
+                    _show_c = [c for c in (["Tipo"] if _cmp_tipo_col else []) + ["CFOP", "Linhas", "Vlr Contábil"] if c in _grp_cmp_ot.columns]
+                    st.dataframe(_grp_cmp_ot[_show_c], use_container_width=True, hide_index=True)
+
+                with st.expander("🔍 Ver todas as linhas excluídas"):
+                    _cols_cmp_det = [c for c in ["_tipo_op", "cfop", "fornecedor", "produto", "num_nota", "data", "valor"]
+                                     if c in df_compras_outros.columns]
+                    _det_cmp = df_compras_outros[_cols_cmp_det].copy() if _cols_cmp_det else df_compras_outros.copy()
+                    if "valor" in _det_cmp.columns:
+                        _det_cmp["valor"] = _det_cmp["valor"].apply(brl)
+                    if "_tipo_op" in _det_cmp.columns:
+                        _det_cmp = _det_cmp.rename(columns={
+                            "_tipo_op": "Tipo", "cfop": "CFOP", "fornecedor": "Fornecedor",
+                            "produto": "Produto", "num_nota": "Nº Nota", "data": "Data", "valor": "Valor (R$)"
+                        })
+                    st.dataframe(_det_cmp, use_container_width=True, hide_index=True)
 
         # ── Exportar Compras ──────────────────────────────────────────
         st.divider()
@@ -5630,7 +6121,8 @@ f"{_col_nfe}{_col_skip}"
         _nome_base_c = (
             f"Analise_de_Compras_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
         )
-        _xlsx_compras = exportar_excel_compras(df_compras, cli_label, per_label)
+        _xlsx_compras = exportar_excel_compras(df_compras, cli_label, per_label,
+                                               df_compras_outros=df_compras_outros)
         st.download_button(
             label="⬇️ Baixar Excel de Compras (.xlsx)",
             data=_xlsx_compras,
@@ -5700,6 +6192,8 @@ f"{_col_nfe}{_col_skip}"
         abas.insert(6, "Temporal")
     if not df_nfe.empty:
         abas.append("NF-e (B2B)")
+    if not df_nfe_outros.empty:
+        abas.append("Outras Saídas NF-e")
     if sn_result is not None:
         abas.append("Simples Nacional")
     tabs = st.tabs(abas)
@@ -6217,6 +6711,50 @@ f"{_col_nfe}{_col_skip}"
                 c3.metric("Ticket Médio B2B",  brl(fat_b2b / n_b2b if n_b2b else 0))
                 c4.metric("% do Total",        (f"{fat_b2b/kpis['faturamento']*100:.1f}".replace(".", ",") + "%") if kpis["faturamento"] else "—")
 
+            # ── Breakdown por CFOP / Natureza (estilo Questor) ───────────
+            # Usa df_all (NFC-e + NF-e) para bater com o total do Questor
+            _df_cfop_base = df_all if not df_all.empty else df_nfe
+            if "CFOP" in _df_cfop_base.columns and "chave" in _df_cfop_base.columns:
+                st.markdown("#### Totais por CFOP e Natureza da Operação")
+                st.caption("Tabela comparável ao relatório **'Totais ICMS por Natureza'** do Questor (NFC-e + NF-e). "
+                           "Use para identificar qual CFOP está gerando diferença em relação ao sistema fiscal.")
+                _has_natop = "xNatOp" in _df_cfop_base.columns
+                _grp_keys  = ["CFOP"] + (["xNatOp"] if _has_natop else [])
+                _cfop_grp  = (
+                    _df_cfop_base.drop_duplicates("chave")
+                    .groupby(_grp_keys, dropna=False)
+                    .agg(vl_contabil=("vNF", "sum"), notas=("chave", "nunique"))
+                    .reset_index()
+                    .sort_values("vl_contabil", ascending=False)
+                )
+                _total_cfop = _cfop_grp["vl_contabil"].sum()
+                _cfop_tot   = {k: "" for k in _cfop_grp.columns}
+                _cfop_tot["CFOP"] = "TOTAL"
+                _cfop_tot["vl_contabil"] = _total_cfop
+                _cfop_tot["notas"] = _cfop_grp["notas"].sum()
+                _cfop_grp = pd.concat([_cfop_grp, pd.DataFrame([_cfop_tot])], ignore_index=True)
+                _cfop_grp["Vlr Contábil"] = _cfop_grp["vl_contabil"].apply(brl)
+                _cfop_grp = _cfop_grp.rename(columns={"xNatOp": "Natureza (xNatOp)", "notas": "Notas"})
+                _cols_cfop = ["CFOP"] + (["Natureza (xNatOp)"] if _has_natop else []) + ["Notas", "Vlr Contábil"]
+                st.dataframe(_cfop_grp[_cols_cfop], use_container_width=True, hide_index=True)
+                st.caption(f"**Total no app (NFC-e + NF-e): {brl(_total_cfop)}** — compare linha a linha com o Questor para identificar o CFOP divergente.")
+
+            # ── Lista individual de NF-e de venda (para achar os R$ 406,04) ──
+            if "chave" in df_nfe.columns and "vNF" in df_nfe.columns:
+                with st.expander("🔍 Notas Individuais NF-e de Venda — compare nota a nota com o Questor"):
+                    _nfe_indiv = df_nfe.drop_duplicates("chave").copy()
+                    _cols_indiv = [c for c in ["nNF", "dhEmi", "CFOP", "xNatOp", "destinatario", "vNF"] if c in _nfe_indiv.columns]
+                    _nfe_indiv = _nfe_indiv[_cols_indiv].sort_values("dhEmi" if "dhEmi" in _cols_indiv else _cols_indiv[0])
+                    _nfe_indiv["vNF"] = _nfe_indiv["vNF"].apply(brl)
+                    _nfe_indiv = _nfe_indiv.rename(columns={
+                        "nNF": "Nº NF", "dhEmi": "Data Emissão", "destinatario": "Destinatário", "vNF": "Valor Total"
+                    })
+                    st.caption("Lista de todas as NF-e de **venda** (após exclusão de transferências e devoluções). "
+                               "Compare nota a nota com o Questor para identificar a divergência de R$ 406,04.")
+                    st.dataframe(_nfe_indiv, use_container_width=True, hide_index=True)
+
+            st.divider()
+
             if "xProd" in df_nfe.columns and "vProd" in df_nfe.columns:
                 import re as _re
                 def _limpar_xprod(s: str) -> str:
@@ -6270,6 +6808,66 @@ f"{_col_nfe}{_col_skip}"
                     _fig_nfe.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
                     _fig_nfe.update_yaxes(tickfont=dict(size=11))
                     st.plotly_chart(_fig_nfe, use_container_width=True)
+
+    # ── OUTRAS SAÍDAS NF-e (transferências, devoluções, etc.) ──────
+    if "Outras Saídas NF-e" in tab_idx and not df_nfe_outros.empty:
+        with tabs[tab_idx["Outras Saídas NF-e"]]:
+            st.subheader("Outras Saídas NF-e — Não Computadas no Faturamento")
+            st.caption(
+                "NF-e de saída classificadas como **Transferência**, **Devolução** ou **Outros** "
+                "pelo CFOP (tabela SEFAZ) e/ou Natureza da Operação (xNatOp). "
+                "Estas operações **não entram no faturamento** exibido nos KPIs."
+            )
+
+            _out_notas = df_nfe_outros.drop_duplicates("chave") if "chave" in df_nfe_outros.columns else df_nfe_outros
+            _out_total = _out_notas["vNF"].sum() if "vNF" in _out_notas.columns else 0
+            _out_n     = len(_out_notas)
+            _tipo_col  = "_tipo_op" if "_tipo_op" in df_nfe_outros.columns else None
+
+            # KPIs
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total (R$)",       brl(_out_total))
+            c2.metric("Notas Fiscais",    fmt_num(_out_n))
+            c3.metric("Transferências",   fmt_num((_out_notas["_tipo_op"] == "TRANSFERÊNCIA").sum())  if _tipo_col else "—")
+            c4.metric("Devoluções",        fmt_num((_out_notas["_tipo_op"] == "DEVOLUÇÃO").sum())      if _tipo_col else "—")
+
+            # Breakdown por tipo e CFOP
+            if "chave" in df_nfe_outros.columns and "CFOP" in df_nfe_outros.columns:
+                st.markdown("#### Resumo por Tipo de Operação e CFOP")
+                _grp_cols = (["_tipo_op"] if _tipo_col else []) + ["CFOP"] + (["xNatOp"] if "xNatOp" in df_nfe_outros.columns else [])
+                _grp_outros = (
+                    df_nfe_outros.drop_duplicates("chave")
+                    .groupby(_grp_cols, dropna=False)
+                    .agg(total_vNF=("vNF", "sum"), n_notas=("chave", "nunique"))
+                    .reset_index()
+                    .sort_values(["_tipo_op" if _tipo_col else "CFOP", "total_vNF"], ascending=[True, False])
+                )
+                _total_row = {c: "" for c in _grp_outros.columns}
+                _total_row["CFOP"]      = "TOTAL"
+                _total_row["total_vNF"] = _grp_outros["total_vNF"].sum()
+                _total_row["n_notas"]   = _grp_outros["n_notas"].sum()
+                _grp_outros = pd.concat([_grp_outros, pd.DataFrame([_total_row])], ignore_index=True)
+                _grp_outros["Vlr Contábil"] = _grp_outros["total_vNF"].apply(lambda v: brl(v) if v != "" else "")
+                _rename_outros = {"_tipo_op": "Tipo", "n_notas": "Notas", "xNatOp": "Natureza (xNatOp)"}
+                _grp_outros = _grp_outros.rename(columns=_rename_outros)
+                _show_cols = [c for c in (["Tipo"] if _tipo_col else []) + ["CFOP", "Natureza (xNatOp)", "Notas", "Vlr Contábil"] if c in _grp_outros.columns]
+                st.dataframe(_grp_outros[_show_cols], use_container_width=True, hide_index=True)
+
+            # Detalhamento completo (expansível)
+            with st.expander("Ver todas as notas individualmente"):
+                _cols_det = [c for c in ["_tipo_op", "chave", "nNF", "dhEmi", "xNatOp", "CFOP", "destinatario", "vNF"]
+                             if c in df_nfe_outros.columns]
+                _det_notas = (
+                    df_nfe_outros[_cols_det]
+                    .drop_duplicates("chave" if "chave" in _cols_det else _cols_det[0])
+                    .sort_values("dhEmi" if "dhEmi" in _cols_det else _cols_det[0])
+                    .copy()
+                )
+                if "vNF" in _det_notas.columns:
+                    _det_notas["vNF"] = _det_notas["vNF"].apply(brl)
+                if "_tipo_op" in _det_notas.columns:
+                    _det_notas = _det_notas.rename(columns={"_tipo_op": "Tipo"})
+                st.dataframe(_det_notas, use_container_width=True, hide_index=True)
 
     #  SIMPLES NACIONAL
     if "Simples Nacional" in tab_idx and sn_result is not None:
