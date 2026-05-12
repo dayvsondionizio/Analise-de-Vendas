@@ -2316,10 +2316,22 @@ def parse_planilha_compras(arquivo) -> pd.DataFrame:
                 errors="coerce"
             ).fillna(0.0)
 
-    # Strings
+    # Strings — CFOP precisa de tratamento especial: remove ".0" de floats (ex: 1556.0 → "1556")
     for col in ["fornecedor", "cnpj", "regime", "num_nota", "chave", "produto", "ncm", "cfop", "unidade"]:
         if col in df.columns:
-            df[col] = df[col].fillna("").astype(str).str.strip()
+            if col == "cfop":
+                def _limpa_cfop(v):
+                    s = str(v).strip() if pd.notna(v) else ""
+                    if s in ("", "nan", "None"): return ""
+                    # Remove decimal de float: "1556.0" → "1556", "1102001.0" → "1102001"
+                    try:
+                        f = float(s)
+                        return str(int(f)) if f == int(f) else s
+                    except Exception:
+                        return s.replace(".0", "") if s.endswith(".0") else s
+                df[col] = df[col].apply(_limpa_cfop)
+            else:
+                df[col] = df[col].fillna("").astype(str).str.strip()
 
     # Remove linhas sem valor positivo
     if "valor" in df.columns:
