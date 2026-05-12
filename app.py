@@ -542,32 +542,164 @@ def _classifica_cfop_entrada(cfop: str, xnatop: str = "") -> str:
     return "COMPRA"   # CFOP desconhecido → assume compra
 
 
+# Descrições completas dos CFOPs de entrada (mesmas que o Questor exibe)
+_CFOP_ENTRADA_DESC: dict[str, str] = {
+    # ── Compras para industrialização ────────────────────────────────────
+    "1100": "Compra para industrialização ou produção rural",
+    "1101": "Compra para industrialização ou produção rural",
+    "1102": "Compra para comercialização",
+    "1103": "Compra para comercialização — não tributada pelo IPI",
+    "1111": "Compra para industrialização de ME ou EPP optante pelo Simples",
+    "1113": "Compra para comercialização de ME ou EPP optante pelo Simples",
+    "1116": "Compra para industrialização originada de encomenda",
+    "1117": "Compra para comercialização originada de encomenda",
+    # ── Transferências ───────────────────────────────────────────────────
+    "1151": "Transferência para industrialização ou produção rural",
+    "1152": "Transferência para comercialização",
+    "1153": "Transferência de energia elétrica para distribuição",
+    "1154": "Transferência para uso ou consumo",
+    "1155": "Transferência de bem do ativo imobilizado",
+    # ── Devoluções de vendas ─────────────────────────────────────────────
+    "1201": "Devolução de venda de produção do estabelecimento",
+    "1202": "Devolução de venda de mercadoria adquirida ou recebida de terceiros",
+    "1203": "Devolução de venda de produção do estabelecimento — não tributada",
+    "1204": "Devolução de venda de mercadoria — não tributada",
+    "1205": "Devolução de remessa para industrialização",
+    "1206": "Devolução de remessa para comercialização",
+    # ── Energia elétrica / serviços ──────────────────────────────────────
+    "1251": "Compra de energia elétrica para distribuição",
+    "1252": "Compra de energia elétrica por estabelecimento industrial",
+    "1253": "Compra de energia elétrica por estabelecimento comercial",
+    "1254": "Compra de energia elétrica por estabelecimento rural",
+    "1255": "Compra de energia elétrica para consumo por demanda",
+    # ── Compras com substituição tributária (comercialização) ────────────
+    "1401": "Compra para industrialização em operação com ST",
+    "1403": "Compra para comercialização em operação com ST",
+    "1406": "Compra de bem do ativo imobilizado em operação com ST",
+    "1407": "Compra de mercadoria para uso ou consumo em operação com ST",
+    "1408": "Transferência para industrialização em operação com ST",
+    "1409": "Transferência para comercialização em operação com ST",
+    # ── Ativo imobilizado ────────────────────────────────────────────────
+    "1551": "Compra de bem para o ativo imobilizado",
+    "1552": "Transferência de bem do ativo imobilizado",
+    "1553": "Devolução de venda de bem do ativo imobilizado",
+    # ── Uso e consumo ────────────────────────────────────────────────────
+    "1556": "Compra de material para uso ou consumo",
+    "1557": "Compra de material para uso ou consumo em operação com ST",
+    # ── Bonificações / brindes / amostras ───────────────────────────────
+    "1910": "Entrada de bonificação, doação ou brinde",
+    "1911": "Entrada de amostra grátis",
+    "1912": "Entrada de mercadoria ou bem recebido para demonstração",
+    "1913": "Entrada de mercadoria ou bem recebido em consignação mercantil",
+    "1914": "Retorno de mercadoria ou bem remetido para demonstração",
+    "1920": "Entrada de vasilhame ou sacaria",
+    "1921": "Retorno de vasilhame ou sacaria",
+    "1922": "Lançamento efetuado a título de simples faturamento",
+    "1949": "Outra entrada de mercadoria ou prestação de serviço não especificada",
+    # ── Interestaduais (2.xxx) ───────────────────────────────────────────
+    "2100": "Compra para industrialização ou produção rural (interestadual)",
+    "2101": "Compra para industrialização ou produção rural (interestadual)",
+    "2102": "Compra para comercialização (interestadual)",
+    "2151": "Transferência para industrialização (interestadual)",
+    "2152": "Transferência para comercialização (interestadual)",
+    "2154": "Transferência para uso ou consumo (interestadual)",
+    "2201": "Devolução de venda — interestadual",
+    "2202": "Devolução de venda de mercadoria adquirida de terceiros (interestadual)",
+    "2252": "Compra de energia elétrica (interestadual)",
+    "2253": "Compra de energia elétrica por estab. comercial (interestadual)",
+    "2401": "Compra para industrialização em operação com ST (interestadual)",
+    "2403": "Compra para comercialização em operação com ST (interestadual)",
+    "2407": "Compra de mercadoria para uso ou consumo em op. com ST (interestadual)",
+    "2408": "Transferência para industrialização em op. com ST (interestadual)",
+    "2409": "Transferência para comercialização em op. com ST (interestadual)",
+    "2551": "Compra de bem para o ativo imobilizado (interestadual)",
+    "2556": "Compra de material para uso ou consumo (interestadual)",
+    "2910": "Entrada de bonificação, doação ou brinde (interestadual)",
+    "2911": "Entrada de amostra grátis (interestadual)",
+    "2949": "Outra entrada de mercadoria ou prestação de serviço (interestadual)",
+}
+
+def _desc_cfop_entrada(cfop: str) -> str:
+    """Retorna a descrição completa do CFOP de entrada, igual ao Questor."""
+    c4 = str(cfop or "").replace(".", "").strip()[:4]
+    return _CFOP_ENTRADA_DESC.get(c4, f"CFOP {cfop}")
+
+
 def _classifica_cfop_entrada_xlsx(cfop: str) -> str:
     """Classifica entrada da planilha Questor para análise de compras.
 
-    São COMPRA para comercialização (entram no total):
-      • 1.102 / 1.102xxx — compra interna p/ comercialização
-      • 1.403 / 1.403xxx — compra interna p/ comercialização (c/ ST)
-      • 2.102 / 2.403    — idem interestadual
+    São COMPRA para comercialização (entram no total principal):
+      • 1.101 / 2.101 — compra para industrialização/produção (padaria = ingredientes)
+      • 1.102 / 2.102 — compra para comercialização
+      • 1.103          — compra para comercialização sem IPI
+      • 1.403 / 2.403 — compra para comercialização (c/ ST)
+      • 1.401 / 2.401 — compra para industrialização (c/ ST)
 
-    Vão para 'Outras Entradas':
-      • 1.910 / 2.910    — bonificação / brinde
-      • 1.556 / 2.556    — material de uso/consumo
-      • 1.551 / 2.551    — ativo imobilizado
-      • 1.15x            — transferências entre filiais
-      • 1.2xx            — devoluções de venda
+    Vão para 'Outras Entradas' com descrição completa:
+      • 1.152 / 2.152 — transferência para comercialização
+      • 1.253          — energia elétrica (estabelecimento comercial)
+      • 1.407 / 2.407 — uso/consumo em op. com ST
+      • 1.408 / 2.408 — transferência p/industrialização com ST
+      • 1.409 / 2.409 — transferência p/comercialização com ST
+      • 1.556 / 2.556 — material de uso ou consumo
+      • 1.551 / 2.551 — ativo imobilizado
+      • 1.910 / 2.910 — bonificação / doação / brinde
+      • 1.911          — amostra grátis
+      • 1.912          — mercadoria para demonstração
+      • 1.920 / 1.921 — vasilhame ou sacaria
+      • 1.922          — simples faturamento
+      • 1.949 / 2.949 — outras entradas não especificadas
+      • 1.2xx / 2.2xx — devoluções de vendas
     """
     c4 = str(cfop or "").replace(".", "").strip()[:4]
-    _COMPRA_COMERC = {"1102", "1403", "2102", "2403"}
+
+    # ── COMPRA para comercialização / industrialização ───────────────────
+    _COMPRA_COMERC = {
+        "1100", "1101", "1102", "1103", "1111", "1113", "1116", "1117",
+        "1401", "1403",
+        "2100", "2101", "2102", "2103",
+        "2401", "2403",
+    }
     if c4 in _COMPRA_COMERC:
         return "COMPRA"
-    if c4 in ("1910", "2910"): return "BONIFICAÇÃO"
-    if c4 in ("1556", "2556"): return "USO/CONSUMO"
-    if c4 in ("1551", "2551"): return "ATIVO IMOBILIZADO"
-    if c4 in ("1151", "1152", "1153", "1154", "1155",
-              "2151", "2152", "2153", "2154", "2155"): return "TRANSFERÊNCIA"
+
+    # ── Bonificação / brinde / amostra ───────────────────────────────────
+    if c4 in ("1910", "1911", "1912", "1913", "1914",
+              "2910", "2911", "2912"):
+        return "BONIFICAÇÃO"
+
+    # ── Material de uso ou consumo ────────────────────────────────────────
+    if c4 in ("1154", "1407", "1556", "1557",
+              "2154", "2407", "2556", "2557"):
+        return "USO/CONSUMO"
+
+    # ── Energia elétrica ──────────────────────────────────────────────────
+    if c4 in ("1251", "1252", "1253", "1254", "1255",
+              "2251", "2252", "2253", "2254", "2255"):
+        return "ENERGIA ELÉTRICA"
+
+    # ── Ativo imobilizado ─────────────────────────────────────────────────
+    if c4 in ("1155", "1406", "1551", "1552", "1553",
+              "2155", "2406", "2551", "2552", "2553"):
+        return "ATIVO IMOBILIZADO"
+
+    # ── Vasilhame / sacaria / simples faturamento / outros ────────────────
+    if c4 in ("1920", "1921", "1922", "1949",
+              "2920", "2921", "2922", "2949"):
+        return "OUTROS"
+
+    # ── Transferências entre filiais ──────────────────────────────────────
+    if c4 in ("1151", "1152", "1153",
+              "1408", "1409",
+              "2151", "2152", "2153",
+              "2408", "2409"):
+        return "TRANSFERÊNCIA"
+
+    # ── Devoluções de vendas ──────────────────────────────────────────────
     if c4 in ("1201", "1202", "1203", "1204", "1205", "1206",
-              "2201", "2202", "2203", "2204"):          return "DEVOLUÇÃO"
+              "2201", "2202", "2203", "2204"):
+        return "DEVOLUÇÃO"
+
     return "OUTROS"
 
 
@@ -6063,57 +6195,64 @@ f"{_col_nfe}{_col_skip}"
         with _subtabs_c[_tidx_c["Outras Entradas"]]:
             st.subheader("Outras Entradas — Não Computadas no Total de Compras")
             st.caption(
-                "Lançamentos da planilha Questor com CFOP que **não são compra para comercialização** "
-                "(ex: bonificação 1.910, material de uso/consumo 1.556, ativo imobilizado 1.551, devoluções). "
-                "Somente **1.102** e **1.403** entram no total de compras exibido no painel principal."
+                "Lançamentos da planilha Questor classificados por CFOP. "
+                "Apenas **1.102, 1.103, 1.401, 1.403** (e variantes interestaduais 2.xxx) entram no total de compras. "
+                "Os demais CFOPs — bonificação, uso/consumo, energia, ativo imobilizado, transferências, devoluções — "
+                "são listados aqui com o nome completo igual ao relatório *Totais ICMS por Natureza* do Questor."
             )
 
             if df_compras_outros.empty:
                 # ── Nenhuma entrada excluída — diagnóstico dos CFOPs presentes ──
                 st.success(
-                    "✅ **Todos os lançamentos desta planilha são compra para comercialização (CFOP 1.102 / 1.403).** "
-                    "Não há bonificações, uso/consumo, ativo imobilizado ou devoluções neste arquivo."
+                    "✅ **Todos os lançamentos desta planilha são compra para comercialização.** "
+                    "Não foram encontrados CFOPs de bonificação, uso/consumo, ativo imobilizado ou devoluções."
                 )
-                # Diagnóstico: CFOPs encontrados na planilha
                 if not df_compras.empty and "cfop" in df_compras.columns:
-                    st.markdown("#### CFOPs identificados na planilha")
+                    st.markdown("#### CFOPs encontrados na planilha (todos classificados como Compra)")
                     _diag_grp = (
                         df_compras.groupby("cfop", dropna=False)
                         .agg(linhas=("valor", "count"), total=("valor", "sum"))
                         .reset_index()
                         .sort_values("total", ascending=False)
                     )
-                    _diag_grp["Total (R$)"]   = _diag_grp["total"].apply(brl)
-                    _diag_grp["Classificação"] = _diag_grp["cfop"].apply(
-                        lambda x: _classifica_cfop_entrada_xlsx(str(x))
-                    )
+                    _diag_grp["Descrição"]     = _diag_grp["cfop"].apply(lambda x: _desc_cfop_entrada(str(x)))
+                    _diag_grp["Classificação"] = _diag_grp["cfop"].apply(lambda x: _classifica_cfop_entrada_xlsx(str(x)))
+                    _diag_grp["Total (R$)"]    = _diag_grp["total"].apply(brl)
                     _diag_grp = _diag_grp.rename(columns={"cfop": "CFOP", "linhas": "Linhas"})
                     st.dataframe(
-                        _diag_grp[["CFOP", "Classificação", "Linhas", "Total (R$)"]],
+                        _diag_grp[["CFOP", "Descrição", "Classificação", "Linhas", "Total (R$)"]],
                         use_container_width=True, hide_index=True
                     )
                     st.caption(
-                        "💡 Se esperava ver bonificações ou uso/consumo aqui, verifique se a planilha exportada "
-                        "do Questor contém todos os CFOPs de entrada (não apenas 1.102 e 1.403). "
-                        "Pode ser necessário exportar uma planilha separada com todos os tipos de entrada."
+                        "💡 Se esperava ver bonificações (1.910), uso/consumo (1.556) ou outros CFOPs aqui, "
+                        "a planilha exportada do Questor pode ter sido filtrada para mostrar apenas "
+                        "compras para comercialização. Exporte uma planilha com todos os tipos de entrada."
                     )
             else:
-                # ── Há entradas excluídas — exibe detalhes ──────────────────
+                # ── Há entradas excluídas — exibe detalhes completos ────────
                 _cmp_out_val_col = "valor" if "valor" in df_compras_outros.columns else None
                 _cmp_out_total   = df_compras_outros[_cmp_out_val_col].sum() if _cmp_out_val_col else 0
                 _cmp_out_n       = len(df_compras_outros)
                 _cmp_tipo_col    = "_tipo_op" if "_tipo_op" in df_compras_outros.columns else None
                 _tipos_contagem  = df_compras_outros["_tipo_op"].value_counts() if _cmp_tipo_col else pd.Series(dtype=int)
 
-                cc1, cc2, cc3, cc4 = st.columns(4)
-                cc1.metric("Total Excluído (R$)",  brl(_cmp_out_total))
-                cc2.metric("Notas / Linhas",        fmt_num(_cmp_out_n))
-                cc3.metric("Bonificações",          fmt_num(_tipos_contagem.get("BONIFICAÇÃO", 0)))
-                cc4.metric("Uso/Consumo / Outros",  fmt_num(_cmp_out_n - _tipos_contagem.get("BONIFICAÇÃO", 0)))
+                # KPIs
+                _kpi_cols = st.columns(5)
+                _kpi_cols[0].metric("Total Excluído", brl(_cmp_out_total))
+                _kpi_cols[1].metric("Linhas", fmt_num(_cmp_out_n))
+                _kpi_cols[2].metric("Bonificações", brl(_tipos_contagem.get("BONIFICAÇÃO", 0) and
+                    df_compras_outros[df_compras_outros["_tipo_op"] == "BONIFICAÇÃO"]["valor"].sum()
+                    if _cmp_tipo_col and _cmp_out_val_col else 0))
+                _kpi_cols[3].metric("Uso/Consumo", brl(
+                    df_compras_outros[df_compras_outros["_tipo_op"] == "USO/CONSUMO"]["valor"].sum()
+                    if _cmp_tipo_col and _cmp_out_val_col else 0))
+                _kpi_cols[4].metric("Outros Tipos", brl(
+                    df_compras_outros[~df_compras_outros["_tipo_op"].isin(["BONIFICAÇÃO", "USO/CONSUMO"])]["valor"].sum()
+                    if _cmp_tipo_col and _cmp_out_val_col else 0))
 
-                # Resumo por Tipo e CFOP
+                # ── Resumo por Tipo com nome completo do CFOP ────────────────
                 if "cfop" in df_compras_outros.columns and _cmp_out_val_col:
-                    st.markdown("#### Resumo por Tipo e CFOP")
+                    st.markdown("#### Resumo por Tipo e CFOP (com descrição completa)")
                     _grp_keys_c = (["_tipo_op"] if _cmp_tipo_col else []) + ["cfop"]
                     _grp_cmp_ot = (
                         df_compras_outros
@@ -6122,30 +6261,47 @@ f"{_col_nfe}{_col_skip}"
                         .reset_index()
                         .sort_values("total", ascending=False)
                     )
+                    # Adiciona nome completo do CFOP
+                    _grp_cmp_ot["Descrição CFOP"] = _grp_cmp_ot["cfop"].apply(
+                        lambda x: _desc_cfop_entrada(str(x)) if x != "" else ""
+                    )
                     _tot_row_c = {c: "" for c in _grp_cmp_ot.columns}
                     _tot_row_c["cfop"]   = "TOTAL"
                     _tot_row_c["total"]  = _grp_cmp_ot["total"].sum()
                     _tot_row_c["linhas"] = _grp_cmp_ot["linhas"].sum()
                     _grp_cmp_ot = pd.concat([_grp_cmp_ot, pd.DataFrame([_tot_row_c])], ignore_index=True)
                     _grp_cmp_ot["Vlr Contábil"] = _grp_cmp_ot["total"].apply(lambda v: brl(v) if v != "" else "")
-                    _grp_cmp_ot = _grp_cmp_ot.rename(columns={"_tipo_op": "Tipo", "cfop": "CFOP", "linhas": "Linhas"})
-                    _show_c = [c for c in (["Tipo"] if _cmp_tipo_col else []) + ["CFOP", "Linhas", "Vlr Contábil"] if c in _grp_cmp_ot.columns]
+                    _grp_cmp_ot = _grp_cmp_ot.rename(columns={
+                        "_tipo_op": "Tipo", "cfop": "CFOP", "linhas": "Linhas"
+                    })
+                    _show_c = [c for c in (["Tipo"] if _cmp_tipo_col else []) +
+                               ["CFOP", "Descrição CFOP", "Linhas", "Vlr Contábil"]
+                               if c in _grp_cmp_ot.columns]
                     st.dataframe(_grp_cmp_ot[_show_c], use_container_width=True, hide_index=True)
 
-                # Detalhamento de todas as notas excluídas
-                st.markdown("#### Notas Excluídas do Total de Compras")
-                _cols_cmp_det = [c for c in ["_tipo_op", "cfop", "fornecedor", "num_nota", "data", "produto", "valor"]
-                                 if c in df_compras_outros.columns]
-                _det_cmp = df_compras_outros[_cols_cmp_det].copy() if _cols_cmp_det else df_compras_outros.copy()
+                # ── Detalhamento nota a nota ─────────────────────────────────
+                st.markdown("#### Detalhamento por Nota Fiscal")
+                _det_cmp = df_compras_outros.copy()
+                # Adiciona descrição completa do CFOP
+                if "cfop" in _det_cmp.columns:
+                    _det_cmp["Descrição CFOP"] = _det_cmp["cfop"].apply(
+                        lambda x: _desc_cfop_entrada(str(x))
+                    )
+                _cols_cmp_det = [c for c in [
+                    "_tipo_op", "cfop", "Descrição CFOP",
+                    "fornecedor", "num_nota", "data", "produto", "valor"
+                ] if c in _det_cmp.columns]
+                _det_cmp = _det_cmp[_cols_cmp_det].copy()
                 if "data" in _det_cmp.columns:
                     _det_cmp = _det_cmp.sort_values("data", ascending=True)
                 if "valor" in _det_cmp.columns:
                     _det_cmp["valor"] = _det_cmp["valor"].apply(brl)
                 _det_cmp = _det_cmp.rename(columns={
-                    "_tipo_op": "Tipo", "cfop": "CFOP", "fornecedor": "Fornecedor",
-                    "num_nota": "Nº Nota", "data": "Data", "produto": "Produto", "valor": "Valor (R$)"
+                    "_tipo_op": "Tipo", "cfop": "CFOP",
+                    "fornecedor": "Fornecedor", "num_nota": "Nº Nota",
+                    "data": "Data", "produto": "Produto", "valor": "Valor (R$)"
                 })
-                st.dataframe(_det_cmp, use_container_width=True, hide_index=True, height=480)
+                st.dataframe(_det_cmp, use_container_width=True, hide_index=True, height=500)
 
         # ── Exportar Compras ──────────────────────────────────────────
         st.divider()
