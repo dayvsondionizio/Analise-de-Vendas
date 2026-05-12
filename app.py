@@ -3016,9 +3016,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_combos, df_metas,
                    cliente: str, periodo: str,
                    sn_result=None,
-                   df_all: pd.DataFrame = None,
-                   df_nfe: pd.DataFrame = None,
-                   df_nfe_outros: pd.DataFrame = None) -> bytes:
+                   df_all: pd.DataFrame = None) -> bytes:
 
     _FMT_BRL  = 'R$ #,##0.00'
     _FMT_PCT  = '0.00"%"'
@@ -3280,39 +3278,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _fmt(writer, "SN Confronto", {
                     "Total SPED": _FMT_BRL, "Total XMLs": _FMT_BRL, "Diferença": _FMT_BRL,
                 })
-
-        # ── NF-e Vendas (B2B) ────────────────────────────────────────────
-        if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
-            _nfe_xl = df_nfe.drop_duplicates("chave").copy()
-            # Colunas de exibição na ordem do dashboard
-            _cols_nfe = [c for c in ["nNF", "dhEmi", "CFOP", "xNatOp", "destinatario", "vNF"]
-                         if c in _nfe_xl.columns]
-            _nfe_xl = _nfe_xl[_cols_nfe].sort_values(
-                "dhEmi" if "dhEmi" in _cols_nfe else _cols_nfe[0]
-            )
-            _nfe_xl = _nfe_xl.rename(columns={
-                "nNF": "Nº NF", "dhEmi": "Data Emissão",
-                "xNatOp": "Natureza (xNatOp)",
-                "destinatario": "Destinatário", "vNF": "Valor Total (R$)",
-            })
-            _nfe_xl.to_excel(writer, sheet_name="NF-e Vendas", index=False)
-            _fmt(writer, "NF-e Vendas", {"Valor Total (R$)": _FMT_BRL})
-
-        # ── Outras Saídas NF-e (transferências, devoluções, outros) ──────
-        if df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns:
-            _out_xl = df_nfe_outros.drop_duplicates("chave").copy()
-            _cols_out = [c for c in ["_tipo_op", "nNF", "dhEmi", "CFOP", "xNatOp", "destinatario", "vNF"]
-                         if c in _out_xl.columns]
-            _out_xl = _out_xl[_cols_out].sort_values(
-                "dhEmi" if "dhEmi" in _cols_out else _cols_out[0]
-            )
-            _out_xl = _out_xl.rename(columns={
-                "_tipo_op": "Tipo", "nNF": "Nº NF", "dhEmi": "Data Emissão",
-                "xNatOp": "Natureza (xNatOp)",
-                "destinatario": "Destinatário", "vNF": "Valor Total (R$)",
-            })
-            _out_xl.to_excel(writer, sheet_name="Outras Saídas NF-e", index=False)
-            _fmt(writer, "Outras Saídas NF-e", {"Valor Total (R$)": _FMT_BRL})
 
         # Ajusta largura de todas as colunas em todas as abas
         _autofit(writer)
@@ -3931,8 +3896,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                   fonte_label: str, cliente: str, periodo: str,
                   df_abc=None,
                   df_por_hora=None, df_por_turno=None,
-                  sn_result=None,
-                  df_nfe_outros=None) -> bytes:
+                  sn_result=None) -> bytes:
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt, Emu
@@ -4940,111 +4904,6 @@ def exportar_pptx(kpis, df_pares, df_trios,
             ax_cb2.spines[["top", "right"]].set_visible(False)
             fig_cb2.tight_layout()
             plt_to_pptx_image(fig_cb2, sl, Inches(8.0), Inches(3.45), Inches(5.1), Inches(3.8))
-
-    # ══════════════════════════════════════════════════════════════════
-    # SLIDE: OUTRAS SAÍDAS NF-e (transferências, devoluções, etc.)
-    # ══════════════════════════════════════════════════════════════════
-    if df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns:
-        sl = prs.slides.add_slide(blank)
-        add_rect(sl, 0, 0, W, Inches(1.05), RGBColor(0x44, 0x3C, 0x6E))
-        add_text(sl, "OUTRAS SAÍDAS NF-e — NÃO COMPUTADAS NO FATURAMENTO",
-                 Inches(0.5), Inches(0.12), Inches(12.3), Inches(0.55),
-                 font_size=20, bold=True, color=BRANCO)
-        add_text(sl, f"{cliente}  ·  {periodo}  ·  Transferências, devoluções e outros",
-                 Inches(0.5), Inches(0.68), Inches(12.3), Inches(0.35),
-                 font_size=13, color=RGBColor(0xCC, 0xC0, 0xF0))
-
-        _out_notas = df_nfe_outros.drop_duplicates("chave")
-        _out_total = _out_notas["vNF"].sum() if "vNF" in _out_notas.columns else 0
-        _out_n     = len(_out_notas)
-        _tipo_col  = "_tipo_op" if "_tipo_op" in df_nfe_outros.columns else None
-
-        # KPI cards
-        _n_transf = int((_out_notas["_tipo_op"] == "TRANSFERÊNCIA").sum()) if _tipo_col else 0
-        _n_devol  = int((_out_notas["_tipo_op"] == "DEVOLUÇÃO").sum())     if _tipo_col else 0
-        _cards_ot = [
-            (brl(_out_total),      "Total (R$)",       RGBColor(0x44, 0x3C, 0x6E)),
-            (fmt_num(_out_n),      "Notas Fiscais",    AZUL_MED),
-            (fmt_num(_n_transf),   "Transferências",   RGBColor(0x10, 0x6E, 0x5E)),
-            (fmt_num(_n_devol),    "Devoluções",       RGBColor(0xD3, 0x54, 0x00)),
-        ]
-        for ci, (val, lbl, cor_c) in enumerate(_cards_ot):
-            lx = Inches(0.3 + ci * 3.25)
-            add_rect(sl, lx, Inches(1.2), Inches(3.0), Inches(1.4), cor_c)
-            add_text(sl, val, lx + Inches(0.1), Inches(1.32),
-                     Inches(2.8), Inches(0.72),
-                     font_size=22, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
-            add_text(sl, lbl, lx + Inches(0.1), Inches(2.04),
-                     Inches(2.8), Inches(0.42),
-                     font_size=13, color=BRANCO, align=PP_ALIGN.CENTER)
-
-        # Tabela: resumo por Tipo e CFOP
-        if "CFOP" in df_nfe_outros.columns:
-            _tem_nat = (
-                "xNatOp" in df_nfe_outros.columns and
-                df_nfe_outros["xNatOp"].astype(str).str.strip().ne("").any()
-            )
-            _grp_ot_keys = (["_tipo_op"] if _tipo_col else []) + ["CFOP"] + (["xNatOp"] if _tem_nat else [])
-            _grp_ot = (
-                df_nfe_outros.drop_duplicates("chave")
-                .groupby(_grp_ot_keys, dropna=False)
-                .agg(total_vNF=("vNF", "sum"), n_notas=("chave", "nunique"))
-                .reset_index()
-                .sort_values(["_tipo_op" if _tipo_col else "CFOP", "total_vNF"],
-                             ascending=[True, False])
-                .head(10)
-            )
-
-            add_text(sl, "RESUMO POR TIPO / CFOP",
-                     Inches(0.3), Inches(2.78), Inches(12.7), Inches(0.4),
-                     font_size=14, bold=True, color=AZUL_ESC)
-
-            # Cabeçalho da tabela
-            if _tipo_col and _tem_nat:
-                hdrs_ot    = ["Tipo", "CFOP", "Natureza", "Notas", "Valor (R$)"]
-                col_ws_ot  = [Inches(2.2), Inches(1.1), Inches(5.4), Inches(0.9), Inches(2.4)]
-            elif _tipo_col:
-                hdrs_ot    = ["Tipo", "CFOP", "Notas", "Valor (R$)"]
-                col_ws_ot  = [Inches(2.8), Inches(1.4), Inches(1.0), Inches(3.0)]
-            else:
-                hdrs_ot    = ["CFOP", "Notas", "Valor (R$)"]
-                col_ws_ot  = [Inches(2.0), Inches(1.5), Inches(4.0)]
-
-            y_h = Inches(3.2)
-            rh  = Inches(0.38)
-            x0  = Inches(0.3)
-            x   = x0
-            for hdr, ww in zip(hdrs_ot, col_ws_ot):
-                add_rect(sl, x, y_h, ww, rh, RGBColor(0x44, 0x3C, 0x6E))
-                add_text(sl, hdr, x + Inches(0.04), y_h + Inches(0.05),
-                         ww - Inches(0.08), rh - Inches(0.08),
-                         font_size=12, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
-                x += ww
-
-            for ri, (_, row) in enumerate(_grp_ot.iterrows()):
-                y_r = y_h + rh * (ri + 1)
-                bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
-                x   = x0
-                vl  = brl(float(row["total_vNF"])) if row["total_vNF"] else "—"
-                nn  = fmt_num(int(row["n_notas"])) if row["n_notas"] else "—"
-                if _tipo_col and _tem_nat:
-                    vals_ot = [str(row.get("_tipo_op", ""))[:28],
-                               str(row.get("CFOP", "")),
-                               str(row.get("xNatOp", ""))[:48],
-                               nn, vl]
-                elif _tipo_col:
-                    vals_ot = [str(row.get("_tipo_op", ""))[:32],
-                               str(row.get("CFOP", "")), nn, vl]
-                else:
-                    vals_ot = [str(row.get("CFOP", "")), nn, vl]
-
-                for vi, (val, ww) in enumerate(zip(vals_ot, col_ws_ot)):
-                    add_rect(sl, x, y_r, ww, rh, bg)
-                    al = PP_ALIGN.LEFT if vi in (0, 2) else PP_ALIGN.CENTER
-                    add_text(sl, val, x + Inches(0.04), y_r + Inches(0.05),
-                             ww - Inches(0.08), rh - Inches(0.08),
-                             font_size=10, color=TEXTO, align=al)
-                    x += ww
 
     # ══════════════════════════════════════════════════════════════════
     # SLIDE: SIMPLES NACIONAL — REGRA DOS 80%
@@ -7507,10 +7366,10 @@ Diferenças maiores devem ser investigadas com o contador.
     _nome_base = f"Analise_de_Vendas_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
 
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
-    # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
-    # OU o código foi atualizado, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v12"   # bumpar aqui a cada mudança nas funções de export
-    _fp_atual = st.session_state.get("_analise_fp", "") + _EXPORT_CODE_VER
+    # Usa o fingerprint da análise como chave: se o dado mudou, regenera; caso
+    # contrário reutiliza o bytes já gerado, evitando o rerun "pesado" que
+    # causa o reinício da tela.
+    _fp_atual = st.session_state.get("_analise_fp", "")
 
     if st.session_state.get("_export_fp") != _fp_atual:
         # Dados novos — gera os arquivos e guarda no cache
@@ -7530,7 +7389,6 @@ Diferenças maiores devem ser investigadas com o contador.
                 df_por_hora=df_por_hora,
                 df_por_turno=df_por_turno,
                 sn_result=sn_result,
-                df_nfe_outros=df_nfe_outros,
             )
         except ImportError:
             pass
@@ -7541,9 +7399,7 @@ Diferenças maiores devem ser investigadas com o contador.
                                      df_combos, df_metas,
                                      cli_label, per_label,
                                      sn_result=sn_result,
-                                     df_all=df_all,
-                                     df_nfe=df_nfe,
-                                     df_nfe_outros=df_nfe_outros)
+                                     df_all=df_all)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
