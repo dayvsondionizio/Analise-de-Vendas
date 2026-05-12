@@ -5759,8 +5759,7 @@ f"{_col_nfe}{_col_skip}"
         _abas_c += ["Fornecedores", "Curva ABC", "Fornecedor × Produto", "Regime"]
         if _n_meses_c > 1:
             _abas_c.append("Evolução de Preços")
-        if not df_compras_outros.empty:
-            _abas_c.append("Outras Entradas")
+        _abas_c.append("Outras Entradas")   # sempre visível
         _subtabs_c = st.tabs(_abas_c)
         _tidx_c = {name: i for i, name in enumerate(_abas_c)}
 
@@ -6061,15 +6060,45 @@ f"{_col_nfe}{_col_skip}"
                     st.info("Sem dados suficientes para análise de preços.")
 
         # ── Outras Entradas (bonificação, uso/consumo, ativo, etc.) ─────
-        if "Outras Entradas" in _tidx_c:
-            with _subtabs_c[_tidx_c["Outras Entradas"]]:
-                st.subheader("Outras Entradas — Não Computadas no Total de Compras")
-                st.caption(
-                    "Linhas da planilha de compras (Questor) com CFOP que **não são compra para comercialização** "
-                    "(ex: bonificação 1.910, material de uso/consumo 1.556, ativo imobilizado 1.551). "
-                    "Somente **1.102** e **1.403** entram no total de compras exibido no painel principal."
-                )
+        with _subtabs_c[_tidx_c["Outras Entradas"]]:
+            st.subheader("Outras Entradas — Não Computadas no Total de Compras")
+            st.caption(
+                "Lançamentos da planilha Questor com CFOP que **não são compra para comercialização** "
+                "(ex: bonificação 1.910, material de uso/consumo 1.556, ativo imobilizado 1.551, devoluções). "
+                "Somente **1.102** e **1.403** entram no total de compras exibido no painel principal."
+            )
 
+            if df_compras_outros.empty:
+                # ── Nenhuma entrada excluída — diagnóstico dos CFOPs presentes ──
+                st.success(
+                    "✅ **Todos os lançamentos desta planilha são compra para comercialização (CFOP 1.102 / 1.403).** "
+                    "Não há bonificações, uso/consumo, ativo imobilizado ou devoluções neste arquivo."
+                )
+                # Diagnóstico: CFOPs encontrados na planilha
+                if not df_compras.empty and "cfop" in df_compras.columns:
+                    st.markdown("#### CFOPs identificados na planilha")
+                    _diag_grp = (
+                        df_compras.groupby("cfop", dropna=False)
+                        .agg(linhas=("valor", "count"), total=("valor", "sum"))
+                        .reset_index()
+                        .sort_values("total", ascending=False)
+                    )
+                    _diag_grp["Total (R$)"]   = _diag_grp["total"].apply(brl)
+                    _diag_grp["Classificação"] = _diag_grp["cfop"].apply(
+                        lambda x: _classifica_cfop_entrada_xlsx(str(x))
+                    )
+                    _diag_grp = _diag_grp.rename(columns={"cfop": "CFOP", "linhas": "Linhas"})
+                    st.dataframe(
+                        _diag_grp[["CFOP", "Classificação", "Linhas", "Total (R$)"]],
+                        use_container_width=True, hide_index=True
+                    )
+                    st.caption(
+                        "💡 Se esperava ver bonificações ou uso/consumo aqui, verifique se a planilha exportada "
+                        "do Questor contém todos os CFOPs de entrada (não apenas 1.102 e 1.403). "
+                        "Pode ser necessário exportar uma planilha separada com todos os tipos de entrada."
+                    )
+            else:
+                # ── Há entradas excluídas — exibe detalhes ──────────────────
                 _cmp_out_val_col = "valor" if "valor" in df_compras_outros.columns else None
                 _cmp_out_total   = df_compras_outros[_cmp_out_val_col].sum() if _cmp_out_val_col else 0
                 _cmp_out_n       = len(df_compras_outros)
@@ -6078,10 +6107,11 @@ f"{_col_nfe}{_col_skip}"
 
                 cc1, cc2, cc3, cc4 = st.columns(4)
                 cc1.metric("Total Excluído (R$)",  brl(_cmp_out_total))
-                cc2.metric("Linhas Excluídas",     fmt_num(_cmp_out_n))
-                cc3.metric("Bonificações",         fmt_num(_tipos_contagem.get("BONIFICAÇÃO", 0)))
-                cc4.metric("Uso/Consumo / Outros", fmt_num(_cmp_out_n - _tipos_contagem.get("BONIFICAÇÃO", 0)))
+                cc2.metric("Notas / Linhas",        fmt_num(_cmp_out_n))
+                cc3.metric("Bonificações",          fmt_num(_tipos_contagem.get("BONIFICAÇÃO", 0)))
+                cc4.metric("Uso/Consumo / Outros",  fmt_num(_cmp_out_n - _tipos_contagem.get("BONIFICAÇÃO", 0)))
 
+                # Resumo por Tipo e CFOP
                 if "cfop" in df_compras_outros.columns and _cmp_out_val_col:
                     st.markdown("#### Resumo por Tipo e CFOP")
                     _grp_keys_c = (["_tipo_op"] if _cmp_tipo_col else []) + ["cfop"]
@@ -6102,18 +6132,20 @@ f"{_col_nfe}{_col_skip}"
                     _show_c = [c for c in (["Tipo"] if _cmp_tipo_col else []) + ["CFOP", "Linhas", "Vlr Contábil"] if c in _grp_cmp_ot.columns]
                     st.dataframe(_grp_cmp_ot[_show_c], use_container_width=True, hide_index=True)
 
-                with st.expander("🔍 Ver todas as linhas excluídas"):
-                    _cols_cmp_det = [c for c in ["_tipo_op", "cfop", "fornecedor", "produto", "num_nota", "data", "valor"]
-                                     if c in df_compras_outros.columns]
-                    _det_cmp = df_compras_outros[_cols_cmp_det].copy() if _cols_cmp_det else df_compras_outros.copy()
-                    if "valor" in _det_cmp.columns:
-                        _det_cmp["valor"] = _det_cmp["valor"].apply(brl)
-                    if "_tipo_op" in _det_cmp.columns:
-                        _det_cmp = _det_cmp.rename(columns={
-                            "_tipo_op": "Tipo", "cfop": "CFOP", "fornecedor": "Fornecedor",
-                            "produto": "Produto", "num_nota": "Nº Nota", "data": "Data", "valor": "Valor (R$)"
-                        })
-                    st.dataframe(_det_cmp, use_container_width=True, hide_index=True)
+                # Detalhamento de todas as notas excluídas
+                st.markdown("#### Notas Excluídas do Total de Compras")
+                _cols_cmp_det = [c for c in ["_tipo_op", "cfop", "fornecedor", "num_nota", "data", "produto", "valor"]
+                                 if c in df_compras_outros.columns]
+                _det_cmp = df_compras_outros[_cols_cmp_det].copy() if _cols_cmp_det else df_compras_outros.copy()
+                if "data" in _det_cmp.columns:
+                    _det_cmp = _det_cmp.sort_values("data", ascending=True)
+                if "valor" in _det_cmp.columns:
+                    _det_cmp["valor"] = _det_cmp["valor"].apply(brl)
+                _det_cmp = _det_cmp.rename(columns={
+                    "_tipo_op": "Tipo", "cfop": "CFOP", "fornecedor": "Fornecedor",
+                    "num_nota": "Nº Nota", "data": "Data", "produto": "Produto", "valor": "Valor (R$)"
+                })
+                st.dataframe(_det_cmp, use_container_width=True, hide_index=True, height=480)
 
         # ── Exportar Compras ──────────────────────────────────────────
         st.divider()
