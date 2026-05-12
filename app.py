@@ -7053,7 +7053,12 @@ f"{_col_nfe}{_col_skip}"
             # Breakdown por tipo e CFOP
             if "chave" in df_nfe_outros.columns and "CFOP" in df_nfe_outros.columns:
                 st.markdown("#### Resumo por Tipo de Operação e CFOP")
-                _grp_cols = (["_tipo_op"] if _tipo_col else []) + ["CFOP"] + (["xNatOp"] if "xNatOp" in df_nfe_outros.columns else [])
+                # Só inclui xNatOp se houver valores preenchidos
+                _tem_natop = (
+                    "xNatOp" in df_nfe_outros.columns and
+                    df_nfe_outros["xNatOp"].astype(str).str.strip().ne("").any()
+                )
+                _grp_cols = (["_tipo_op"] if _tipo_col else []) + ["CFOP"] + (["xNatOp"] if _tem_natop else [])
                 _grp_outros = (
                     df_nfe_outros.drop_duplicates("chave")
                     .groupby(_grp_cols, dropna=False)
@@ -7069,13 +7074,17 @@ f"{_col_nfe}{_col_skip}"
                 _grp_outros["Vlr Contábil"] = _grp_outros["total_vNF"].apply(lambda v: brl(v) if v != "" else "")
                 _rename_outros = {"_tipo_op": "Tipo", "n_notas": "Notas", "xNatOp": "Natureza (xNatOp)"}
                 _grp_outros = _grp_outros.rename(columns=_rename_outros)
-                _show_cols = [c for c in (["Tipo"] if _tipo_col else []) + ["CFOP", "Natureza (xNatOp)", "Notas", "Vlr Contábil"] if c in _grp_outros.columns]
+                _show_cols = [c for c in (["Tipo"] if _tipo_col else []) +
+                              ["CFOP"] + (["Natureza (xNatOp)"] if _tem_natop else []) +
+                              ["Notas", "Vlr Contábil"] if c in _grp_outros.columns]
                 st.dataframe(_grp_outros[_show_cols], use_container_width=True, hide_index=True)
 
             # Detalhamento completo (expansível)
             with st.expander("Ver todas as notas individualmente"):
-                _cols_det = [c for c in ["_tipo_op", "chave", "nNF", "dhEmi", "xNatOp", "CFOP", "destinatario", "vNF"]
-                             if c in df_nfe_outros.columns]
+                _cols_det = [c for c in ["_tipo_op", "chave", "nNF", "dhEmi", "CFOP",
+                                         "xNatOp" if _tem_natop else None,
+                                         "destinatario", "vNF"]
+                             if c and c in df_nfe_outros.columns]
                 _det_notas = (
                     df_nfe_outros[_cols_det]
                     .drop_duplicates("chave" if "chave" in _cols_det else _cols_det[0])
