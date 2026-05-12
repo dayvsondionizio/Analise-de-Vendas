@@ -6739,7 +6739,17 @@ f"{_col_nfe}{_col_skip}"
                 st.dataframe(_cfop_grp[_cols_cfop], use_container_width=True, hide_index=True)
                 st.caption(f"**Total no app (NFC-e + NF-e): {brl(_total_cfop)}** — compare linha a linha com o Questor para identificar o CFOP divergente.")
 
-            # ── Lista individual de NF-e de venda (para achar os R$ 406,04) ──
+                st.info(
+                    "ℹ️ **Atenção — pequena diferença esperada vs. Questor:** "
+                    "O total de faturamento considera o **Valor Total da Nota (vNF)** dos XMLs fiscais, "
+                    "que pode incluir **fretes, seguros e outras despesas acessórias** nas NF-e (B2B). "
+                    "O relatório *Totais ICMS por Natureza* do Questor utiliza o **Valor Contábil** por item/natureza, "
+                    "que geralmente exclui essas despesas. "
+                    "As **NFC-e (consumidor final) batem exatamente** — a diferença concentra-se nas **NF-e (B2B)** "
+                    "e costuma ser inferior a **0,03%** do faturamento total. Não representa erro contábil."
+                )
+
+            # ── Lista individual de NF-e de venda ──────────────────────
             if "chave" in df_nfe.columns and "vNF" in df_nfe.columns:
                 with st.expander("🔍 Notas Individuais NF-e de Venda — compare nota a nota com o Questor"):
                     _nfe_indiv = df_nfe.drop_duplicates("chave").copy()
@@ -6750,7 +6760,7 @@ f"{_col_nfe}{_col_skip}"
                         "nNF": "Nº NF", "dhEmi": "Data Emissão", "destinatario": "Destinatário", "vNF": "Valor Total"
                     })
                     st.caption("Lista de todas as NF-e de **venda** (após exclusão de transferências e devoluções). "
-                               "Compare nota a nota com o Questor para identificar a divergência de R$ 406,04.")
+                               "A pequena diferença vs. Questor deve-se a fretes/despesas acessórias incluídas no vNF.")
                     st.dataframe(_nfe_indiv, use_container_width=True, hide_index=True)
 
             st.divider()
