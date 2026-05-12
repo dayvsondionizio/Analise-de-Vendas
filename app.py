@@ -6354,6 +6354,15 @@ f"{_col_nfe}{_col_skip}"
             </div>""",
             unsafe_allow_html=True,
         )
+        st.info(
+            "ℹ️ **Atenção — pequena diferença esperada vs. Questor:** "
+            "O faturamento acima usa o **Valor Total da Nota (vNF)** dos XMLs fiscais. "
+            "As **NFC-e (consumidor final) batem exatamente** com o Questor. "
+            "Nas **NF-e (B2B)**, o vNF pode incluir **fretes, seguros e outras despesas acessórias** "
+            "que o relatório *Totais ICMS por Natureza* do Questor não detalha por item — "
+            "gerando uma diferença tipicamente **inferior a 0,03%** do faturamento total. "
+            "Não representa erro contábil."
+        )
     else:
         # Só NFC-e: simples e direto
         c1, c2, c3, c4, c5 = st.columns(5)
