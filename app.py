@@ -3284,8 +3284,15 @@ def exportar_excel(kpis, df_pares, df_trios,
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
         if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
             _nfe_xl = df_nfe.drop_duplicates("chave").copy()
-            _cols_nfe = [c for c in ["nNF", "dhEmi", "CFOP", "xNatOp", "destinatario", "vNF"]
-                         if c in _nfe_xl.columns]
+            # Só inclui xNatOp se tiver valores preenchidos (igual ao dashboard)
+            _tem_natop_nfe = (
+                "xNatOp" in _nfe_xl.columns and
+                _nfe_xl["xNatOp"].astype(str).str.strip().replace("nan", "").ne("").any()
+            )
+            _cols_nfe = [c for c in ["nNF", "dhEmi", "CFOP",
+                                     "xNatOp" if _tem_natop_nfe else None,
+                                     "destinatario", "vNF"]
+                         if c and c in _nfe_xl.columns]
             _nfe_xl = _nfe_xl[_cols_nfe].sort_values(
                 "dhEmi" if "dhEmi" in _cols_nfe else _cols_nfe[0]
             )
@@ -3300,8 +3307,15 @@ def exportar_excel(kpis, df_pares, df_trios,
         # ── Outras Saídas NF-e (transferências, devoluções, outros) ──────
         if df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns:
             _out_xl = df_nfe_outros.drop_duplicates("chave").copy()
-            _cols_out = [c for c in ["_tipo_op", "nNF", "dhEmi", "CFOP", "xNatOp", "destinatario", "vNF"]
-                         if c in _out_xl.columns]
+            # Só inclui xNatOp se tiver valores preenchidos
+            _tem_natop_out = (
+                "xNatOp" in _out_xl.columns and
+                _out_xl["xNatOp"].astype(str).str.strip().replace("nan", "").ne("").any()
+            )
+            _cols_out = [c for c in ["_tipo_op", "nNF", "dhEmi", "CFOP",
+                                     "xNatOp" if _tem_natop_out else None,
+                                     "destinatario", "vNF"]
+                         if c and c in _out_xl.columns]
             _out_xl = _out_xl[_cols_out].sort_values(
                 "dhEmi" if "dhEmi" in _cols_out else _cols_out[0]
             )
@@ -7505,7 +7519,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v13"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v14"   # bumpar aqui a cada mudança nas funções de export
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
 
     if st.session_state.get("_export_fp") != _fp_atual:
