@@ -3160,21 +3160,77 @@ def exportar_excel(kpis, df_pares, df_trios,
                     _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
                     _escreve_abc(_abc_mes, _sheet)
 
-        if not df_elev.empty:
-            df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
-            _fmt(writer, "Ticket Drivers Elevam", {
+        def _escreve_ticket_drivers(df, sheet_name, obs_linhas):
+            """Escreve aba de ticket drivers com cabeçalho explicativo acima dos dados."""
+            from openpyxl.styles import Font, PatternFill, Alignment
+            n_obs = len(obs_linhas)
+            df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=n_obs + 1)
+            _fmt(writer, sheet_name, {
                 "Ticket Médio c/ Produto": _FMT_BRL,
                 "Ticket Médio Geral": _FMT_BRL,
                 "Diferença R$": _FMT_BRL,
             })
+            ws = writer.sheets[sheet_name]
+            # corrige o _fmt que leu cabeçalho na linha 1 (agora está em n_obs+2)
+            # re-aplica formatação nas colunas corretas
+            hdr_row = n_obs + 2
+            header = {ws.cell(hdr_row, c).value: c for c in range(1, ws.max_column + 1)}
+            brl_cols = ["Ticket Médio c/ Produto", "Ticket Médio Geral", "Diferença R$"]
+            for col_name in brl_cols:
+                ci = header.get(col_name)
+                if ci:
+                    for row in ws.iter_rows(min_row=hdr_row + 1, min_col=ci, max_col=ci):
+                        for cell in row:
+                            if cell.value is not None:
+                                cell.number_format = _FMT_BRL
+            # escreve as linhas de observação no topo
+            _fill_obs  = PatternFill("solid", fgColor="FFF9C4")   # amarelo suave
+            _fill_tit  = PatternFill("solid", fgColor="1F4E79")   # azul escuro
+            _font_tit  = Font(bold=True, color="FFFFFF", size=11)
+            _font_obs  = Font(size=10)
+            _wrap      = Alignment(wrap_text=True, vertical="top")
+            n_cols     = max(df.shape[1], 1)
+            # linha 1 = título da seção
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+            ws.cell(1, 1).value     = obs_linhas[0]
+            ws.cell(1, 1).font      = _font_tit
+            ws.cell(1, 1).fill      = _fill_tit
+            ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
+            ws.row_dimensions[1].height = 18
+            # linhas 2..n_obs = explicação
+            for i, texto in enumerate(obs_linhas[1:], start=2):
+                ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=n_cols)
+                ws.cell(i, 1).value     = texto
+                ws.cell(i, 1).font      = _font_obs
+                ws.cell(i, 1).fill      = _fill_obs
+                ws.cell(i, 1).alignment = _wrap
+                ws.row_dimensions[i].height = 30
+            # linha em branco entre obs e dados
+            ws.row_dimensions[n_obs + 1].height = 6
+
+        _tm_str = f"R$ {kpis['ticket_medio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        if not df_elev.empty:
+            _escreve_ticket_drivers(df_elev, "Ticket Drivers Elevam", [
+                "PRODUTOS QUE ELEVAM O TICKET MÉDIO",
+                (f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
+                 "Esta aba mostra os produtos que aparecem em pedidos ACIMA dessa média."),
+                ("Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer mais "
+                 "do que a média. Não porque o produto em si é caro, mas porque ele aparece em compras "
+                 "completas (cliente que compra muito junto). "
+                 "Sugestão: mantenha esses produtos visíveis, crie combos e treine a equipe para sugeri-los."),
+            ])
 
         if not df_redu.empty:
-            df_redu.to_excel(writer, sheet_name="Ticket Drivers Reduzem", index=False)
-            _fmt(writer, "Ticket Drivers Reduzem", {
-                "Ticket Médio c/ Produto": _FMT_BRL,
-                "Ticket Médio Geral": _FMT_BRL,
-                "Diferença R$": _FMT_BRL,
-            })
+            _escreve_ticket_drivers(df_redu, "Ticket Drivers Reduzem", [
+                "PRODUTOS QUE REDUZEM O TICKET MÉDIO",
+                (f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
+                 "Esta aba mostra os produtos que aparecem em pedidos ABAIXO dessa média."),
+                ("Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer menos "
+                 "do que a média. Geralmente são compras rápidas ou avulsas — o cliente veio só buscar aquilo. "
+                 "Sugestão: posicione esses produtos perto de complementos naturais e crie ofertas do tipo "
+                 "\"leve junto\" para aumentar o valor do pedido."),
+            ])
 
         if not df_combos.empty:
             df_combos.to_excel(writer, sheet_name="Combos Precificados", index=False)
