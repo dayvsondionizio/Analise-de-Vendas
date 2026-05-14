@@ -2007,16 +2007,18 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
 
 
 def _abrir_seletor_pasta() -> str:
-    """Abre o seletor nativo de pasta do Windows via tkinter."""
+    """Abre o seletor nativo de pasta via subprocess — funciona mesmo dentro do Streamlit."""
+    import subprocess, sys
+    _script = (
+        "import tkinter as tk; from tkinter import filedialog; "
+        "root = tk.Tk(); root.withdraw(); root.wm_attributes('-topmost', 1); "
+        "p = filedialog.askdirectory(title='Selecione a pasta com os XMLs fiscais'); "
+        "root.destroy(); print(p or '', end='')"
+    )
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes("-topmost", 1)
-        pasta = filedialog.askdirectory(title="Selecione a pasta com os XMLs fiscais")
-        root.destroy()
-        return pasta or ""
+        r = subprocess.run([sys.executable, "-c", _script],
+                           capture_output=True, text=True, timeout=60)
+        return r.stdout.strip()
     except Exception:
         return ""
 
@@ -5325,25 +5327,11 @@ def main():
         # ── Pasta local de XMLs ───────────────────────────────────────────
         # Use apenas quando os XMLs estão em pasta sem compactar —
         # zipar uma pasta grande de XMLs é demorado e desnecessário aqui.
-        with st.expander("📁 Usar pasta local com XMLs"):
-            st.caption("Cole o caminho completo da pasta (ex: C:\\Clientes\\Padaria\\XMLs)")
-            _col_pi, _col_pb = st.columns([4, 1])
-            with _col_pi:
-                _input_pasta = st.text_input(
-                    "Caminho da pasta",
-                    label_visibility="collapsed",
-                    placeholder="C:\\caminho\\para\\pasta",
-                    key="input_pasta_xml",
-                )
-            with _col_pb:
-                if st.button("Adicionar", key="btn_add_pasta_xml", use_container_width=True):
-                    _p = _input_pasta.strip().strip('"').strip("'")
-                    if _p and _p not in st.session_state["pastas_xml"]:
-                        if _Path(_p).is_dir():
-                            st.session_state["pastas_xml"].append(_p)
-                            st.rerun()
-                        else:
-                            st.error("Pasta não encontrada.")
+        if st.button("📁 Selecionar pasta com XMLs", use_container_width=True, key="btn_pasta_xml"):
+            _p = _abrir_seletor_pasta()
+            if _p and _p not in st.session_state["pastas_xml"]:
+                st.session_state["pastas_xml"].append(_p)
+                st.rerun()
 
         for _pi, _pv in enumerate(list(st.session_state["pastas_xml"])):
             _n_pv = _contar_xmls_pasta(_pv)
