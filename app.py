@@ -5716,7 +5716,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_07"
+    _APP_CACHE_VER = "20260514_08"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -6359,14 +6359,25 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
     if _modo == "Compras" and not df_compras.empty:
 
         _kpis_c = calc_kpis_compras(df_compras)
+        _df_c_todos = pd.concat(
+            [df_compras, df_compras_outros] if not df_compras_outros.empty else [df_compras],
+            ignore_index=True,
+        )
+        _total_geral  = _df_c_todos["valor"].sum() if "valor" in _df_c_todos.columns else 0.0
+        _total_comerc = _kpis_c["total_compras"]
+        _total_outros = _total_geral - _total_comerc
+
         _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
-        _cc1.metric("Total em Compras ¹", brl(_kpis_c["total_compras"]),
-                    help="¹ Apenas compras para comercialização (CFOP 1.102, 1.103, 1.401, 1.403 e variantes). "
-                         "O que não é comercialização (uso/consumo, ativo imobilizado, devoluções, bonificações) "
-                         "está na aba 'Outras Entradas' e NÃO entra neste total. "
+        _cc1.metric("Total de Entradas", brl(_total_geral),
+                    help="Total geral de todas as entradas do período: comercialização + uso/consumo + "
+                         "ativo imobilizado + bonificações + outros. "
                          "Pode apresentar pequena diferença vs. Questor pois o Questor inclui fretes e "
                          "despesas acessórias no Valor Contábil da nota.")
-        st.caption("¹ Somente compras para comercialização — demais entradas estão na aba **Outras Entradas**")
+        st.caption(
+            f"Comercialização: **{brl(_total_comerc)}** &nbsp;·&nbsp; "
+            f"Outras Entradas: **{brl(_total_outros)}** &nbsp;·&nbsp; "
+            f"Detalhes na aba **Outras Entradas**"
+        )
         _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
         _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
         _cc4.metric("Produtos Únicos",  fmt_num(_kpis_c["n_produtos"]))
