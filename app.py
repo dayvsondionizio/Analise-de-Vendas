@@ -3060,10 +3060,14 @@ def exportar_excel(kpis, df_pares, df_trios,
         """Ajusta a largura de todas as colunas de todas as abas ao conteúdo.
         Estima a largura de exibição correta mesmo para células com number_format BRL.
         """
+        from openpyxl.utils import get_column_letter
         for ws in writer.sheets.values():
             for col_cells in ws.columns:
                 max_len = 0
-                col_letter = col_cells[0].column_letter
+                try:
+                    col_letter = col_cells[0].column_letter
+                except AttributeError:
+                    col_letter = get_column_letter(col_cells[0].column)
                 for cell in col_cells:
                     try:
                         if cell.value is None:
