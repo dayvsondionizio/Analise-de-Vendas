@@ -3064,8 +3064,10 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
     Usa insert_rows para empurrar os dados para baixo sem alterar a lógica de to_excel/_fmt.
     titulo : texto do título (fundo azul escuro, texto branco)
     obs    : lista de strings — cada item vira uma linha amarela abaixo do título
+    Aplica AutoFilter na linha de cabeçalho dos dados automaticamente.
     """
     from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
     if sheet_name not in writer.sheets:
         return
     ws = writer.sheets[sheet_name]
@@ -3094,6 +3096,9 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
         ws.row_dimensions[i].height = 36
     # linha em branco separadora
     ws.row_dimensions[len(obs) + 2].height = 6
+    # autofilter na linha de cabeçalho dos dados (logo após o espaço em branco)
+    hdr_row = n + 1
+    ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols)}{hdr_row}"
 
 
 def exportar_excel(kpis, df_pares, df_trios,
@@ -3616,22 +3621,40 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     "fornecedor e avaliar concentração de gastos.",
                 ])
 
-        # 4. Curva ABC Produtos
-        _prod_c = calc_ranking_produtos_compras(df_compras)
-        if not _prod_c.empty:
-            _prod_c.to_excel(writer, sheet_name="Curva ABC Produtos", index=False)
-            _fmt(writer, "Curva ABC Produtos",
-                 {**{c: _FMT_BRL for c in _prod_c.select_dtypes("number").columns
+        # 4. Curva ABC Produtos — consolidada + uma aba por mês
+        def _escreve_abc_compras(df_src, sheet_name, obs_extra=""):
+            if df_src is None or df_src.empty:
+                return
+            df_src.to_excel(writer, sheet_name=sheet_name, index=False)
+            _fmt(writer, sheet_name,
+                 {**{c: _FMT_BRL for c in df_src.select_dtypes("number").columns
                      if "%" not in str(c) and "Rank" not in str(c)},
-                  **{c: _FMT_PCT for c in _prod_c.columns if "%" in str(c)},
-                  **{c: _FMT_NUM2 for c in _prod_c.columns
+                  **{c: _FMT_PCT for c in df_src.columns if "%" in str(c)},
+                  **{c: _FMT_NUM2 for c in df_src.columns
                      if "qtd" in str(c).lower() or "quant" in str(c).lower()}})
-            _inserir_cabecalho_aba(writer, "Curva ABC Produtos",
-                "CURVA ABC — PRODUTOS DE COMPRA", [
-                    "Classifica os produtos comprados por valor total: A = 80% do gasto, B = 15%, C = 5%. "
+            _obs = ["Classifica os produtos comprados por valor total: A = 80% do gasto, B = 15%, C = 5%. "
                     "Use para priorizar negociação de preço — focar no grupo A tem mais impacto no "
-                    "resultado do que negociar produtos C.",
-                ])
+                    "resultado do que negociar produtos C."]
+            if obs_extra:
+                _obs.append(obs_extra)
+            _inserir_cabecalho_aba(writer, sheet_name, "CURVA ABC — PRODUTOS DE COMPRA", _obs)
+
+        _prod_c = calc_ranking_produtos_compras(df_compras)
+        _escreve_abc_compras(_prod_c, "Curva ABC Produtos",
+            obs_extra="Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+
+        if _n_meses > 1 and "mes" in df_compras.columns:
+            _meses_abc_c = sorted(df_compras["mes"].dropna().unique())
+            for _m in _meses_abc_c:
+                _df_m = df_compras[df_compras["mes"] == _m]
+                if _df_m.empty:
+                    continue
+                _abc_m = calc_ranking_produtos_compras(_df_m)
+                _mes_label = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" if hasattr(_m, "month") else str(_m)
+                _sheet_abc_m = f"ABC Compras {_mes_label}"[:31]
+                _escreve_abc_compras(_abc_m, _sheet_abc_m,
+                    obs_extra=f"Curva ABC somente do mês {_mes_label}. Compare com outros meses para "
+                              "identificar mudanças de mix, sazonalidade ou variação de volume por produto.")
 
         # 5. Fornecedor × Produto
         _cross_c = calc_cross_fornecedor_item_compras(df_compras)
@@ -5643,7 +5666,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_04"
+    _APP_CACHE_VER = "20260514_05"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -6287,12 +6310,13 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
         _kpis_c = calc_kpis_compras(df_compras)
         _cc1, _cc2, _cc3, _cc4, _cc5 = st.columns(5)
-        _cc1.metric("Total em Compras", brl(_kpis_c["total_compras"]),
-                    help="Soma das compras para comercialização (CFOP 1.102 e 1.403). "
-                         "Pode apresentar pequena diferença em relação ao relatório "
-                         "'Totais ICMS por Natureza' do Questor, pois esse relatório "
-                         "inclui fretes e despesas acessórias no Valor Contábil da nota, "
-                         "enquanto esta planilha exporta o valor por item (Qtd × Preço Unit.).")
+        _cc1.metric("Total em Compras ¹", brl(_kpis_c["total_compras"]),
+                    help="¹ Apenas compras para comercialização (CFOP 1.102, 1.103, 1.401, 1.403 e variantes). "
+                         "O que não é comercialização (uso/consumo, ativo imobilizado, devoluções, bonificações) "
+                         "está na aba 'Outras Entradas' e NÃO entra neste total. "
+                         "Pode apresentar pequena diferença vs. Questor pois o Questor inclui fretes e "
+                         "despesas acessórias no Valor Contábil da nota.")
+        st.caption("¹ Somente compras para comercialização — demais entradas estão na aba **Outras Entradas**")
         _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
         _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
         _cc4.metric("Produtos Únicos",  fmt_num(_kpis_c["n_produtos"]))
