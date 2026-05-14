@@ -3104,8 +3104,10 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
     # linha em branco separadora
     ws.row_dimensions[len(obs) + 2].height = 6
     # autofilter na linha de cabeçalho dos dados (logo após o espaço em branco)
-    hdr_row = n + 1
-    ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols)}{hdr_row}"
+    # ref precisa incluir header + dados para o Excel exibir os botões de filtro
+    hdr_row  = n + 1
+    last_row = max(ws.max_row, hdr_row)
+    ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols)}{last_row}"
 
 
 def exportar_excel(kpis, df_pares, df_trios,
@@ -5714,7 +5716,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_06"
+    _APP_CACHE_VER = "20260514_07"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
