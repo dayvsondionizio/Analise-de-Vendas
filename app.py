@@ -424,13 +424,23 @@ def _classifica_cfop(cfop: str, xnatop: str = "") -> str:
     """Classifica a operação de saída: VENDA | TRANSFERÊNCIA | DEVOLUÇÃO | OUTROS.
 
     Prioridade:
-      1. xNatOp (texto livre do emissor), se preenchido
-      2. CFOP (tabela oficial SEFAZ), como fallback
-      3. 'VENDA' por padrão quando CFOP não identificado
+      1. CFOP prefix 1/2/3 → SEMPRE entrada, independente do xNatOp
+         (nota de fornecedor pode ter xNatOp="VENDA" mas CFOP 1102 é compra)
+      2. xNatOp (texto livre do emissor), se preenchido
+      3. CFOP (tabela oficial SEFAZ), como fallback
+      4. 'VENDA' por padrão quando CFOP não identificado
     """
     nat = str(xnatop or "").strip().upper()
     c4  = str(cfop or "").replace(".", "").strip()[:4]
 
+    # ── Prioridade absoluta: CFOP de ENTRADA nunca é venda ──────────
+    # CFOPs 1xxx/2xxx/3xxx são notas de entrada (compras, transferências recebidas,
+    # devoluções de clientes). Mesmo que xNatOp diga "VENDA" (perspectiva do emitente
+    # fornecedor), para quem recebeu a nota é uma entrada — jamais faturamento de saída.
+    if len(c4) == 4 and c4[0] in ("1", "2", "3"):
+        return "OUTROS"
+
+    # ── xNatOp: classifica por texto do emitente (saídas 5/6/7 apenas) ──
     if nat:
         if "VENDA" in nat:
             return "VENDA"
@@ -442,12 +452,12 @@ def _classifica_cfop(cfop: str, xnatop: str = "") -> str:
                 return "DEVOLUÇÃO"
         # xNatOp preenchido mas não identificado → usa CFOP abaixo
 
-    # Fallback por CFOP
-    if c4 in _CFOP_TRANSFERENCIA:   return "TRANSFERÊNCIA"
-    if c4 in _CFOP_DEVOLUCAO:       return "DEVOLUÇÃO"
+    # ── Fallback por CFOP ────────────────────────────────────────────
+    if c4 in _CFOP_TRANSFERENCIA:    return "TRANSFERÊNCIA"
+    if c4 in _CFOP_DEVOLUCAO:        return "DEVOLUÇÃO"
     if c4 in _CFOP_OUTROS_NAO_VENDA: return "OUTROS"
-    if c4 in _CFOP_VENDA:           return "VENDA"
-    return "VENDA"   # CFOP desconhecido → assume venda
+    if c4 in _CFOP_VENDA:            return "VENDA"
+    return "VENDA"   # CFOP desconhecido de saída → assume venda
 
 
 # ── Classificação de CFOP de ENTRADA ──────────────────────────────────────────
@@ -1642,7 +1652,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     """
     Processador unificado: recebe (nome, bytes) de qualquer arquivo
     (ZIP, RAR, 7z, XML) e caminhos de pastas locais.
-    Vasculha tudo recursivamente e retorna (df_nfce, df_nfe, n_xml, n_skip).
+    Vasculha tudo recursivamente e retorna (df_nfce, df_nfe, n_xml, n_skip, n_entrada_rej).
     """
     import xml.etree.ElementTree as ET
     import zipfile
@@ -1815,25 +1825,26 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                             cstat_aceito = True
                             break
                     if cstat_aceito:
-                        return None, None, 0, chave_canc
-                return None, None, 0, None
+                        return None, None, 0, chave_canc, 0
+                return None, None, 0, None, 0
 
             if root_local not in ("nfeProc", "NFe"):
-                return None, None, 0, None   # ignora silenciosamente outros tipos
+                return None, None, 0, None, 0   # ignora silenciosamente outros tipos
 
             nfe_el  = root.find(_t("NFe")) if root_local == "nfeProc" else root
             prot_el = root.find(_t("protNFe")) if root_local == "nfeProc" else None
-            if nfe_el is None: return None, None, 0, None
+            if nfe_el is None: return None, None, 0, None, 0
             infNFe = nfe_el.find(_t("infNFe"))
-            if infNFe is None: return None, None, 0, None
+            if infNFe is None: return None, None, 0, None, 0
             inf_id = infNFe.get("Id", "")
             chave  = inf_id[3:] if inf_id.startswith("NFe") else inf_id
             ide    = infNFe.find(_t("ide"))
-            if ide is None: return None, None, 0, None
+            if ide is None: return None, None, 0, None, 0
             mod    = _gettxt(ide, "mod")
             nNF    = _gettxt(ide, "nNF")
             dhEmi  = _gettxt(ide, "dhEmi") or None
             xNatOp = _gettxt(ide, "xNatOp")
+            tpNF   = _gettxt(ide, "tpNF")  # "0"=entrada, "1"=saída
             situacao = "Autorizada"
             if prot_el is not None:
                 infProt = prot_el.find(_t("infProt"))
@@ -1852,6 +1863,24 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             emit_el = infNFe.find(_t("emit"))
             emitente = _gettxt(emit_el, "xNome") if emit_el is not None else ""
             cnpj_emit = _gettxt(emit_el, "CNPJ") if emit_el is not None else ""
+
+            # ── Rejeita NF-e de entrada (compras) ──────────────────────
+            # tpNF="0" = entrada (compra); tpNF="1" = saída (venda).
+            # Fallback: se tpNF ausente, verifica CFOP do primeiro item.
+            # CFOPs 1xxx/2xxx/3xxx = entrada; 5xxx/6xxx = saída.
+            if mod == "55":
+                if tpNF == "0":
+                    return None, None, 0, None, 1
+                if tpNF == "":
+                    primeiro_cfop = ""
+                    for _det in infNFe.findall(_t("det")):
+                        _prod_tmp = _det.find(_t("prod"))
+                        if _prod_tmp is not None:
+                            primeiro_cfop = _gettxt(_prod_tmp, "CFOP")
+                            break
+                    if primeiro_cfop and primeiro_cfop[0] in ("1", "2", "3"):
+                        return None, None, 0, None, 1
+
             rows_n, rows_e = [], []
             soma_vprod = 0.0
             for det in infNFe.findall(_t("det")):
@@ -1876,9 +1905,9 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             if vNF == 0.0 and soma_vprod > 0:
                 for r in rows_n: r["vNF"] = soma_vprod
                 for r in rows_e: r["vNF"] = soma_vprod
-            return rows_n, rows_e, 0, None
+            return rows_n, rows_e, 0, None, 0
         except Exception:
-            return None, None, 1, None
+            return None, None, 1, None, 0
 
     # Coleta todos os bytes de XMLs
     all_xml_bytes = []
@@ -1915,13 +1944,14 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
 
     # Parseia em paralelo
     from concurrent.futures import ThreadPoolExecutor
-    rows_nfce, rows_nfe, skipped = [], [], 0
+    rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas = [], [], 0, 0
     chaves_canceladas: set = set()
     with ThreadPoolExecutor(max_workers=min(16, max(4, len(all_xml_bytes) // 500 + 1))) as pool:
-        for r_n, r_e, sk, chave_canc in pool.map(parse_xml, all_xml_bytes):
+        for r_n, r_e, sk, chave_canc, n_ent in pool.map(parse_xml, all_xml_bytes):
             if r_n: rows_nfce.extend(r_n)
             if r_e: rows_nfe.extend(r_e)
             skipped += sk
+            n_entrada_rejeitadas += n_ent
             if chave_canc: chaves_canceladas.add(chave_canc)
 
     try:
@@ -1973,7 +2003,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
     skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
-    return df_nfce, df_nfe, len(all_xml_bytes), skipped
+    return df_nfce, df_nfe, len(all_xml_bytes), skipped, n_entrada_rejeitadas
 
 
 def _abrir_seletor_pasta() -> str:
@@ -5388,15 +5418,13 @@ def main():
                 for _k in _KEYS_RESETAR:
                     if _k in st.session_state:
                         del st.session_state[_k]
-                # Limpa cache de dados para forçar reprocessamento dos arquivos
-                st.cache_data.clear()
                 # Incrementa chave do uploader para forçar limpeza dos arquivos
                 st.session_state["_upload_key"] = st.session_state.get("_upload_key", 0) + 1
                 st.rerun()
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260507_01"
+    _APP_CACHE_VER = "20260514_01"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -5454,7 +5482,8 @@ def main():
         _R           = st.session_state["_analise"]
         df_nfce      = _R["df_nfce"]
         df_nfe       = _R["df_nfe"]
-        df_nfe_outros = _R.get("df_nfe_outros", pd.DataFrame())
+        df_nfe_outros      = _R.get("df_nfe_outros", pd.DataFrame())
+        df_nfe_rejeitadas  = _R.get("df_nfe_rejeitadas", pd.DataFrame())
         df           = df_nfce
         df_all       = _R["df_all"]
         cli_label    = _R["cli_label"]
@@ -5540,11 +5569,12 @@ def main():
         _arqs_xls  = [f for f in (arquivos_upload or []) if f.name.lower().endswith((".xlsx",".xls"))]
 
         df_nfce, df_nfe, _n_xml, _n_skip = pd.DataFrame(), pd.DataFrame(), 0, 0
+        _n_entrada_rej = 0
 
         # Processa XMLs/ZIPs/RARs/7z + pastas
         if _arqs_xml or _pastas_validas:
             _arqs_tuple = tuple((f.name, f.read()) for f in _arqs_xml)
-            df_nfce, df_nfe, _n_xml, _n_skip = processar_fontes_universal(
+            df_nfce, df_nfe, _n_xml, _n_skip, _n_entrada_rej = processar_fontes_universal(
                 _arqs_tuple, tuple(_pastas_validas)
             )
 
@@ -5591,6 +5621,27 @@ def main():
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
 
         if not _only_compras:
+            # ── Rejeita NF-e emitidas por terceiros (fornecedores) ────────
+            # Se há NFC-e, o CNPJ do emitente da NFC-e é o CNPJ da empresa.
+            # NF-e cujo cnpj_emit ≠ CNPJ da empresa são notas RECEBIDAS
+            # (compras/entradas do fornecedor), não emitidas pela empresa.
+            _n_nfe_fornecedor_rej = 0
+            df_nfe_rejeitadas = pd.DataFrame()
+            if (not df_nfe.empty and not df_nfce.empty
+                    and "cnpj_emit" in df_nfce.columns
+                    and "cnpj_emit" in df_nfe.columns):
+                _cnpj_nfce = df_nfce["cnpj_emit"].dropna()
+                _cnpj_nfce = _cnpj_nfce[_cnpj_nfce != ""]
+                if not _cnpj_nfce.empty:
+                    _cnpj_proprio = _cnpj_nfce.mode()[0]
+                    _mask_proprio = df_nfe["cnpj_emit"] == _cnpj_proprio
+                    df_nfe_rejeitadas = df_nfe[~_mask_proprio].copy()
+                    if not df_nfe_rejeitadas.empty:
+                        df_nfe_rejeitadas["_motivo_rejeicao"] = "Emitida por fornecedor (não é venda da empresa)"
+                    _notas_rej = df_nfe_rejeitadas["chave"].nunique() if "chave" in df_nfe_rejeitadas.columns else len(df_nfe_rejeitadas)
+                    _n_nfe_fornecedor_rej = int(_notas_rej)
+                    df_nfe = df_nfe[_mask_proprio].reset_index(drop=True)
+
             # ── Separa NF-e por tipo de operação ──────────────────────
             # Usa _classifica_cfop() que combina xNatOp (texto) + CFOP (tabela SEFAZ).
             # Apenas "VENDA" entra no faturamento; TRANSFERÊNCIA, DEVOLUÇÃO e OUTROS
@@ -5727,6 +5778,7 @@ def main():
             df_elev = df_redu = pd.DataFrame()
             df_sim_preco = df_sim_rec = df_combos = df_metas = pd.DataFrame()
             df_horas = df_por_hora = df_por_turno = pd.DataFrame()
+            df_nfe_rejeitadas = pd.DataFrame()
             _render_prog(50, "📦 Processando planilha de compras...", _t0, _box_txt, _box_bar)
 
         # ── Simples Nacional ──────────────────────────────────
@@ -5851,6 +5903,14 @@ def main():
                 f"</td>"
             ) if _n_skip > 0 else ""
 
+            _col_entrada_rej = (
+                f"<td style='padding:0 20px;border-left:2px solid #fca5a5;'>"
+                f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>NF-e ENTRADA REJEITADA</div>"
+                f"<div style='font-size:18px;font-weight:800;color:#dc2626'>{fmt_num(_n_entrada_rej)}</div>"
+                f"<div style='font-size:11px;color:#9ca3af'>NF-e de compra ignorada</div>"
+                f"</td>"
+            ) if _n_entrada_rej > 0 else ""
+
             _html_card = (
 "<div style='background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 20px;margin-bottom:4px'>"
 "<table style='border-collapse:collapse;width:auto'><tr>"
@@ -5862,10 +5922,25 @@ f"<td style='padding:0 20px;border-left:2px solid #86efac'>"
 f"<div style='font-size:11px;color:#6b7280;font-weight:600;letter-spacing:.5px'>NFC-e (CONSUMIDOR)</div>"
 f"<div style='font-size:22px;font-weight:800;color:#15803d'>{brl(fat_nfce)}</div>"
 f"<div style='font-size:11px;color:#9ca3af'>{fmt_num(n_nfce_notas)} notas autorizadas</div></td>"
-f"{_col_nfe}{_col_skip}"
+f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 "</tr></table></div>"
             )
             st.markdown(_html_card, unsafe_allow_html=True)
+
+            if _n_entrada_rej > 0:
+                st.warning(
+                    f"⚠️ **{fmt_num(_n_entrada_rej)} NF-e(s) de entrada rejeitadas no parse** — "
+                    "XMLs com tpNF=0 ou CFOP de entrada (1xxx/2xxx/3xxx) foram excluídos.",
+                    icon="⚠️",
+                )
+            if _n_nfe_fornecedor_rej > 0:
+                st.warning(
+                    f"⚠️ **{fmt_num(_n_nfe_fornecedor_rej)} NF-e(s) de fornecedor ignoradas** — "
+                    "os XMLs enviados continham notas emitidas por terceiros (fornecedores), "
+                    "não pela própria empresa. Essas notas são compras recebidas, não vendas emitidas, "
+                    "e foram excluídas automaticamente do faturamento.",
+                    icon="⚠️",
+                )
 
         # ── Processa planilha de compras (se enviada) ──────────────────
         df_compras        = pd.DataFrame()
@@ -5916,6 +5991,7 @@ f"{_col_nfe}{_col_skip}"
         st.session_state["_analise"] = {
             "df_nfce": df_nfce,      "df_nfe": df_nfe,        "df_all": df_all,
             "df_nfe_outros": df_nfe_outros if not _only_compras else pd.DataFrame(),
+            "df_nfe_rejeitadas": df_nfe_rejeitadas if not _only_compras else pd.DataFrame(),
             "cli_label": cli_label,  "per_label": per_label,  "cnpj_label": cnpj_label,
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
@@ -6554,6 +6630,8 @@ f"{_col_nfe}{_col_skip}"
         abas.append("NF-e (B2B)")
     if not df_nfe_outros.empty:
         abas.append("Outras Saídas NF-e")
+    if not df_nfe_rejeitadas.empty:
+        abas.append("NF-e Rejeitadas")
     if sn_result is not None:
         abas.append("Simples Nacional")
     tabs = st.tabs(abas)
@@ -7247,6 +7325,69 @@ f"{_col_nfe}{_col_skip}"
                 if "_tipo_op" in _det_notas.columns:
                     _det_notas = _det_notas.rename(columns={"_tipo_op": "Tipo"})
                 st.dataframe(_det_notas, use_container_width=True, hide_index=True)
+
+    #  NF-e REJEITADAS
+    if "NF-e Rejeitadas" in tab_idx and not df_nfe_rejeitadas.empty:
+        with tabs[tab_idx["NF-e Rejeitadas"]]:
+            st.subheader("NF-e Rejeitadas — Notas Excluídas do Faturamento")
+            st.caption(
+                "Estas NF-e foram detectadas nos XMLs enviados mas **não pertencem à empresa analisada** — "
+                "são notas emitidas por fornecedores/terceiros (compras recebidas, não vendas emitidas). "
+                "Incluí-las no faturamento geraria distorção nos resultados."
+            )
+
+            _rej_notas = df_nfe_rejeitadas.drop_duplicates("chave") if "chave" in df_nfe_rejeitadas.columns else df_nfe_rejeitadas
+            _rej_total = _rej_notas["vNF"].sum() if "vNF" in _rej_notas.columns else 0
+            _rej_n     = len(_rej_notas)
+            _rej_emit  = _rej_notas["emitente"].nunique() if "emitente" in _rej_notas.columns else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Notas Rejeitadas", fmt_num(_rej_n))
+            c2.metric("Valor Total Rejeitado", brl(_rej_total),
+                      help="Este valor NÃO entra no faturamento da empresa")
+            c3.metric("Fornecedores Distintos", fmt_num(_rej_emit))
+
+            if _rej_total > 0:
+                st.info(
+                    f"💡 **Impacto evitado:** sem este filtro, o faturamento estaria "
+                    f"**{brl(_rej_total)} maior** do que o real — distorção de "
+                    f"**{_rej_total / (kpis['faturamento'] + _rej_total) * 100:.1f}%** sobre o total.",
+                    icon="💡",
+                )
+
+            # Breakdown por emitente
+            if "emitente" in df_nfe_rejeitadas.columns and "chave" in df_nfe_rejeitadas.columns:
+                st.markdown("#### Resumo por Fornecedor")
+                _grp_rej = (
+                    df_nfe_rejeitadas.drop_duplicates("chave")
+                    .groupby("emitente", dropna=False)
+                    .agg(n_notas=("chave", "nunique"), total_vNF=("vNF", "sum"))
+                    .reset_index()
+                    .sort_values("total_vNF", ascending=False)
+                )
+                _grp_rej["Vlr Total (R$)"] = _grp_rej["total_vNF"].apply(brl)
+                _grp_rej = _grp_rej.rename(columns={"emitente": "Fornecedor (Emitente)", "n_notas": "Notas"})
+                st.dataframe(
+                    _grp_rej[["Fornecedor (Emitente)", "Notas", "Vlr Total (R$)"]],
+                    use_container_width=True, hide_index=True,
+                )
+
+            # Detalhamento completo
+            with st.expander("Ver todas as notas rejeitadas individualmente"):
+                _cols_rej = [c for c in ["chave", "nNF", "dhEmi", "emitente", "CFOP",
+                                         "xNatOp", "destinatario", "vNF", "_motivo_rejeicao"]
+                             if c in df_nfe_rejeitadas.columns]
+                _det_rej = (
+                    df_nfe_rejeitadas[_cols_rej]
+                    .drop_duplicates("chave" if "chave" in _cols_rej else _cols_rej[0])
+                    .sort_values("dhEmi" if "dhEmi" in _cols_rej else _cols_rej[0])
+                    .copy()
+                )
+                if "vNF" in _det_rej.columns:
+                    _det_rej["vNF"] = _det_rej["vNF"].apply(brl)
+                if "_motivo_rejeicao" in _det_rej.columns:
+                    _det_rej = _det_rej.rename(columns={"_motivo_rejeicao": "Motivo"})
+                st.dataframe(_det_rej, use_container_width=True, hide_index=True)
 
     #  SIMPLES NACIONAL
     if "Simples Nacional" in tab_idx and sn_result is not None:
