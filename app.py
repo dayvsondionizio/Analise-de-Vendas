@@ -2582,6 +2582,11 @@ def calc_ranking_produtos_compras(df: pd.DataFrame) -> pd.DataFrame:
             return "B"
         return "C"
 
+    # Tipo de operação (quando df_todos com _tipo_op combinado)
+    if "_tipo_op" in _df.columns:
+        _tipo = _df.groupby("produto")["_tipo_op"].agg(lambda x: x.mode()[0] if len(x) else "")
+        grp = grp.merge(_tipo.rename("_tipo_op").reset_index(), on="produto", how="left")
+
     grp["ABC"] = grp["pct_acum"].apply(_abc)
     grp.insert(0, "Rank", range(1, len(grp) + 1))
 
@@ -2589,10 +2594,12 @@ def calc_ranking_produtos_compras(df: pd.DataFrame) -> pd.DataFrame:
         "produto": "Produto", "ncm": "NCM", "unidade": "Un.",
         "total": "Total (R$)", "qtd_total": "Qtd. Total",
         "n_notas": "Nº Notas", "pct": "% do Total", "pct_acum": "% Acumulado",
+        "_tipo_op": "Tipo",
     }
     grp = grp.rename(columns=rename_map)
 
-    _base_cols = ["Rank", "Produto", "NCM", "Un.", "Total (R$)", "Qtd. Total", "Nº Notas"]
+    _base_cols = ["Rank", "Produto", "Tipo", "NCM", "Un.", "Total (R$)", "Qtd. Total", "Nº Notas"]
+    _base_cols = [c for c in _base_cols if c in grp.columns]
     _mes_cols = [f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" for _m in _meses]
     _mes_cols = [c for c in _mes_cols if c in grp.columns]
     _base_cols += _mes_cols + ["% do Total", "% Acumulado", "ABC"]
@@ -3236,6 +3243,9 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "Classifica todos os produtos por receita: A = 80% do faturamento (poucos produtos, alta "
                 "prioridade), B = 15%, C = 5% (muitos produtos, baixa prioridade individual). "
                 "Use para decidir onde focar estoque, promoções e reposição.",
+                "ATENÇÃO — Receita bruta: devoluções de clientes (NF-e de entrada com CFOP 1.201/1.202) "
+                "NÃO são abatidas deste ranking. Um produto com muitas devoluções pode aparecer com receita "
+                "maior do que a real. Para avaliar a receita líquida, consulte a aba 'Outras Saídas/NF-e'.",
             ]
             if obs_extra:
                 _obs_abc.append(obs_extra)
@@ -3515,6 +3525,14 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
     _FMT_NUM = '#,##0'
     _FMT_NUM2 = '#,##0.00'
 
+    # df com todas as entradas (comercialização + outros), com coluna Tipo
+    _df_compras_tipo = df_compras.copy()
+    _df_compras_tipo["_tipo_op"] = "COMPRA"
+    if df_compras_outros is not None and not df_compras_outros.empty:
+        _df_todos = pd.concat([_df_compras_tipo, df_compras_outros], ignore_index=True)
+    else:
+        _df_todos = _df_compras_tipo
+
     def _autofit(writer):
         from openpyxl.utils import get_column_letter as _gcl
         for ws in writer.sheets.values():
@@ -3554,24 +3572,28 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     cell.number_format = fmt
 
     _n_meses = df_compras["mes"].nunique() if "mes" in df_compras.columns else 1
-    _kpis_c  = calc_kpis_compras(df_compras)
-    _tot_all = _kpis_c["total_compras"] or 1
+    _kpis_c      = calc_kpis_compras(df_compras)
+    _kpis_todos  = calc_kpis_compras(_df_todos)
+    _tot_all     = _kpis_todos["total_compras"] or 1
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
 
         # 1. Resumo Geral
         _resumo_rows = [
-            ("Cliente",          cliente,                      None),
-            ("Período",          periodo,                      None),
-            ("Total em Compras", _kpis_c["total_compras"],     _FMT_BRL),
-            ("Notas Fiscais",    _kpis_c["n_notas"],           _FMT_NUM),
-            ("Fornecedores",     _kpis_c["n_fornecedores"],    _FMT_NUM),
-            ("Produtos Únicos",  _kpis_c["n_produtos"],        _FMT_NUM),
-            ("Ticket Médio/NF",  _kpis_c["ticket_medio_nota"], _FMT_BRL),
+            ("Cliente",                    cliente,                             None),
+            ("Período",                    periodo,                             None),
+            ("Total de Entradas (Geral)",  _kpis_todos["total_compras"],        _FMT_BRL),
+            ("  → Comercialização",        _kpis_c["total_compras"],            _FMT_BRL),
+            ("  → Outras Entradas",        _kpis_todos["total_compras"] - _kpis_c["total_compras"], _FMT_BRL),
+            ("Notas Fiscais (total)",      _kpis_todos["n_notas"],              _FMT_NUM),
+            ("Fornecedores",               _kpis_todos["n_fornecedores"],       _FMT_NUM),
+            ("Produtos Únicos",            _kpis_todos["n_produtos"],           _FMT_NUM),
+            ("Ticket Médio/NF",            _kpis_todos["ticket_medio_nota"],    _FMT_BRL),
             ("Obs.",
-             "Valores de compras para comercialização (CFOP 1.102 e 1.403). "
-             "Pequena diferença vs. Questor deve-se a fretes e despesas acessórias.", None),
+             "Comercialização = CFOPs de compra para revenda (1.102, 1.103, 1.401, 1.403 e interestaduais). "
+             "Outras Entradas = uso/consumo, ativo imobilizado, bonificações, devoluções ao fornecedor etc. "
+             "Pequena diferença vs. Questor pode ocorrer por fretes e despesas acessórias.", None),
         ]
         resumo = pd.DataFrame([(r[0], r[1]) for r in _resumo_rows],
                               columns=["Indicador", "Valor"])
@@ -3621,8 +3643,8 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     "fornecedor e avaliar concentração de gastos.",
                 ])
 
-        # 4. Curva ABC Produtos — consolidada + uma aba por mês
-        def _escreve_abc_compras(df_src, sheet_name, obs_extra=""):
+        # 4. Curva ABC Produtos — consolidada + só comercialização + uma aba por mês
+        def _escreve_abc_compras(df_src, sheet_name, titulo, obs_extra=""):
             if df_src is None or df_src.empty:
                 return
             df_src.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -3637,24 +3659,50 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     "resultado do que negociar produtos C."]
             if obs_extra:
                 _obs.append(obs_extra)
-            _inserir_cabecalho_aba(writer, sheet_name, "CURVA ABC — PRODUTOS DE COMPRA", _obs)
+            _inserir_cabecalho_aba(writer, sheet_name, titulo, _obs)
 
+        # 4a. ABC com TODAS as entradas (coluna Tipo identifica cada categoria)
+        _prod_todos = calc_ranking_produtos_compras(_df_todos)
+        _escreve_abc_compras(
+            _prod_todos, "Curva ABC Produtos",
+            titulo="CURVA ABC — TODAS AS ENTRADAS (COMERCIALIZAÇÃO + OUTROS)",
+            obs_extra=(
+                "Inclui TODAS as entradas: comercialização (revenda), uso/consumo, ativo imobilizado, "
+                "bonificações etc. A coluna 'Tipo' identifica cada categoria. Use o AutoFiltro na coluna "
+                "'Tipo' para isolar apenas a categoria desejada. "
+                + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+            ),
+        )
+
+        # 4b. ABC só comercialização
         _prod_c = calc_ranking_produtos_compras(df_compras)
-        _escreve_abc_compras(_prod_c, "Curva ABC Produtos",
-            obs_extra="Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+        _escreve_abc_compras(
+            _prod_c, "ABC Comercialização",
+            titulo="CURVA ABC — APENAS COMPRAS PARA COMERCIALIZAÇÃO",
+            obs_extra=(
+                "Apenas CFOPs de compra para revenda (1.102, 1.103, 1.401, 1.403 e interestaduais). "
+                "Use para decisões de estoque, precificação e negociação com fornecedores. "
+                + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+            ),
+        )
 
-        if _n_meses > 1 and "mes" in df_compras.columns:
-            _meses_abc_c = sorted(df_compras["mes"].dropna().unique())
+        # 4c. ABC por mês (usa df_todos para consistência com aba consolidada)
+        if _n_meses > 1 and "mes" in _df_todos.columns:
+            _meses_abc_c = sorted(_df_todos["mes"].dropna().unique())
             for _m in _meses_abc_c:
-                _df_m = df_compras[df_compras["mes"] == _m]
+                _df_m = _df_todos[_df_todos["mes"] == _m]
                 if _df_m.empty:
                     continue
                 _abc_m = calc_ranking_produtos_compras(_df_m)
                 _mes_label = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" if hasattr(_m, "month") else str(_m)
                 _sheet_abc_m = f"ABC Compras {_mes_label}"[:31]
-                _escreve_abc_compras(_abc_m, _sheet_abc_m,
-                    obs_extra=f"Curva ABC somente do mês {_mes_label}. Compare com outros meses para "
-                              "identificar mudanças de mix, sazonalidade ou variação de volume por produto.")
+                _escreve_abc_compras(
+                    _abc_m, _sheet_abc_m,
+                    titulo=f"CURVA ABC — TODAS AS ENTRADAS — {_mes_label.upper()}",
+                    obs_extra=f"Curva ABC somente do mês {_mes_label} (todas as entradas). "
+                              "Compare com outros meses para identificar mudanças de mix, "
+                              "sazonalidade ou variação de volume por produto.",
+                )
 
         # 5. Fornecedor × Produto
         _cross_c = calc_cross_fornecedor_item_compras(df_compras)
@@ -5666,7 +5714,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_05"
+    _APP_CACHE_VER = "20260514_06"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
