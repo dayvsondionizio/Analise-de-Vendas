@@ -3055,9 +3055,47 @@ def fig_crossell(df_cross: pd.DataFrame):
     return fig
 
 
-# 
+#
 # EXPORT EXCEL
-# 
+#
+
+def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
+    """Insere linhas de cabeçalho explicativo no topo de uma aba já escrita.
+    Usa insert_rows para empurrar os dados para baixo sem alterar a lógica de to_excel/_fmt.
+    titulo : texto do título (fundo azul escuro, texto branco)
+    obs    : lista de strings — cada item vira uma linha amarela abaixo do título
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment
+    if sheet_name not in writer.sheets:
+        return
+    ws = writer.sheets[sheet_name]
+    n = len(obs) + 2          # título + obs + 1 linha em branco
+    ws.insert_rows(1, n)
+    n_cols = max(ws.max_column, 1)
+    _fill_tit = PatternFill("solid", fgColor="1F4E79")
+    _fill_obs = PatternFill("solid", fgColor="FFF9C4")
+    _font_tit = Font(bold=True, color="FFFFFF", size=11)
+    _font_obs = Font(size=10)
+    _wrap     = Alignment(wrap_text=True, vertical="top")
+    # linha 1 — título
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    ws.cell(1, 1).value     = titulo
+    ws.cell(1, 1).font      = _font_tit
+    ws.cell(1, 1).fill      = _fill_tit
+    ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 18
+    # linhas de obs
+    for i, texto in enumerate(obs, start=2):
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=n_cols)
+        ws.cell(i, 1).value     = texto
+        ws.cell(i, 1).font      = _font_obs
+        ws.cell(i, 1).fill      = _fill_obs
+        ws.cell(i, 1).alignment = _wrap
+        ws.row_dimensions[i].height = 36
+    # linha em branco separadora
+    ws.row_dimensions[len(obs) + 2].height = 6
+
+
 def exportar_excel(kpis, df_pares, df_trios,
                    df_cesta, df_bcg, df_abc, df_remocao,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
@@ -3135,15 +3173,41 @@ def exportar_excel(kpis, df_pares, df_trios,
         _ws_resumo = writer.sheets["Resumo Geral"]
         for _ri, (_, _, _rfmt) in enumerate(_resumo_rows, start=2):
             _ws_resumo.cell(_ri, 2).number_format = _rfmt
+        _inserir_cabecalho_aba(writer, "Resumo Geral",
+            "RESUMO GERAL DO PERÍODO", [
+                "Visão consolidada do período: faturamento total, número de pedidos, ticket médio e itens "
+                "por pedido. Use como ponto de partida para entender o desempenho geral antes de entrar "
+                "nas análises detalhadas.",
+            ])
 
         df_pares.to_excel(writer, sheet_name="Pares de Produtos", index=False)
+        _inserir_cabecalho_aba(writer, "Pares de Produtos",
+            "PARES DE PRODUTOS — COMPRAS SIMULTÂNEAS", [
+                "Mostra quais dois produtos são comprados juntos com mais frequência no mesmo pedido. "
+                "Quanto maior a frequência, mais natural é a combinação para o cliente. "
+                "Use para criar promoções do tipo \"leve junto\" ou posicionar os produtos próximos no ponto de venda.",
+            ])
+
         df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
+        _inserir_cabecalho_aba(writer, "Combos de 3",
+            "COMBOS DE 3 PRODUTOS — COMPRAS SIMULTÂNEAS", [
+                "Mesmo raciocínio dos pares, mas com três produtos simultâneos. A coluna Sugestão indica "
+                "o nome do combo. Use para criar combos formais no cardápio ou balcão — esses agrupamentos "
+                "já acontecem naturalmente, só precisam de um empurrão.",
+            ])
+
         df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
+        _inserir_cabecalho_aba(writer, "Distribuição Cesta",
+            "DISTRIBUIÇÃO DA CESTA DE COMPRAS", [
+                "Mostra quantos itens diferentes os clientes costumam comprar por pedido. Ex.: se 40% dos "
+                "pedidos têm apenas 1 item, há grande oportunidade de aumentar o ticket sugerindo um segundo "
+                "produto no momento da compra.",
+            ])
 
         # ── Curva ABC — período completo ──────────────────────────────────
         _MESES_PT_EXP = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
                          7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
-        def _escreve_abc(df_src, sheet_name):
+        def _escreve_abc(df_src, sheet_name, obs_extra=""):
             if df_src is None or df_src.empty:
                 return
             _cols = ["Rank","Produto","Curva",
@@ -3163,6 +3227,14 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "Freq. NFC-e":   _FMT_NUM,
                 "Freq. NF-e":    _FMT_NUM,
             })
+            _obs_abc = [
+                "Classifica todos os produtos por receita: A = 80% do faturamento (poucos produtos, alta "
+                "prioridade), B = 15%, C = 5% (muitos produtos, baixa prioridade individual). "
+                "Use para decidir onde focar estoque, promoções e reposição.",
+            ]
+            if obs_extra:
+                _obs_abc.append(obs_extra)
+            _inserir_cabecalho_aba(writer, sheet_name, "CURVA ABC — CLASSIFICAÇÃO DE PRODUTOS POR RECEITA", _obs_abc)
 
         if df_abc is not None and not df_abc.empty:
             _escreve_abc(df_abc, "Curva ABC")
@@ -3178,79 +3250,46 @@ def exportar_excel(kpis, df_pares, df_trios,
                         continue
                     _abc_mes = calc_curva_abc(_df_mes)
                     _sheet   = f"ABC {_MESES_PT_EXP[_per.month]}{_per.year}"[:31]
-                    _escreve_abc(_abc_mes, _sheet)
-
-        def _escreve_ticket_drivers(df, sheet_name, obs_linhas):
-            """Escreve aba de ticket drivers com cabeçalho explicativo acima dos dados."""
-            from openpyxl.styles import Font, PatternFill, Alignment
-            n_obs = len(obs_linhas)
-            df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=n_obs + 1)
-            _fmt(writer, sheet_name, {
-                "Ticket Médio c/ Produto": _FMT_BRL,
-                "Ticket Médio Geral": _FMT_BRL,
-                "Diferença R$": _FMT_BRL,
-            })
-            ws = writer.sheets[sheet_name]
-            # corrige o _fmt que leu cabeçalho na linha 1 (agora está em n_obs+2)
-            # re-aplica formatação nas colunas corretas
-            hdr_row = n_obs + 2
-            header = {ws.cell(hdr_row, c).value: c for c in range(1, ws.max_column + 1)}
-            brl_cols = ["Ticket Médio c/ Produto", "Ticket Médio Geral", "Diferença R$"]
-            for col_name in brl_cols:
-                ci = header.get(col_name)
-                if ci:
-                    for row in ws.iter_rows(min_row=hdr_row + 1, min_col=ci, max_col=ci):
-                        for cell in row:
-                            if cell.value is not None:
-                                cell.number_format = _FMT_BRL
-            # escreve as linhas de observação no topo
-            _fill_obs  = PatternFill("solid", fgColor="FFF9C4")   # amarelo suave
-            _fill_tit  = PatternFill("solid", fgColor="1F4E79")   # azul escuro
-            _font_tit  = Font(bold=True, color="FFFFFF", size=11)
-            _font_obs  = Font(size=10)
-            _wrap      = Alignment(wrap_text=True, vertical="top")
-            n_cols     = max(df.shape[1], 1)
-            # linha 1 = título da seção
-            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-            ws.cell(1, 1).value     = obs_linhas[0]
-            ws.cell(1, 1).font      = _font_tit
-            ws.cell(1, 1).fill      = _fill_tit
-            ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
-            ws.row_dimensions[1].height = 18
-            # linhas 2..n_obs = explicação
-            for i, texto in enumerate(obs_linhas[1:], start=2):
-                ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=n_cols)
-                ws.cell(i, 1).value     = texto
-                ws.cell(i, 1).font      = _font_obs
-                ws.cell(i, 1).fill      = _fill_obs
-                ws.cell(i, 1).alignment = _wrap
-                ws.row_dimensions[i].height = 30
-            # linha em branco entre obs e dados
-            ws.row_dimensions[n_obs + 1].height = 6
+                    _escreve_abc(_abc_mes, _sheet,
+                        obs_extra="Curva ABC do mês, separada para comparação com outros meses. "
+                        "Use para detectar se um produto subiu ou caiu de categoria — útil para "
+                        "identificar sazonalidade ou queda de desempenho.")
 
         _tm_str = f"R$ {kpis['ticket_medio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
         if not df_elev.empty:
-            _escreve_ticket_drivers(df_elev, "Ticket Drivers Elevam", [
-                "PRODUTOS QUE ELEVAM O TICKET MÉDIO",
-                (f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
-                 "Esta aba mostra os produtos que aparecem em pedidos ACIMA dessa média."),
-                ("Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer mais "
-                 "do que a média. Não porque o produto em si é caro, mas porque ele aparece em compras "
-                 "completas (cliente que compra muito junto). "
-                 "Sugestão: mantenha esses produtos visíveis, crie combos e treine a equipe para sugeri-los."),
-            ])
+            df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
+            _fmt(writer, "Ticket Drivers Elevam", {
+                "Ticket Médio c/ Produto": _FMT_BRL,
+                "Ticket Médio Geral": _FMT_BRL,
+                "Diferença R$": _FMT_BRL,
+            })
+            _inserir_cabecalho_aba(writer, "Ticket Drivers Elevam",
+                "PRODUTOS QUE ELEVAM O TICKET MÉDIO", [
+                    f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
+                    "Esta aba mostra os produtos que aparecem em pedidos ACIMA dessa média.",
+                    "Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer mais "
+                    "do que a média. Não porque o produto em si é caro, mas porque ele aparece em compras "
+                    "completas (cliente que compra muito junto). "
+                    "Sugestão: mantenha esses produtos visíveis, crie combos e treine a equipe para sugeri-los.",
+                ])
 
         if not df_redu.empty:
-            _escreve_ticket_drivers(df_redu, "Ticket Drivers Reduzem", [
-                "PRODUTOS QUE REDUZEM O TICKET MÉDIO",
-                (f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
-                 "Esta aba mostra os produtos que aparecem em pedidos ABAIXO dessa média."),
-                ("Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer menos "
-                 "do que a média. Geralmente são compras rápidas ou avulsas — o cliente veio só buscar aquilo. "
-                 "Sugestão: posicione esses produtos perto de complementos naturais e crie ofertas do tipo "
-                 "\"leve junto\" para aumentar o valor do pedido."),
-            ])
+            df_redu.to_excel(writer, sheet_name="Ticket Drivers Reduzem", index=False)
+            _fmt(writer, "Ticket Drivers Reduzem", {
+                "Ticket Médio c/ Produto": _FMT_BRL,
+                "Ticket Médio Geral": _FMT_BRL,
+                "Diferença R$": _FMT_BRL,
+            })
+            _inserir_cabecalho_aba(writer, "Ticket Drivers Reduzem",
+                "PRODUTOS QUE REDUZEM O TICKET MÉDIO", [
+                    f"O Ticket Médio Geral do período é {_tm_str} — média do valor de todos os pedidos. "
+                    "Esta aba mostra os produtos que aparecem em pedidos ABAIXO dessa média.",
+                    "Como interpretar: quando um cliente leva esse produto, o pedido dele costuma valer menos "
+                    "do que a média. Geralmente são compras rápidas ou avulsas — o cliente veio só buscar aquilo. "
+                    "Sugestão: posicione esses produtos perto de complementos naturais e crie ofertas do tipo "
+                    "\"leve junto\" para aumentar o valor do pedido.",
+                ])
 
         if not df_combos.empty:
             df_combos.to_excel(writer, sheet_name="Combos Precificados", index=False)
@@ -3260,10 +3299,14 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "Combo c/ 5% desc.": _FMT_BRL,
                 "Combo c/ 10% desc.": _FMT_BRL,
             })
+            _inserir_cabecalho_aba(writer, "Combos Precificados",
+                "COMBOS PRECIFICADOS — SUGESTÃO DE PREÇOS", [
+                    "Sugestão de preço para os combos naturais encontrados na análise, com simulação de "
+                    "desconto de 5% e 10%. Use como base para criar promoções formais sem perder margem.",
+                ])
 
         if not df_metas.empty:
             _metas_exp = df_metas.copy()
-            # Linha de total
             _metas_tot = {c: "" for c in _metas_exp.columns}
             _metas_tot["xProd"]      = "TOTAL"
             _metas_tot["volume"]     = _metas_exp["volume"].sum() if "volume" in _metas_exp.columns else ""
@@ -3275,6 +3318,12 @@ def exportar_excel(kpis, df_pares, df_trios,
             _metas_exp.to_excel(writer, sheet_name="Metas por Produto", index=False)
             _fmt(writer, "Metas por Produto", {
                 "receita": _FMT_BRL, "Meta +10%": _FMT_BRL, "Meta +20%": _FMT_BRL})
+            _inserir_cabecalho_aba(writer, "Metas por Produto",
+                "METAS POR PRODUTO", [
+                    "Projeção de metas de volume e receita por produto com crescimento de +10% e +20% "
+                    "sobre o período atual. Use para definir objetivos realistas por item e acompanhar "
+                    "o desempenho da equipe de vendas.",
+                ])
 
         # ── Simples Nacional ──────────────────────────────────────────
         if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS"):
@@ -3411,6 +3460,12 @@ def exportar_excel(kpis, df_pares, df_trios,
             })
             _nfe_xl.to_excel(writer, sheet_name="NF-e Vendas", index=False)
             _fmt(writer, "NF-e Vendas", {"Valor Total (R$)": _FMT_BRL})
+            _inserir_cabecalho_aba(writer, "NF-e Vendas",
+                "NF-e DE VENDAS EMITIDAS PELA EMPRESA", [
+                    "Listagem das Notas Fiscais Eletrônicas de venda emitidas pela empresa no período "
+                    "(modelo 55). Complementa os cupons fiscais (NFC-e) para clientes que exigem nota, "
+                    "como empresas e revendedores.",
+                ])
 
         # ── Outras Saídas NF-e (transferências, devoluções, outros) ──────
         if df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns:
@@ -3434,6 +3489,11 @@ def exportar_excel(kpis, df_pares, df_trios,
             })
             _out_xl.to_excel(writer, sheet_name="Outras Saídas NF-e", index=False)
             _fmt(writer, "Outras Saídas NF-e", {"Valor Total (R$)": _FMT_BRL})
+            _inserir_cabecalho_aba(writer, "Outras Saídas NF-e",
+                "OUTRAS SAÍDAS — NF-e NÃO CLASSIFICADAS COMO VENDA", [
+                    "NF-e emitidas com finalidade diferente de venda direta: transferências entre unidades, "
+                    "devoluções, remessas. Estão separadas para não distorcer o faturamento real.",
+                ])
 
         # Ajusta largura de todas as colunas em todas as abas
         _autofit(writer)
@@ -3451,10 +3511,14 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
     _FMT_NUM2 = '#,##0.00'
 
     def _autofit(writer):
+        from openpyxl.utils import get_column_letter as _gcl
         for ws in writer.sheets.values():
             for col_cells in ws.columns:
                 max_len = 0
-                col_letter = col_cells[0].column_letter
+                try:
+                    col_letter = col_cells[0].column_letter
+                except AttributeError:
+                    col_letter = _gcl(col_cells[0].column)
                 for cell in col_cells:
                     try:
                         if cell.value is None:
@@ -3511,6 +3575,11 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
         for _ri, (_, _, _rfmt) in enumerate(_resumo_rows, start=2):
             if _rfmt:
                 _ws_res.cell(_ri, 2).number_format = _rfmt
+        _inserir_cabecalho_aba(writer, "Resumo",
+            "RESUMO GERAL DAS COMPRAS", [
+                "Visão consolidada das compras do período: total gasto, número de notas, fornecedores "
+                "ativos e valor médio por nota. Ponto de partida antes de entrar nas análises detalhadas.",
+            ])
 
         # 2. Evolução Mensal
         if _n_meses > 1:
@@ -3520,6 +3589,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 _ev_c_exp.to_excel(writer, sheet_name="Evolução Mensal", index=False)
                 _fmt(writer, "Evolução Mensal",
                      {c: _FMT_BRL for c in _ev_c_exp.columns if c != "Mês"})
+                _inserir_cabecalho_aba(writer, "Evolução Mensal",
+                    "EVOLUÇÃO MENSAL DE COMPRAS", [
+                        "Mostra mês a mês o total comprado, número de notas e produtos distintos. "
+                        "Use para identificar meses com gasto atípico (pico de estoque, promoção de "
+                        "fornecedor) ou queda de atividade.",
+                    ])
 
         # 3. Fornecedores
         _forn_c = calc_ranking_fornecedores_compras(df_compras)
@@ -3534,6 +3609,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             _fmt(writer, "Fornecedores",
                  {**{c: _FMT_BRL for c in _forn_exp.select_dtypes("number").columns},
                   **{c: _FMT_PCT for c in _forn_exp.columns if "%" in str(c)}})
+            _inserir_cabecalho_aba(writer, "Fornecedores",
+                "RANKING DE FORNECEDORES", [
+                    "Ranking de fornecedores por valor total comprado, com CNPJ, regime tributário e "
+                    "evolução mês a mês. Use para negociar volume, identificar dependência de um único "
+                    "fornecedor e avaliar concentração de gastos.",
+                ])
 
         # 4. Curva ABC Produtos
         _prod_c = calc_ranking_produtos_compras(df_compras)
@@ -3545,6 +3626,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                   **{c: _FMT_PCT for c in _prod_c.columns if "%" in str(c)},
                   **{c: _FMT_NUM2 for c in _prod_c.columns
                      if "qtd" in str(c).lower() or "quant" in str(c).lower()}})
+            _inserir_cabecalho_aba(writer, "Curva ABC Produtos",
+                "CURVA ABC — PRODUTOS DE COMPRA", [
+                    "Classifica os produtos comprados por valor total: A = 80% do gasto, B = 15%, C = 5%. "
+                    "Use para priorizar negociação de preço — focar no grupo A tem mais impacto no "
+                    "resultado do que negociar produtos C.",
+                ])
 
         # 5. Fornecedor × Produto
         _cross_c = calc_cross_fornecedor_item_compras(df_compras)
@@ -3552,6 +3639,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             _cross_c.to_excel(writer, sheet_name="Fornecedor x Produto", index=False)
             _fmt(writer, "Fornecedor x Produto",
                  {c: _FMT_BRL for c in _cross_c.select_dtypes("number").columns})
+            _inserir_cabecalho_aba(writer, "Fornecedor x Produto",
+                "CRUZAMENTO FORNECEDOR × PRODUTO", [
+                    "Mostra qual fornecedor vende cada produto, com valor total e quantidade. Use para "
+                    "comparar se o mesmo produto é comprado de fornecedores diferentes a preços diferentes, "
+                    "e para consolidar compras.",
+                ])
 
         # 6. Regime dos Fornecedores
         if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
@@ -3579,6 +3672,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             _reg_tbl_e.to_excel(writer, sheet_name="Regime Fornecedores", index=False)
             _fmt(writer, "Regime Fornecedores",
                  {"Total (R$)": _FMT_BRL, "% do Total": _FMT_PCT, "Nº Notas": _FMT_NUM})
+            _inserir_cabecalho_aba(writer, "Regime Fornecedores",
+                "REGIME TRIBUTÁRIO DOS FORNECEDORES", [
+                    "Classifica fornecedores por regime tributário (Simples Nacional, Lucro Presumido, "
+                    "Lucro Real, MEI). Importante para empresas do Simples Nacional: a regra dos 80% "
+                    "considera o total de compras — fornecedores fora do Simples podem impactar esse limite.",
+                ])
 
         # 7. Evolução de Preços + Maiores Aumentos + Maiores Quedas
         if _n_meses > 1:
@@ -3589,6 +3688,13 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 # 7a. Tabela completa
                 _preco_c.to_excel(writer, sheet_name="Evolução de Preços", index=False)
                 _fmt(writer, "Evolução de Preços", {c: _FMT_BRL for c in _mes_cols_p})
+                _inserir_cabecalho_aba(writer, "Evolução de Preços",
+                    "EVOLUÇÃO DE PREÇOS POR PRODUTO", [
+                        "Preço médio ponderado de cada produto mês a mês (valor total ÷ quantidade comprada).",
+                        "Atenção: o agrupamento é feito pelo nome exato do produto e unidade de medida — "
+                        "se o fornecedor alterar qualquer detalhe do nome na nota fiscal, o produto aparecerá "
+                        "como uma linha separada e não terá variação calculada.",
+                    ])
 
                 # 7b. Maiores Aumentos / Maiores Quedas (só se >= 2 meses)
                 if len(_mes_cols_p) >= 2:
@@ -3604,15 +3710,36 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     _altas_xl  = _chg_xl[_chg_xl["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20)
                     _quedas_xl = _chg_xl[_chg_xl["Variação (%)"] < 0].sort_values("Variação (%)").head(20)
 
+                    _obs_calculo = (
+                        "Como o cálculo funciona: o preço de cada mês é calculado como valor total ÷ "
+                        "quantidade comprada (preço médio ponderado). A comparação entre meses só é feita "
+                        "quando o nome do produto E a unidade de medida são idênticos nas notas fiscais "
+                        "dos dois meses — se o fornecedor alterar qualquer detalhe do nome na NF, o produto "
+                        "aparece como item diferente e não entra nesta análise."
+                    )
                     if not _altas_xl.empty:
                         _altas_xl.to_excel(writer, sheet_name="Maiores Aumentos", index=False)
                         _fmt(writer, "Maiores Aumentos",
                              {c: _FMT_BRL for c in _mes_cols_p} | {"Variação (%)": _FMT_PCT})
+                        _inserir_cabecalho_aba(writer, "Maiores Aumentos",
+                            "MAIORES AUMENTOS DE PREÇO NO PERÍODO", [
+                                "Top 20 produtos com maior variação positiva de preço entre o primeiro e o "
+                                "último mês do período. Use para renegociar com fornecedores, revisar preço "
+                                "de venda e proteger margem.",
+                                _obs_calculo,
+                            ])
 
                     if not _quedas_xl.empty:
                         _quedas_xl.to_excel(writer, sheet_name="Maiores Quedas", index=False)
                         _fmt(writer, "Maiores Quedas",
                              {c: _FMT_BRL for c in _mes_cols_p} | {"Variação (%)": _FMT_PCT})
+                        _inserir_cabecalho_aba(writer, "Maiores Quedas",
+                            "MAIORES QUEDAS DE PREÇO NO PERÍODO", [
+                                "Top 20 produtos com maior redução de preço no período. Pode indicar "
+                                "negociação bem-sucedida, promoção do fornecedor ou sazonalidade. Avalie "
+                                "se faz sentido aumentar o volume de compra enquanto o preço está baixo.",
+                                _obs_calculo,
+                            ])
 
         # 8. Outras Entradas — sempre gerada (vazia = todos são comercialização)
         if df_compras_outros is not None and not df_compras_outros.empty:
@@ -3631,11 +3758,22 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             _ot = pd.concat([_ot, pd.DataFrame([_tot_ot])], ignore_index=True)
             _ot.to_excel(writer, sheet_name="Outras Entradas", index=False)
             _fmt(writer, "Outras Entradas", {"Valor (R$)": _FMT_BRL})
+            _inserir_cabecalho_aba(writer, "Outras Entradas",
+                "OUTRAS ENTRADAS — NF-e NÃO CLASSIFICADAS COMO COMPRA PARA REVENDA", [
+                    "NF-e de entrada com finalidade diferente de compra para revenda: devoluções recebidas, "
+                    "transferências, remessas. Estão separadas para não distorcer o total de compras "
+                    "de comercialização.",
+                ])
         else:
-            # Sem outras entradas: gera aba informativa
             pd.DataFrame([{
-                "Observação": "Todos os lançamentos desta planilha são compra para comercialização (COMPRA). Não há outras entradas a classificar."
+                "Observação": "Todos os lançamentos desta planilha são compra para comercialização. Não há outras entradas a classificar."
             }]).to_excel(writer, sheet_name="Outras Entradas", index=False)
+            _inserir_cabecalho_aba(writer, "Outras Entradas",
+                "OUTRAS ENTRADAS — NF-e NÃO CLASSIFICADAS COMO COMPRA PARA REVENDA", [
+                    "NF-e de entrada com finalidade diferente de compra para revenda: devoluções recebidas, "
+                    "transferências, remessas. Estão separadas para não distorcer o total de compras "
+                    "de comercialização.",
+                ])
 
         # 9. Dados Brutos
         _raw = df_compras.copy()
@@ -3650,6 +3788,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
         })
         _raw.to_excel(writer, sheet_name="Dados Brutos", index=False)
         _fmt(writer, "Dados Brutos", {"Valor (R$)": _FMT_BRL, "Qtd": _FMT_NUM2})
+        _inserir_cabecalho_aba(writer, "Dados Brutos",
+            "DADOS BRUTOS — TODAS AS NOTAS FISCAIS DE ENTRADA", [
+                "Todas as notas fiscais de entrada processadas, linha por linha, com fornecedor, CNPJ, "
+                "produto, NCM, CFOP e valores. Use para auditar qualquer número das outras abas ou para "
+                "filtros personalizados.",
+            ])
 
         _autofit(writer)
 
@@ -5499,7 +5643,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_03"
+    _APP_CACHE_VER = "20260514_04"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
