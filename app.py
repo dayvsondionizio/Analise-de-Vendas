@@ -5423,7 +5423,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_02"
+    _APP_CACHE_VER = "20260514_03"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -5747,7 +5747,7 @@ def main():
             df_dia_tipo, df_dia_semana = calc_por_dia_semana(df)
 
             _render_prog(80, "💡 Identificando ticket drivers...", _t0, _box_txt, _box_bar)
-            df_elev, df_redu = calc_ticket_drivers(df)
+            df_elev, df_redu = calc_ticket_drivers(df_all)
 
             _render_prog(87, "🧮 Gerando simulações de preço e receita...", _t0, _box_txt, _box_bar)
             df_sim_preco = calc_simulacao_precos(df_all)
