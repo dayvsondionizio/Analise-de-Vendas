@@ -5322,31 +5322,30 @@ def main():
             st.session_state["pastas_xml"] = []
         _pastas_validas = []
 
-        # ── Pasta local de XMLs (só desktop) ─────────────────────────────
+        # ── Pasta local de XMLs ───────────────────────────────────────────
         # Use apenas quando os XMLs estão em pasta sem compactar —
         # zipar uma pasta grande de XMLs é demorado e desnecessário aqui.
-        if not _is_cloud():
-            if st.button("📁 Selecionar pasta com XMLs", use_container_width=True, key="btn_pasta_xml"):
-                _p = _abrir_seletor_pasta()
-                if _p and _p not in st.session_state["pastas_xml"]:
-                    st.session_state["pastas_xml"].append(_p)
-            for _pi, _pv in enumerate(list(st.session_state["pastas_xml"])):
-                _n_pv = _contar_xmls_pasta(_pv)
-                _cor_v = "#D1FAE5" if _n_pv > 0 else "#FEE2E2"
-                _tc_v  = "#065F46" if _n_pv > 0 else "#991B1B"
-                _col_vi, _col_vr = st.columns([5, 1])
-                with _col_vi:
-                    st.markdown(
-                        f"<div style='background:{_cor_v};border-radius:6px;padding:5px 9px;"
-                        f"font-size:11px;color:{_tc_v};margin:2px 0'>"
-                        f"<b>{_Path(_pv).name}</b> · {_n_pv} XMLs</div>",
-                        unsafe_allow_html=True)
-                with _col_vr:
-                    if st.button("✕", key=f"rm_pasta_xml_{_pi}"):
-                        st.session_state["pastas_xml"].pop(_pi)
-                        st.rerun()
-                if _n_pv > 0:
-                    _pastas_validas.append(_pv)
+        if st.button("📁 Selecionar pasta com XMLs", use_container_width=True, key="btn_pasta_xml"):
+            _p = _abrir_seletor_pasta()
+            if _p and _p not in st.session_state["pastas_xml"]:
+                st.session_state["pastas_xml"].append(_p)
+        for _pi, _pv in enumerate(list(st.session_state["pastas_xml"])):
+            _n_pv = _contar_xmls_pasta(_pv)
+            _cor_v = "#D1FAE5" if _n_pv > 0 else "#FEE2E2"
+            _tc_v  = "#065F46" if _n_pv > 0 else "#991B1B"
+            _col_vi, _col_vr = st.columns([5, 1])
+            with _col_vi:
+                st.markdown(
+                    f"<div style='background:{_cor_v};border-radius:6px;padding:5px 9px;"
+                    f"font-size:11px;color:{_tc_v};margin:2px 0'>"
+                    f"<b>{_Path(_pv).name}</b> · {_n_pv} XMLs</div>",
+                    unsafe_allow_html=True)
+            with _col_vr:
+                if st.button("✕", key=f"rm_pasta_xml_{_pi}"):
+                    st.session_state["pastas_xml"].pop(_pi)
+                    st.rerun()
+            if _n_pv > 0:
+                _pastas_validas.append(_pv)
 
         # ── Campos obrigatórios quando só há planilha de compras (sem XMLs) ──
         _so_compras = arquivo_compras is not None and not arquivos_upload and not _pastas_validas
