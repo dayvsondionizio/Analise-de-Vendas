@@ -1273,7 +1273,11 @@ def carregar_xmls_multi(arquivos: tuple):
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
         if "dhEmi" in df.columns:
-            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            try:
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            except ValueError:
+                # XMLs com timezone misto (alguns com -03:00, outros sem offset)
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=True)
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
@@ -1433,7 +1437,11 @@ def carregar_pasta(caminho: str):
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
         if "dhEmi" in df.columns:
-            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            try:
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            except ValueError:
+                # XMLs com timezone misto (alguns com -03:00, outros sem offset)
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=True)
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
@@ -1609,7 +1617,11 @@ def carregar_pastas(caminhos: tuple):
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
         if "dhEmi" in df.columns:
-            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            try:
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            except ValueError:
+                # XMLs com timezone misto (alguns com -03:00, outros sem offset)
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=True)
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
@@ -1974,7 +1986,11 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
         if "dhEmi" in df.columns:
-            df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            try:
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
+            except ValueError:
+                # XMLs com timezone misto (alguns com -03:00, outros sem offset)
+                df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=True)
             if not df["dhEmi"].empty and hasattr(df["dhEmi"].dt, "tz") and df["dhEmi"].dt.tz is not None:
                 df["dhEmi"] = df["dhEmi"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
         if "xProd" in df.columns:
