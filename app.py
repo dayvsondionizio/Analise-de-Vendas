@@ -5320,46 +5320,7 @@ def main():
             if _n_xls:  _partes.append(f"{_n_xls} Excel(s)")
             st.success("✅ " + " · ".join(_partes))
 
-        if "pastas_xml" not in st.session_state:
-            st.session_state["pastas_xml"] = []
         _pastas_validas = []
-
-        # ── Pasta local de XMLs (sem compactar) ──────────────────────────
-        # Use quando a pasta tem muitos XMLs e compactar seria demorado.
-        # Como obter o caminho: clique na barra de endereço do Explorer e copie.
-        with st.expander("📁 Usar pasta local com XMLs (sem compactar)"):
-            _input_pasta = st.text_input(
-                "Caminho da pasta",
-                placeholder="Ex: C:\\Clientes\\Padaria\\XMLs",
-                key="input_pasta_xml",
-                label_visibility="collapsed",
-            )
-            if st.button("➕ Adicionar pasta", key="btn_add_pasta_xml", use_container_width=True):
-                _p = _input_pasta.strip().strip('"').strip("'")
-                if _p and _Path(_p).is_dir():
-                    if _p not in st.session_state["pastas_xml"]:
-                        st.session_state["pastas_xml"].append(_p)
-                        st.rerun()
-                elif _p:
-                    st.error("Pasta não encontrada. Verifique o caminho.")
-
-        for _pi, _pv in enumerate(list(st.session_state["pastas_xml"])):
-            _n_pv = _contar_xmls_pasta(_pv)
-            _cor_v = "#D1FAE5" if _n_pv > 0 else "#FEE2E2"
-            _tc_v  = "#065F46" if _n_pv > 0 else "#991B1B"
-            _col_vi, _col_vr = st.columns([5, 1])
-            with _col_vi:
-                st.markdown(
-                    f"<div style='background:{_cor_v};border-radius:6px;padding:5px 9px;"
-                    f"font-size:11px;color:{_tc_v};margin:2px 0'>"
-                    f"<b>{_Path(_pv).name}</b> · {_n_pv} XMLs</div>",
-                    unsafe_allow_html=True)
-            with _col_vr:
-                if st.button("✕", key=f"rm_pasta_xml_{_pi}"):
-                    st.session_state["pastas_xml"].pop(_pi)
-                    st.rerun()
-            if _n_pv > 0:
-                _pastas_validas.append(_pv)
 
         # ── Campos obrigatórios quando só há planilha de compras (sem XMLs) ──
         _so_compras = arquivo_compras is not None and not arquivos_upload and not _pastas_validas
@@ -5452,7 +5413,6 @@ def main():
                     "_export_xlsx", "_export_pptx", "_export_fp",  # exports cacheados
                     "_modo_dashboard",             # aba ativa (Vendas/Compras)
                     "_pasta_entrada",              # pasta de XMLs de entrada
-                    "pastas_xml",                  # pastas de XMLs de venda
                 ]
                 for _k in _KEYS_RESETAR:
                     if _k in st.session_state:
