@@ -3259,9 +3259,10 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "Classifica todos os produtos por receita: A = 80% do faturamento (poucos produtos, alta "
                 "prioridade), B = 15%, C = 5% (muitos produtos, baixa prioridade individual). "
                 "Use para decidir onde focar estoque, promoções e reposição.",
-                "ATENÇÃO — Receita bruta: devoluções de clientes (NF-e de entrada com CFOP 1.201/1.202) "
-                "NÃO são abatidas deste ranking. Um produto com muitas devoluções pode aparecer com receita "
-                "maior do que a real. Para avaliar a receita líquida, consulte a aba 'Outras Saídas/NF-e'.",
+                "ATENÇÃO — Receita bruta: devoluções de clientes (NF-e de entrada com CFOPs série 1.201 a "
+                "1.210, 1.410/1.411/1.413 a 1.416 e equivalentes interestaduais 2.2xx/2.4xx) NÃO são "
+                "abatidas deste ranking. Um produto com muitas devoluções pode aparecer com receita maior "
+                "do que a real. Para avaliar a receita líquida, consulte a aba 'Outras Saídas NF-e'.",
             ]
             if obs_extra:
                 _obs_abc.append(obs_extra)
@@ -5739,7 +5740,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_11"
+    _APP_CACHE_VER = "20260514_12"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
