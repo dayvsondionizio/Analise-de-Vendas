@@ -3080,7 +3080,8 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
     ws = writer.sheets[sheet_name]
     n = len(obs) + 2          # título + obs + 1 linha em branco
     ws.insert_rows(1, n)
-    n_cols = max(ws.max_column, 8)   # mínimo 8 colunas para o cabeçalho não ficar espremido
+    n_cols_data  = max(ws.max_column, 1)          # colunas reais de dados (para AutoFilter)
+    n_cols       = max(n_cols_data, 8)            # mínimo 8 para o merge do cabeçalho não ficar espremido
     _fill_tit = PatternFill("solid", fgColor="1F4E79")
     _fill_obs = PatternFill("solid", fgColor="FFF9C4")
     _font_tit = Font(bold=True, color="FFFFFF", size=11)
@@ -3104,10 +3105,10 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
     # linha em branco separadora
     ws.row_dimensions[len(obs) + 2].height = 6
     # autofilter na linha de cabeçalho dos dados (logo após o espaço em branco)
-    # ref precisa incluir header + dados para o Excel exibir os botões de filtro
+    # ref usa n_cols_data (colunas reais) — não o n_cols do merge que pode ser maior
     hdr_row  = n + 1
     last_row = max(ws.max_row, hdr_row)
-    ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols)}{last_row}"
+    ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols_data)}{last_row}"
 
 
 def exportar_excel(kpis, df_pares, df_trios,
@@ -5738,7 +5739,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_10"
+    _APP_CACHE_VER = "20260514_11"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
