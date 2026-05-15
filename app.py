@@ -3119,7 +3119,9 @@ def exportar_excel(kpis, df_pares, df_trios,
                    sn_result=None,
                    df_all: pd.DataFrame = None,
                    df_nfe: pd.DataFrame = None,
-                   df_nfe_outros: pd.DataFrame = None) -> bytes:
+                   df_nfe_outros: pd.DataFrame = None,
+                   df_por_hora: pd.DataFrame = None,
+                   df_por_turno: pd.DataFrame = None) -> bytes:
 
     _FMT_BRL  = 'R$ #,##0.00'
     _FMT_PCT  = '0.00"%"'
@@ -3460,6 +3462,49 @@ def exportar_excel(kpis, df_pares, df_trios,
                         "Use para auditar quais itens compõem o total da regra dos 80%.",
                     ])
 
+
+        # ── Fluxo por Horário ─────────────────────────────────────────────
+        if df_por_hora is not None and not df_por_hora.empty:
+            _fh = df_por_hora[["hora", "turno", "transacoes", "receita", "ticket_medio", "pct_media"]].copy()
+            _fh = _fh.rename(columns={
+                "hora": "Hora", "turno": "Turno", "transacoes": "Transações",
+                "receita": "Receita (R$)", "ticket_medio": "Ticket Médio (R$)",
+                "pct_media": "% vs Média",
+            }).sort_values("Hora").reset_index(drop=True)
+            _fh.to_excel(writer, sheet_name="Fluxo por Horário", index=False)
+            _fmt(writer, "Fluxo por Horário", {
+                "Receita (R$)":      _FMT_BRL,
+                "Ticket Médio (R$)": _FMT_BRL,
+                "% vs Média":        _FMT_PCT,
+                "Transações":        _FMT_NUM,
+            })
+            _inserir_cabecalho_aba(writer, "Fluxo por Horário",
+                "FLUXO DE VENDAS POR HORÁRIO DO DIA", [
+                    "Volume de transações e receita acumulados por hora do dia. "
+                    "A coluna '% vs Média' mostra quanto cada hora está acima ou abaixo da média geral — "
+                    "valores acima de 100% indicam horários de pico; abaixo de 100% indicam horários fracos.",
+                    "Turnos: Manhã = 05h–11h · Tarde = 12h–17h · Noite = 18h–23h.",
+                ])
+
+            if df_por_turno is not None and not df_por_turno.empty:
+                _ft = df_por_turno[["turno", "transacoes", "receita", "ticket_medio", "pct"]].copy()
+                _ft = _ft.rename(columns={
+                    "turno": "Turno", "transacoes": "Transações",
+                    "receita": "Receita (R$)", "ticket_medio": "Ticket Médio (R$)",
+                    "pct": "% das Transações",
+                })
+                _ft.to_excel(writer, sheet_name="Fluxo por Turno", index=False)
+                _fmt(writer, "Fluxo por Turno", {
+                    "Receita (R$)":       _FMT_BRL,
+                    "Ticket Médio (R$)":  _FMT_BRL,
+                    "% das Transações":   _FMT_PCT,
+                    "Transações":         _FMT_NUM,
+                })
+                _inserir_cabecalho_aba(writer, "Fluxo por Turno",
+                    "RESUMO DE VENDAS POR TURNO", [
+                        "Consolidado de transações e receita por turno (Manhã / Tarde / Noite). "
+                        "Use para dimensionar equipe e estoque por período do dia.",
+                    ])
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
         if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
@@ -5731,7 +5776,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_15"
+    _APP_CACHE_VER = "20260514_16"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -8013,7 +8058,9 @@ Diferenças maiores devem ser investigadas com o contador.
                                      sn_result=sn_result,
                                      df_all=df_all,
                                      df_nfe=df_nfe,
-                                     df_nfe_outros=df_nfe_outros)
+                                     df_nfe_outros=df_nfe_outros,
+                                     df_por_hora=df_por_hora,
+                                     df_por_turno=df_por_turno)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
