@@ -5776,7 +5776,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_16"
+    _APP_CACHE_VER = "20260514_17"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -6433,10 +6433,15 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                          "ativo imobilizado + bonificações + outros. "
                          "Pode apresentar pequena diferença vs. Questor pois o Questor inclui fretes e "
                          "despesas acessórias no Valor Contábil da nota.")
-        st.caption(
-            f"Comercialização: **{brl(_total_comerc)}** · "
-            f"Outras Entradas: **{brl(_total_outros)}** · "
-            f"Detalhes na aba **Outras Entradas**"
+        st.markdown(
+            f"<div style='font-size:12px;color:#6B7280;margin-top:-8px;margin-bottom:8px'>"
+            f"Comercialização: <b style='color:#111827'>{brl(_total_comerc)}</b>"
+            f" &nbsp;·&nbsp; "
+            f"Outras Entradas: <b style='color:#111827'>{brl(_total_outros)}</b>"
+            f" &nbsp;·&nbsp; "
+            f"Detalhes na aba <b>Outras Entradas</b>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
         _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
         _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
