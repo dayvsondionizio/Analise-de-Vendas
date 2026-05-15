@@ -4,7 +4,6 @@ Lê os Excels exportados do conversor de XML e gera relatório completo.
 """
 
 import streamlit as st
-import streamlit.components.v1 as _st_components
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -38,20 +37,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Intro splash ──────────────────────────────────────────────────────────────
-# iframe src= (mesma origem no Cloud) → scripts executam → window.top.location
-# funciona. Evita o problema do dangerouslySetInnerHTML que não executa scripts.
-if "v" in st.query_params:
-    st.query_params.clear()
-    st.session_state.intro_done = True
-elif "intro_done" not in st.session_state:
-    st.markdown(
-        '<iframe src="/app/static/intro.html" '
-        'style="position:fixed;top:0;left:0;width:100vw;height:100vh;'
-        'border:none;z-index:9999999;" allow="autoplay"></iframe>',
-        unsafe_allow_html=True,
-    )
-# ─────────────────────────────────────────────────────────────────────────────
 
 #
 # CATEGORIAS — mapeamento por palavra-chave no xProd
