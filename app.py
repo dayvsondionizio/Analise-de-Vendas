@@ -3127,9 +3127,17 @@ def exportar_excel(kpis, df_pares, df_trios,
     def _autofit(writer):
         """Ajusta a largura de todas as colunas de todas as abas ao conteúdo.
         Estima a largura de exibição correta mesmo para células com number_format BRL.
+        Ignora células mescladas multi-coluna (títulos de cabeçalho) para não inflar
+        a largura da primeira coluna com o texto do título.
         """
         from openpyxl.utils import get_column_letter
+        from openpyxl.cell import MergedCell
         for ws in writer.sheets.values():
+            # Monta set de células que são origem de merge multi-coluna
+            _wide_merges = set()
+            for _mr in ws.merged_cells.ranges:
+                if _mr.max_col > _mr.min_col:
+                    _wide_merges.add((_mr.min_row, _mr.min_col))
             for col_cells in ws.columns:
                 max_len = 0
                 try:
@@ -3139,6 +3147,11 @@ def exportar_excel(kpis, df_pares, df_trios,
                 for cell in col_cells:
                     try:
                         if cell.value is None:
+                            continue
+                        # Pula MergedCell (extensão de merge) e origem de merge multi-coluna
+                        if isinstance(cell, MergedCell):
+                            continue
+                        if (cell.row, cell.column) in _wide_merges:
                             continue
                         fmt = getattr(cell, "number_format", "") or ""
                         if isinstance(cell.value, (int, float)) and ("R$" in fmt or "#,##0" in fmt):
@@ -3537,7 +3550,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
 
     def _autofit(writer):
         from openpyxl.utils import get_column_letter as _gcl
+        from openpyxl.cell import MergedCell
         for ws in writer.sheets.values():
+            _wide_merges = set()
+            for _mr in ws.merged_cells.ranges:
+                if _mr.max_col > _mr.min_col:
+                    _wide_merges.add((_mr.min_row, _mr.min_col))
             for col_cells in ws.columns:
                 max_len = 0
                 try:
@@ -3547,6 +3565,10 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 for cell in col_cells:
                     try:
                         if cell.value is None:
+                            continue
+                        if isinstance(cell, MergedCell):
+                            continue
+                        if (cell.row, cell.column) in _wide_merges:
                             continue
                         fmt = getattr(cell, "number_format", "") or ""
                         if isinstance(cell.value, (int, float)) and ("R$" in fmt or "#,##0" in fmt):
@@ -5716,7 +5738,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_08"
+    _APP_CACHE_VER = "20260514_09"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
