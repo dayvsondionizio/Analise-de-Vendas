@@ -3460,46 +3460,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                         "Use para auditar quais itens compõem o total da regra dos 80%.",
                     ])
 
-            # Itens excluídos pelo analista
-            _df_exc = sn_result.get("df_excluidos", pd.DataFrame())
-            if not _df_exc.empty:
-                _sn_exc = _df_exc.copy()
-                _cols_exc = {
-                    "CFOP_orig": "Natureza CFOP", "CFOP": "CFOP 4d",
-                    "emitente": "Fornecedor", "xProd": "Produto",
-                    "NCM": "NCM", "nNF": "Nº NF", "dhEmi": "Emissão",
-                    "vProd": "Valor",
-                }
-                _sel_exc = {k: v for k, v in _cols_exc.items() if k in _sn_exc.columns}
-                _sn_exc = _sn_exc[list(_sel_exc.keys())].rename(columns=_sel_exc)
-                _sn_exc.to_excel(writer, sheet_name="SN Excluídos", index=False)
-                _fmt(writer, "SN Excluídos", {"Valor": _FMT_BRL})
-                _inserir_cabecalho_aba(writer, "SN Excluídos",
-                    "SIMPLES NACIONAL — ITENS EXCLUÍDOS DA BASE", [
-                        "Itens de NF-e de entrada que foram excluídos manualmente pelo analista por não "
-                        "se enquadrarem como compra para comercialização (ex: uso/consumo, ativo, bonificação). "
-                        "Estes valores NÃO entram no cálculo da regra dos 80%.",
-                    ])
-
-            # Confronto SPED × XMLs
-            _df_conf = sn_result.get("df_confronto", pd.DataFrame())
-            if not _df_conf.empty and "total_sped" in _df_conf.columns:
-                _sn_conf = _df_conf.copy()
-                _sn_conf = _sn_conf.rename(columns={
-                    "CFOP": "CFOP", "total_sped": "Total SPED",
-                    "total_xml": "Total XMLs", "diferenca": "Diferença",
-                    "itens_sped": "Itens SPED", "itens_xml": "Itens XML",
-                })
-                _sn_conf.to_excel(writer, sheet_name="SN Confronto", index=False)
-                _fmt(writer, "SN Confronto", {
-                    "Total SPED": _FMT_BRL, "Total XMLs": _FMT_BRL, "Diferença": _FMT_BRL,
-                })
-                _inserir_cabecalho_aba(writer, "SN Confronto",
-                    "SIMPLES NACIONAL — CONFRONTO SPED × XMLs", [
-                        "Compara os valores de compra apurados pela planilha do sistema fiscal (SPED) "
-                        "com os valores extraídos diretamente dos XMLs das NF-e. Diferenças podem indicar "
-                        "notas não importadas no sistema, lançamentos manuais ou divergências de CFOP.",
-                    ])
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
         if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
@@ -5771,7 +5731,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_13"
+    _APP_CACHE_VER = "20260514_14"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
