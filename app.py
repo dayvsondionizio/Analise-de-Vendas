@@ -3383,6 +3383,12 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ],
             })
             _sn_resumo.to_excel(writer, sheet_name="SN Resumo", index=False)
+            _inserir_cabecalho_aba(writer, "SN Resumo",
+                "SIMPLES NACIONAL — RESUMO DO PERÍODO", [
+                    "Resumo da regra dos 80%: empresas optantes pelo Simples Nacional devem manter as "
+                    "compras de comercialização abaixo de 80% do faturamento do período para não perder "
+                    "benefícios fiscais. Valores calculados a partir das NF-e de entrada dos fornecedores.",
+                ])
 
             _df_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
             if not _df_cfop.empty:
@@ -3391,7 +3397,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "CFOP": "CFOP", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
-                # Linha de total (valores numéricos — number_format cuida da exibição)
                 _sn_cfop = pd.concat([
                     _sn_cfop,
                     pd.DataFrame([{
@@ -3403,6 +3408,12 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ], ignore_index=True)
                 _sn_cfop.to_excel(writer, sheet_name="SN Por CFOP", index=False)
                 _fmt(writer, "SN Por CFOP", {"Total Compras": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "SN Por CFOP",
+                    "SIMPLES NACIONAL — COMPRAS POR CFOP", [
+                        "Detalhamento das compras de comercialização agrupadas por CFOP. "
+                        "Permite identificar quais operações (compra interna, interestadual, com ST etc.) "
+                        "representam maior volume e compor a base de cálculo da regra dos 80%.",
+                    ])
 
             _df_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
             if not _df_forn.empty:
@@ -3411,7 +3422,6 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "emitente": "Fornecedor", "total_compras": "Total Compras",
                     "notas": "Notas/Docs", "itens": "Itens",
                 })
-                # Linha de total (valores numéricos)
                 _sn_forn = pd.concat([
                     _sn_forn,
                     pd.DataFrame([{
@@ -3423,12 +3433,16 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ], ignore_index=True)
                 _sn_forn.to_excel(writer, sheet_name="SN Fornecedores", index=False)
                 _fmt(writer, "SN Fornecedores", {"Total Compras": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "SN Fornecedores",
+                    "SIMPLES NACIONAL — COMPRAS POR FORNECEDOR", [
+                        "Ranking de fornecedores pelo total comprado para comercialização no período. "
+                        "Use para identificar concentração de compras e negociar volume com os principais fornecedores.",
+                    ])
 
             # Itens de compra — adapta para SPED ou XML
             _df_items = sn_result.get("df_entradas_filtradas", pd.DataFrame())
             if not _df_items.empty:
                 _sn_items = _df_items.copy()
-                # Seleciona apenas as colunas que existem
                 _cols_desejadas = {
                     "chave": "Chave NF-e", "nNF": "Nº NF", "dhEmi": "Emissão",
                     "emitente": "Fornecedor", "CFOP_orig": "Natureza CFOP",
@@ -3439,6 +3453,12 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _sn_items = _sn_items[list(_sel.keys())].rename(columns=_sel)
                 _sn_items.to_excel(writer, sheet_name="SN Itens Compra", index=False)
                 _fmt(writer, "SN Itens Compra", {"Vl Unit": _FMT_BRL, "Vl Total": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "SN Itens Compra",
+                    "SIMPLES NACIONAL — ITENS DE COMPRA (DETALHADO)", [
+                        "Listagem completa dos itens das notas fiscais de entrada classificados como "
+                        "compra para comercialização. Cada linha é um produto de uma nota fiscal. "
+                        "Use para auditar quais itens compõem o total da regra dos 80%.",
+                    ])
 
             # Itens excluídos pelo analista
             _df_exc = sn_result.get("df_excluidos", pd.DataFrame())
@@ -3454,12 +3474,17 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _sn_exc = _sn_exc[list(_sel_exc.keys())].rename(columns=_sel_exc)
                 _sn_exc.to_excel(writer, sheet_name="SN Excluídos", index=False)
                 _fmt(writer, "SN Excluídos", {"Valor": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "SN Excluídos",
+                    "SIMPLES NACIONAL — ITENS EXCLUÍDOS DA BASE", [
+                        "Itens de NF-e de entrada que foram excluídos manualmente pelo analista por não "
+                        "se enquadrarem como compra para comercialização (ex: uso/consumo, ativo, bonificação). "
+                        "Estes valores NÃO entram no cálculo da regra dos 80%.",
+                    ])
 
             # Confronto SPED × XMLs
             _df_conf = sn_result.get("df_confronto", pd.DataFrame())
             if not _df_conf.empty and "total_sped" in _df_conf.columns:
                 _sn_conf = _df_conf.copy()
-                # Manter como números — _fmt aplica o formato BRL
                 _sn_conf = _sn_conf.rename(columns={
                     "CFOP": "CFOP", "total_sped": "Total SPED",
                     "total_xml": "Total XMLs", "diferenca": "Diferença",
@@ -3469,6 +3494,12 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _fmt(writer, "SN Confronto", {
                     "Total SPED": _FMT_BRL, "Total XMLs": _FMT_BRL, "Diferença": _FMT_BRL,
                 })
+                _inserir_cabecalho_aba(writer, "SN Confronto",
+                    "SIMPLES NACIONAL — CONFRONTO SPED × XMLs", [
+                        "Compara os valores de compra apurados pela planilha do sistema fiscal (SPED) "
+                        "com os valores extraídos diretamente dos XMLs das NF-e. Diferenças podem indicar "
+                        "notas não importadas no sistema, lançamentos manuais ou divergências de CFOP.",
+                    ])
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
         if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
@@ -5740,7 +5771,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_12"
+    _APP_CACHE_VER = "20260514_13"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
