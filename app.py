@@ -39,32 +39,31 @@ st.set_page_config(
 )
 
 # ── Intro splash ──────────────────────────────────────────────────────────────
-# iframe via src= (mesma origem) → window.parent.location funciona.
-# Quando o vídeo termina, JS adiciona ?v=1 → Streamlit recarrega sem intro.
-# session_state.intro_done evita re-exibição em reruns normais da sessão.
-if "v" not in st.query_params and "intro_done" not in st.session_state:
+# Vídeo na página principal (sem iframe) + onended clica link oculto → ?v=1.
+# Sem cruzar origens. CSS animation é fallback visual caso onended não dispare.
+if "v" in st.query_params:
+    st.query_params.clear()
+    st.session_state.intro_done = True
+elif "intro_done" not in st.session_state:
     st.markdown("""
     <style>
-    header[data-testid="stHeader"],
-    section[data-testid="stSidebar"],
-    div[data-testid="stToolbar"],
-    div[data-testid="stStatusWidget"],
-    #MainMenu { display:none !important; }
-    .stApp { background:#000 !important; }
-    #_intro_frame {
-        position:fixed; top:0; left:0;
-        width:100vw; height:100vh;
-        border:none; z-index:9999999;
+    @keyframes _iv_fade {
+        0%, 82% { opacity:1; pointer-events:all; }
+        100%    { opacity:0; pointer-events:none; }
     }
+    #_iv { animation: _iv_fade 9s ease-out forwards; }
     </style>
-    <iframe id="_intro_frame" src="/app/static/intro.html"></iframe>
+    <a id="_iv_lnk" href="?v=1" style="display:none"></a>
+    <div id="_iv" style="
+        position:fixed;top:0;left:0;width:100vw;height:100vh;
+        background:#000;z-index:9999999;overflow:hidden;">
+      <video autoplay muted playsinline
+             style="width:100%;height:100%;object-fit:cover;display:block;"
+             onended="document.getElementById('_iv_lnk').click()">
+        <source src="/app/static/intro.mp4" type="video/mp4">
+      </video>
+    </div>
     """, unsafe_allow_html=True)
-    st.stop()
-else:
-    # Marca sessão como "intro já vista" e limpa o param da URL
-    st.session_state.intro_done = True
-    if "v" in st.query_params:
-        st.query_params.clear()
 # ─────────────────────────────────────────────────────────────────────────────
 
 #
