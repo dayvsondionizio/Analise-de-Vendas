@@ -13,19 +13,28 @@ video { width:100%; height:100%; object-fit:cover; display:block; }
   <source src="/app/static/intro.mp4" type="video/mp4">
 </video>
 <script>
-function done() {
+var _done = false;
+function finish() {
+  if (_done) return;
+  _done = true;
   try {
-    var base = window.parent.location.href.split('?')[0];
-    window.parent.location.href = base + '?v=1';
-  } catch(e) {}
+    var url = window.top.location.href.split('?')[0] + '?v=1';
+    window.top.location.href = url;
+  } catch(e) {
+    // cross-origin fallback: esconde o iframe
+    document.body.style.display = 'none';
+  }
 }
 var vid = document.getElementById('v');
-vid.addEventListener('ended', done);
+vid.addEventListener('ended', finish);
+vid.addEventListener('error', function() { setTimeout(finish, 300); });
 vid.addEventListener('timeupdate', function() {
-  if (vid.duration && vid.currentTime >= vid.duration - 0.3) done();
+  if (vid.duration && vid.currentTime >= vid.duration - 0.3) finish();
 });
-// Fallback: fecha após 12s caso o vídeo não carregue
-setTimeout(done, 12000);
+// Fallback: fecha após 11s se onended não disparar
+setTimeout(finish, 11000);
+// Força play (cobre browsers que ignoram atributo autoplay)
+if (vid.play) vid.play().catch(function() {});
 </script>
 </body>
 </html>

@@ -39,31 +39,18 @@ st.set_page_config(
 )
 
 # ── Intro splash ──────────────────────────────────────────────────────────────
-# Vídeo na página principal (sem iframe) + onended clica link oculto → ?v=1.
-# Sem cruzar origens. CSS animation é fallback visual caso onended não dispare.
+# iframe src= (mesma origem no Cloud) → scripts executam → window.top.location
+# funciona. Evita o problema do dangerouslySetInnerHTML que não executa scripts.
 if "v" in st.query_params:
     st.query_params.clear()
     st.session_state.intro_done = True
 elif "intro_done" not in st.session_state:
-    st.markdown("""
-    <style>
-    @keyframes _iv_fade {
-        0%, 82% { opacity:1; pointer-events:all; }
-        100%    { opacity:0; pointer-events:none; }
-    }
-    #_iv { animation: _iv_fade 9s ease-out forwards; }
-    </style>
-    <a id="_iv_lnk" href="?v=1" style="display:none"></a>
-    <div id="_iv" style="
-        position:fixed;top:0;left:0;width:100vw;height:100vh;
-        background:#000;z-index:9999999;overflow:hidden;">
-      <video autoplay muted playsinline
-             style="width:100%;height:100%;object-fit:cover;display:block;"
-             onended="document.getElementById('_iv_lnk').click()">
-        <source src="/app/static/intro.mp4" type="video/mp4">
-      </video>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        '<iframe src="/app/static/intro.html" '
+        'style="position:fixed;top:0;left:0;width:100vw;height:100vh;'
+        'border:none;z-index:9999999;" allow="autoplay"></iframe>',
+        unsafe_allow_html=True,
+    )
 # ─────────────────────────────────────────────────────────────────────────────
 
 #
