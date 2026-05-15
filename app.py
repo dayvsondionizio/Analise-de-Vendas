@@ -39,45 +39,32 @@ st.set_page_config(
 )
 
 # ── Intro splash ──────────────────────────────────────────────────────────────
-# Vídeo toca na página principal (não em iframe) + time.sleep pelo tempo exato.
-# Durante o sleep o Python está bloqueado → Streamlit NÃO re-renderiza → overlay
-# permanece intacto. Ao acordar, rerun mostra o app normalmente.
-_INTRO_DURACAO_SEG = 8    # duração do vídeo intro.mp4
-
-if "intro_done" not in st.session_state:
-    import time as _time
-    st.session_state.intro_done = True   # impede re-exibição em reruns normais
-
-    st.markdown(f"""
+# iframe via src= (mesma origem) → window.parent.location funciona.
+# Quando o vídeo termina, JS adiciona ?v=1 → Streamlit recarrega sem intro.
+# session_state.intro_done evita re-exibição em reruns normais da sessão.
+if "v" not in st.query_params and "intro_done" not in st.session_state:
+    st.markdown("""
     <style>
     header[data-testid="stHeader"],
     section[data-testid="stSidebar"],
     div[data-testid="stToolbar"],
     div[data-testid="stStatusWidget"],
-    #MainMenu {{ display:none !important; }}
-    .stApp {{ background:#000 !important; overflow:hidden !important; }}
-    @keyframes _intro_fade {{
-        0%   {{ opacity:1; }}
-        85%  {{ opacity:1; }}
-        100% {{ opacity:0; }}
-    }}
-    #_intro_overlay {{
-        animation: _intro_fade {_INTRO_DURACAO_SEG:.1f}s ease-in-out forwards;
-    }}
+    #MainMenu { display:none !important; }
+    .stApp { background:#000 !important; }
+    #_intro_frame {
+        position:fixed; top:0; left:0;
+        width:100vw; height:100vh;
+        border:none; z-index:9999999;
+    }
     </style>
-    <div id="_intro_overlay" style="
-        position:fixed;top:0;left:0;
-        width:100vw;height:100vh;
-        background:#000;z-index:9999999;overflow:hidden;">
-      <video autoplay muted playsinline
-             style="width:100%;height:100%;object-fit:cover;display:block;">
-        <source src="/app/static/intro.mp4" type="video/mp4">
-      </video>
-    </div>
+    <iframe id="_intro_frame" src="/app/static/intro.html"></iframe>
     """, unsafe_allow_html=True)
-
-    _time.sleep(_INTRO_DURACAO_SEG)
-    st.rerun()
+    st.stop()
+else:
+    # Marca sessão como "intro já vista" e limpa o param da URL
+    st.session_state.intro_done = True
+    if "v" in st.query_params:
+        st.query_params.clear()
 # ─────────────────────────────────────────────────────────────────────────────
 
 #
