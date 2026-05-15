@@ -4527,7 +4527,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
                   df_abc=None,
                   df_por_hora=None, df_por_turno=None,
                   sn_result=None,
-                  df_nfe_outros=None) -> bytes:
+                  df_nfe_outros=None,
+                  df_meios_pag=None, df_canal=None) -> bytes:
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt, Emu
@@ -5430,7 +5431,149 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
     # Slide "Horários Inexplorados" removido a pedido do usuário
 
-    #  SLIDE NF-e B2B (se carregado) 
+    #  SLIDE: MEIOS DE PAGAMENTO | CANAL DE VENDA
+    _tem_mp  = df_meios_pag is not None and not (hasattr(df_meios_pag, "empty") and df_meios_pag.empty)
+    _tem_cv  = df_canal     is not None and not (hasattr(df_canal,     "empty") and df_canal.empty)
+    if _tem_mp or _tem_cv:
+        sl = prs.slides.add_slide(blank)
+        add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
+        add_text(sl, "MEIOS DE PAGAMENTO  |  CANAL DE VENDA",
+                 Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
+                 font_size=22, bold=True, color=BRANCO)
+
+        # ── METADE ESQUERDA: Meios de Pagamento ──────────────────
+        if _tem_mp:
+            add_rect(sl, Inches(0.2), Inches(1.05), Inches(6.3), Inches(0.38),
+                     RGBColor(0x25, 0x63, 0xEB))
+            add_text(sl, "MEIOS DE PAGAMENTO",
+                     Inches(0.3), Inches(1.10), Inches(6.1), Inches(0.30),
+                     font_size=13, bold=True, color=BRANCO)
+
+            _mp_sorted = df_meios_pag.sort_values("% Receita")
+            fig_mp2, ax_mp2 = plt.subplots(figsize=(5.5, max(2.2, len(_mp_sorted) * 0.48)))
+            bars_mp = ax_mp2.barh(
+                _mp_sorted["Meio de Pagamento"].str[:22],
+                _mp_sorted["% Receita"],
+                color="#2563EB", height=0.6,
+            )
+            _max_mp = _mp_sorted["% Receita"].max()
+            for bar, pct in zip(bars_mp, _mp_sorted["% Receita"]):
+                ax_mp2.text(bar.get_width() + _max_mp * 0.02,
+                            bar.get_y() + bar.get_height() / 2,
+                            pct_br(pct), va="center", fontsize=9,
+                            fontweight="bold", color="#1F2937")
+            ax_mp2.set_xlabel("% da Receita", fontsize=10)
+            ax_mp2.set_xlim(0, _max_mp * 1.28)
+            ax_mp2.spines[["top", "right"]].set_visible(False)
+            ax_mp2.tick_params(labelsize=9)
+            fig_mp2.tight_layout()
+            plt_to_pptx_image(fig_mp2, sl, Inches(0.2), Inches(1.50), Inches(6.3), Inches(3.55))
+
+            # Mini-tabela Meios de Pagamento
+            _rh_mp  = Inches(0.34)
+            _hdrs_mp = ["#", "Meio de Pagamento", "Trans.", "Receita (R$)", "%"]
+            _cws_mp  = [Inches(0.28), Inches(2.60), Inches(0.72), Inches(1.40), Inches(0.68)]
+            _y0_mp = Inches(5.20)
+            _x = Inches(0.2)
+            for hdr, ww in zip(_hdrs_mp, _cws_mp):
+                add_rect(sl, _x, _y0_mp, ww, _rh_mp, AZUL_ESC)
+                add_text(sl, hdr, _x + Inches(0.03), _y0_mp + Inches(0.04),
+                         ww - Inches(0.06), _rh_mp - Inches(0.07),
+                         font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                _x += ww
+            for ri, (_, row) in enumerate(df_meios_pag.iterrows()):
+                _yr = _y0_mp + _rh_mp * (ri + 1)
+                if _yr + _rh_mp > Inches(7.35):
+                    break
+                bg = CINZA_CLR if ri % 2 == 0 else BRANCO
+                _x = Inches(0.2)
+                for vi, (val, ww) in enumerate(zip(
+                    [str(ri+1), str(row["Meio de Pagamento"])[:28],
+                     fmt_num(int(row["Transações"])), brl(row["Receita (R$)"]),
+                     pct_br(row["% Receita"])],
+                    _cws_mp,
+                )):
+                    add_rect(sl, _x, _yr, ww, _rh_mp, bg)
+                    add_text(sl, val, _x + Inches(0.03), _yr + Inches(0.04),
+                             ww - Inches(0.06), _rh_mp - Inches(0.06),
+                             font_size=10, color=TEXTO,
+                             align=PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER)
+                    _x += ww
+
+        # ── SEPARADOR VERTICAL ────────────────────────────────────
+        add_rect(sl, Inches(6.65), Inches(1.05), Inches(0.03), Inches(6.35),
+                 RGBColor(0xE5, 0xE7, 0xEB))
+
+        # ── METADE DIREITA: Canal de Venda ────────────────────────
+        if _tem_cv:
+            add_rect(sl, Inches(6.80), Inches(1.05), Inches(6.30), Inches(0.38),
+                     RGBColor(0x05, 0x96, 0x69))
+            add_text(sl, "CANAL DE VENDA",
+                     Inches(6.90), Inches(1.10), Inches(6.10), Inches(0.30),
+                     font_size=13, bold=True, color=BRANCO)
+
+            _CORES_CANAL_PPT = {
+                "Presencial (balcão)":     "#2563EB",
+                "Internet (iFood / site)": "#F59E0B",
+                "Delivery próprio":        "#059669",
+                "Teleatendimento":         "#7C3AED",
+                "Não se aplica":           "#9CA3AF",
+                "Outros":                  "#6B7280",
+            }
+            _cv_sorted = df_canal.sort_values("% Receita")
+            _cores_cv2 = [_CORES_CANAL_PPT.get(c, "#2563EB")
+                          for c in _cv_sorted["Canal de Venda"]]
+            fig_cv2, ax_cv2 = plt.subplots(figsize=(5.5, max(2.2, len(_cv_sorted) * 0.52)))
+            bars_cv = ax_cv2.barh(
+                _cv_sorted["Canal de Venda"].str[:22],
+                _cv_sorted["% Receita"],
+                color=_cores_cv2, height=0.6,
+            )
+            _max_cv = _cv_sorted["% Receita"].max()
+            for bar, pct in zip(bars_cv, _cv_sorted["% Receita"]):
+                ax_cv2.text(bar.get_width() + _max_cv * 0.02,
+                            bar.get_y() + bar.get_height() / 2,
+                            pct_br(pct), va="center", fontsize=9,
+                            fontweight="bold", color="#1F2937")
+            ax_cv2.set_xlabel("% da Receita", fontsize=10)
+            ax_cv2.set_xlim(0, _max_cv * 1.28)
+            ax_cv2.spines[["top", "right"]].set_visible(False)
+            ax_cv2.tick_params(labelsize=9)
+            fig_cv2.tight_layout()
+            plt_to_pptx_image(fig_cv2, sl, Inches(6.80), Inches(1.50), Inches(6.30), Inches(3.55))
+
+            # Mini-tabela Canal de Venda
+            _rh_cv  = Inches(0.34)
+            _hdrs_cv = ["#", "Canal de Venda", "Trans.", "Receita (R$)", "%"]
+            _cws_cv  = [Inches(0.28), Inches(2.60), Inches(0.72), Inches(1.40), Inches(0.68)]
+            _y0_cv = Inches(5.20)
+            _x = Inches(6.80)
+            for hdr, ww in zip(_hdrs_cv, _cws_cv):
+                add_rect(sl, _x, _y0_cv, ww, _rh_cv, RGBColor(0x05, 0x96, 0x69))
+                add_text(sl, hdr, _x + Inches(0.03), _y0_cv + Inches(0.04),
+                         ww - Inches(0.06), _rh_cv - Inches(0.07),
+                         font_size=10, bold=True, color=BRANCO, align=PP_ALIGN.CENTER)
+                _x += ww
+            for ri, (_, row) in enumerate(df_canal.iterrows()):
+                _yr = _y0_cv + _rh_cv * (ri + 1)
+                if _yr + _rh_cv > Inches(7.35):
+                    break
+                bg = CINZA_CLR if ri % 2 == 0 else BRANCO
+                _x = Inches(6.80)
+                for vi, (val, ww) in enumerate(zip(
+                    [str(ri+1), str(row["Canal de Venda"])[:28],
+                     fmt_num(int(row["Transações"])), brl(row["Receita (R$)"]),
+                     pct_br(row["% Receita"])],
+                    _cws_cv,
+                )):
+                    add_rect(sl, _x, _yr, ww, _rh_cv, bg)
+                    add_text(sl, val, _x + Inches(0.03), _yr + Inches(0.04),
+                             ww - Inches(0.06), _rh_cv - Inches(0.06),
+                             font_size=10, color=TEXTO,
+                             align=PP_ALIGN.LEFT if vi == 1 else PP_ALIGN.CENTER)
+                    _x += ww
+
+    #  SLIDE NF-e B2B (se carregado)
     if df_nfe is not None and not df_nfe.empty and "vNF" in df_nfe.columns and "chave" in df_nfe.columns:
         sl = prs.slides.add_slide(blank)
         add_rect(sl, 0, 0, W, Inches(1.0), RGBColor(0x1A, 0x23, 0x4E))
@@ -8397,6 +8540,8 @@ Diferenças maiores devem ser investigadas com o contador.
                 df_por_turno=df_por_turno,
                 sn_result=sn_result,
                 df_nfe_outros=df_nfe_outros,
+                df_meios_pag=df_meios_pag,
+                df_canal=df_canal,
             )
         except ImportError:
             pass
