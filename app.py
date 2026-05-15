@@ -7661,7 +7661,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
             # ── SUBTAB 5: MEIOS DE PAGAMENTO ──────────────────
             with subtabs[4]:
-                _df_mp = st.session_state.get("df_meios_pag", pd.DataFrame())
+                _df_mp = df_meios_pag
                 if _df_mp.empty:
                     st.info("Dados de meio de pagamento não disponíveis. Os XMLs precisam conter o campo `<tPag>` (NF-e 4.0).")
                 else:
@@ -7673,7 +7673,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
             # ── SUBTAB 6: CANAL DE VENDA ──────────────────────
             with subtabs[5]:
-                _df_cv = st.session_state.get("df_canal", pd.DataFrame())
+                _df_cv = df_canal
                 if _df_cv.empty:
                     st.info("Dados de canal de venda não disponíveis. Os XMLs precisam conter o campo `<indPres>` (NF-e 4.0).")
                 else:
@@ -8289,8 +8289,8 @@ Diferenças maiores devem ser investigadas com o contador.
                                      df_nfe_outros=df_nfe_outros,
                                      df_por_hora=df_por_hora,
                                      df_por_turno=df_por_turno,
-                                     df_meios_pag=st.session_state.get("df_meios_pag", pd.DataFrame()),
-                                     df_canal=st.session_state.get("df_canal", pd.DataFrame()))
+                                     df_meios_pag=df_meios_pag,
+                                     df_canal=df_canal)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
