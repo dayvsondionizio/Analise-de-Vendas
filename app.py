@@ -3673,10 +3673,15 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ["Receita bruta agrupada por meio de pagamento (campo tPag do XML NF-e/NFC-e)."],
             )
             ws_mp = writer.sheets["Meios de Pagamento"]
+            for _cell in ws_mp["D"]:
+                if isinstance(_cell, MergedCell): continue
+                if _cell.row <= 4: continue
+                if _cell.value is not None:
+                    _cell.number_format = _FMT_BRL
             for _cell in ws_mp["E"]:
                 if isinstance(_cell, MergedCell): continue
                 if _cell.row <= 4: continue
-                if _cell.value is not None and _cell.row > 4:
+                if _cell.value is not None:
                     _cell.number_format = "0.0%"
 
         # ── Canal de Venda ────────────────────────────────────────────────────────
@@ -3692,10 +3697,15 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ["Canal de venda agrupado por indicador de presença (campo indPres do XML NF-e/NFC-e)."],
             )
             ws_cv = writer.sheets["Canal de Venda"]
+            for _cell in ws_cv["D"]:
+                if isinstance(_cell, MergedCell): continue
+                if _cell.row <= 4: continue
+                if _cell.value is not None:
+                    _cell.number_format = _FMT_BRL
             for _cell in ws_cv["E"]:
                 if isinstance(_cell, MergedCell): continue
                 if _cell.row <= 4: continue
-                if _cell.value is not None and _cell.row > 4:
+                if _cell.value is not None:
                     _cell.number_format = "0.0%"
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
