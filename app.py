@@ -5731,7 +5731,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_14"
+    _APP_CACHE_VER = "20260514_15"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -6389,8 +6389,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                          "Pode apresentar pequena diferença vs. Questor pois o Questor inclui fretes e "
                          "despesas acessórias no Valor Contábil da nota.")
         st.caption(
-            f"Comercialização: **{brl(_total_comerc)}** &nbsp;·&nbsp; "
-            f"Outras Entradas: **{brl(_total_outros)}** &nbsp;·&nbsp; "
+            f"Comercialização: **{brl(_total_comerc)}** · "
+            f"Outras Entradas: **{brl(_total_outros)}** · "
             f"Detalhes na aba **Outras Entradas**"
         )
         _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
