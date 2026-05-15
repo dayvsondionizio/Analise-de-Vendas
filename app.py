@@ -7661,27 +7661,150 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
             # ── SUBTAB 5: MEIOS DE PAGAMENTO ──────────────────
             with subtabs[4]:
-                _df_mp = df_meios_pag
-                if _df_mp.empty:
+                if df_meios_pag.empty:
                     st.info("Dados de meio de pagamento não disponíveis. Os XMLs precisam conter o campo `<tPag>` (NF-e 4.0).")
                 else:
-                    st.markdown("#### Receita por Meio de Pagamento")
-                    _df_mp_disp = _df_mp.copy()
-                    _df_mp_disp["Receita (R$)"] = _df_mp_disp["Receita (R$)"].apply(brl)
-                    _df_mp_disp["% Receita"] = _df_mp_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
-                    st.dataframe(_df_mp_disp, use_container_width=True, hide_index=True)
+                    st.markdown("#### 💳 Receita por Meio de Pagamento")
+                    st.caption(
+                        "Percentual calculado sobre a receita bruta do período. "
+                        "Quando a nota tem múltiplos meios de pagamento (ex.: parte em dinheiro + parte no cartão), "
+                        "a receita é rateada proporcionalmente ao valor de cada forma."
+                    )
+
+                    _col_mp_g, _col_mp_t = st.columns([3, 2])
+                    with _col_mp_g:
+                        _fig_mp = px.bar(
+                            df_meios_pag.sort_values("% Receita"),
+                            x="% Receita", y="Meio de Pagamento",
+                            orientation="h",
+                            text=df_meios_pag.sort_values("% Receita")["% Receita"].apply(
+                                lambda v: f"{v:.1f}%"
+                            ),
+                            color_discrete_sequence=["#2563EB"],
+                        )
+                        _fig_mp.update_traces(textposition="outside")
+                        _fig_mp.update_layout(
+                            height=max(220, len(df_meios_pag) * 48),
+                            showlegend=False,
+                            xaxis_title="% da Receita",
+                            yaxis_title="",
+                            margin=dict(l=0, r=40, t=10, b=10),
+                        )
+                        st.plotly_chart(_fig_mp, use_container_width=True)
+
+                    with _col_mp_t:
+                        _df_mp_disp = df_meios_pag.copy()
+                        _df_mp_disp["Receita (R$)"] = _df_mp_disp["Receita (R$)"].apply(brl)
+                        _df_mp_disp["% Receita"]    = _df_mp_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                        st.dataframe(_df_mp_disp, use_container_width=True, hide_index=True,
+                                     height=max(220, len(df_meios_pag) * 48))
+
+                    _top_pag  = df_meios_pag.iloc[0]
+                    _pct_top  = f"{_top_pag['% Receita']:.1f}".replace(".", ",") + "%"
+                    _n_top    = fmt_num(int(_top_pag["Transações"]))
+                    st.info(
+                        f"**{_top_pag['Meio de Pagamento']}** é o meio de pagamento dominante — "
+                        f"**{_pct_top}** da receita em {_n_top} transações. "
+                        + (
+                            "Considere negociar taxas com a credenciadora se cartão liderar."
+                            if "cartão" in _top_pag["Meio de Pagamento"].lower()
+                            else "Avalie se o mix de meios de pagamento está alinhado ao perfil dos seus clientes."
+                        )
+                    )
+                    with st.expander("ℹ️ Como interpretar — códigos tPag"):
+                        st.markdown(
+                            "| Código | Meio de Pagamento |\n"
+                            "|--------|-------------------|\n"
+                            "| 01 | Dinheiro |\n"
+                            "| 03 | Cartão de Crédito |\n"
+                            "| 04 | Cartão de Débito |\n"
+                            "| 10 | Vale Alimentação |\n"
+                            "| 11 | Vale Refeição |\n"
+                            "| 17 | PIX |\n"
+                            "| 99 | Outros |\n\n"
+                            "Fonte: Tabela tPag da NF-e/NFC-e (SEFAZ). "
+                            "Notas com pagamento misto têm a receita rateada proporcionalmente."
+                        )
 
             # ── SUBTAB 6: CANAL DE VENDA ──────────────────────
             with subtabs[5]:
-                _df_cv = df_canal
-                if _df_cv.empty:
+                if df_canal.empty:
                     st.info("Dados de canal de venda não disponíveis. Os XMLs precisam conter o campo `<indPres>` (NF-e 4.0).")
                 else:
-                    st.markdown("#### Receita por Canal de Venda")
-                    _df_cv_disp = _df_cv.copy()
-                    _df_cv_disp["Receita (R$)"] = _df_cv_disp["Receita (R$)"].apply(brl)
-                    _df_cv_disp["% Receita"] = _df_cv_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
-                    st.dataframe(_df_cv_disp, use_container_width=True, hide_index=True)
+                    st.markdown("#### 🛍️ Receita por Canal de Venda")
+                    st.caption(
+                        "Canal onde a venda foi realizada, extraído do campo indPres de cada nota. "
+                        "Permite separar vendas presenciais de pedidos online (iFood / site) e delivery."
+                    )
+
+                    _col_cv_g, _col_cv_t = st.columns([3, 2])
+                    with _col_cv_g:
+                        _CORES_CANAL = {
+                            "Presencial (balcão)":  "#2563EB",
+                            "Internet (iFood / site)": "#F59E0B",
+                            "Delivery próprio":     "#059669",
+                            "Teleatendimento":      "#7C3AED",
+                            "Não se aplica":        "#9CA3AF",
+                            "Outros":               "#6B7280",
+                        }
+                        _cores_cv = [_CORES_CANAL.get(c, "#2563EB")
+                                     for c in df_canal.sort_values("% Receita")["Canal de Venda"]]
+                        _fig_cv = px.bar(
+                            df_canal.sort_values("% Receita"),
+                            x="% Receita", y="Canal de Venda",
+                            orientation="h",
+                            text=df_canal.sort_values("% Receita")["% Receita"].apply(
+                                lambda v: f"{v:.1f}%"
+                            ),
+                            color="Canal de Venda",
+                            color_discrete_sequence=_cores_cv,
+                        )
+                        _fig_cv.update_traces(textposition="outside")
+                        _fig_cv.update_layout(
+                            height=max(200, len(df_canal) * 52),
+                            showlegend=False,
+                            xaxis_title="% da Receita",
+                            yaxis_title="",
+                            margin=dict(l=0, r=40, t=10, b=10),
+                        )
+                        st.plotly_chart(_fig_cv, use_container_width=True)
+
+                    with _col_cv_t:
+                        _df_cv_disp = df_canal.copy()
+                        _df_cv_disp["Receita (R$)"] = _df_cv_disp["Receita (R$)"].apply(brl)
+                        _df_cv_disp["% Receita"]    = _df_cv_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                        st.dataframe(_df_cv_disp, use_container_width=True, hide_index=True,
+                                     height=max(200, len(df_canal) * 52))
+
+                    _top_canal = df_canal.iloc[0]
+                    _pct_top_c = f"{_top_canal['% Receita']:.1f}".replace(".", ",") + "%"
+                    _n_top_c   = fmt_num(int(_top_canal["Transações"]))
+                    st.info(
+                        f"**{_top_canal['Canal de Venda']}** lidera com **{_pct_top_c}** "
+                        f"da receita em {_n_top_c} transações."
+                    )
+                    _df_online = df_canal[df_canal["Canal de Venda"].str.contains("Internet|iFood", case=False, na=False)]
+                    if not _df_online.empty:
+                        _pct_online = _df_online["% Receita"].sum()
+                        if _pct_online >= 5:
+                            st.success(
+                                f"📱 Vendas online (iFood / site) representam **"
+                                f"{f'{_pct_online:.1f}'.replace('.', ',')}%** da receita — "
+                                "monitore o custo de comissão versus a margem líquida nesse canal."
+                            )
+                    with st.expander("ℹ️ Como interpretar — códigos indPres"):
+                        st.markdown(
+                            "| Código | Canal de Venda |\n"
+                            "|--------|----------------|\n"
+                            "| 0 | Não se aplica (operação sem contato direto) |\n"
+                            "| 1 | Presencial — balcão / PDV |\n"
+                            "| 2 | Internet — iFood, site próprio |\n"
+                            "| 3 | Teleatendimento — pedido por telefone |\n"
+                            "| 4 | Delivery próprio (entregador da empresa) |\n"
+                            "| 9 | Outros |\n\n"
+                            "Fonte: Campo indPres da NF-e/NFC-e (SEFAZ). "
+                            "O valor é definido no momento da emissão da nota pelo sistema do emissor."
+                        )
 
 
     #  SIMULAÇÕES
