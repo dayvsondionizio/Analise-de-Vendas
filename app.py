@@ -4,6 +4,7 @@ Lê os Excels exportados do conversor de XML e gera relatório completo.
 """
 
 import streamlit as st
+import streamlit.components.v1 as _st_components
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -37,7 +38,49 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 
+# ── Intro splash ──────────────────────────────────────────────────────────────
+# Vídeo toca na página principal (não em iframe) + time.sleep pelo tempo exato.
+# Durante o sleep o Python está bloqueado → Streamlit NÃO re-renderiza → overlay
+# permanece intacto. Ao acordar, rerun mostra o app normalmente.
+_INTRO_DURACAO_SEG = 8    # duração do vídeo intro.mp4
+
+if "intro_done" not in st.session_state:
+    import time as _time
+    st.session_state.intro_done = True   # impede re-exibição em reruns normais
+
+    st.markdown(f"""
+    <style>
+    header[data-testid="stHeader"],
+    section[data-testid="stSidebar"],
+    div[data-testid="stToolbar"],
+    div[data-testid="stStatusWidget"],
+    #MainMenu {{ display:none !important; }}
+    .stApp {{ background:#000 !important; overflow:hidden !important; }}
+    @keyframes _intro_fade {{
+        0%   {{ opacity:1; }}
+        85%  {{ opacity:1; }}
+        100% {{ opacity:0; }}
+    }}
+    #_intro_overlay {{
+        animation: _intro_fade {_INTRO_DURACAO_SEG:.1f}s ease-in-out forwards;
+    }}
+    </style>
+    <div id="_intro_overlay" style="
+        position:fixed;top:0;left:0;
+        width:100vw;height:100vh;
+        background:#000;z-index:9999999;overflow:hidden;">
+      <video autoplay muted playsinline
+             style="width:100%;height:100%;object-fit:cover;display:block;">
+        <source src="/app/static/intro.mp4" type="video/mp4">
+      </video>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _time.sleep(_INTRO_DURACAO_SEG)
+    st.rerun()
+# ─────────────────────────────────────────────────────────────────────────────
+
+#
 # CATEGORIAS — mapeamento por palavra-chave no xProd
 # Ordem importa: primeiro match ganha
 # 
