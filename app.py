@@ -2343,7 +2343,7 @@ _TPAG_LABEL = {
 
 # ── Canal de venda (indPres — campo ide da NF-e/NFC-e) ────────────────────────
 _INDPRES_LABEL = {
-    "0": "Não se aplica",
+    "0": "NF-e B2B",
     "1": "Presencial (balcão)",
     "2": "Internet (iFood / site)",
     "3": "Teleatendimento",
@@ -2379,7 +2379,7 @@ def calc_meios_pagamento(df: pd.DataFrame) -> pd.DataFrame:
             pct = (val / total_vpag) if total_vpag > 0 else (1.0 / len(partes))
             rows.append({
                 "tpag":       cod.strip(),
-                "label":      _TPAG_LABEL.get(cod.strip(), f"Outros ({cod.strip()})"),
+                "label":      _TPAG_LABEL.get(cod.strip(), f"Desconhecido cod {cod.strip()}"),
                 "transacoes": pct,
                 "receita":    vNF * pct,
             })
@@ -3670,7 +3670,11 @@ def exportar_excel(kpis, df_pares, df_trios,
             _inserir_cabecalho_aba(
                 writer, "Meios de Pagamento",
                 "Meios de Pagamento",
-                ["Receita bruta agrupada por meio de pagamento (campo tPag do XML NF-e/NFC-e)."],
+                [
+                    "Receita bruta agrupada por meio de pagamento (campo tPag do XML NF-e/NFC-e).",
+                    "Códigos padrão SEFAZ: 01 Dinheiro · 03 Cartão Crédito · 04 Cartão Débito · 17 PIX · 10 Vale Alimentação · 11 Vale Refeição · 99 Outros.",
+                    "Quando aparece 'Desconhecido cod X': o código X não consta na tabela oficial SEFAZ — verifique nas configurações do seu PDV qual forma de pagamento está cadastrada com esse código.",
+                ],
             )
             ws_mp = writer.sheets["Meios de Pagamento"]
             for _cell in ws_mp["D"]:
@@ -3694,7 +3698,11 @@ def exportar_excel(kpis, df_pares, df_trios,
             _inserir_cabecalho_aba(
                 writer, "Canal de Venda",
                 "Canal de Venda",
-                ["Canal de venda agrupado por indicador de presença (campo indPres do XML NF-e/NFC-e)."],
+                [
+                    "Canal de venda agrupado por indicador de presença (campo indPres do XML NF-e/NFC-e).",
+                    "Códigos padrão SEFAZ: 0 NF-e B2B · 1 Presencial (balcão/PDV) · 2 Internet (iFood/site) · 3 Teleatendimento · 4 Delivery próprio · 9 Outros.",
+                    "'NF-e B2B' (código 0): notas emitidas para outras empresas (CNPJ destinatário). O campo indPres=0 ('não se aplica') é o padrão para NF-e comerciais B2B, pois não há canal de venda ao consumidor final nessas operações.",
+                ],
             )
             ws_cv = writer.sheets["Canal de Venda"]
             for _cell in ws_cv["D"]:
@@ -5527,7 +5535,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 "Internet (iFood / site)": "#F59E0B",
                 "Delivery próprio":        "#059669",
                 "Teleatendimento":         "#7C3AED",
-                "Não se aplica":           "#9CA3AF",
+                "NF-e B2B":               "#9CA3AF",
                 "Outros":                  "#6B7280",
             }
             _cv_sorted = df_canal.sort_values("% Receita")
@@ -5541,12 +5549,12 @@ def exportar_pptx(kpis, df_pares, df_trios,
             )
             _max_cv = _cv_sorted["% Receita"].max()
             for bar, pct in zip(bars_cv, _cv_sorted["% Receita"]):
-                ax_cv2.text(bar.get_width() + _max_cv * 0.02,
-                            bar.get_y() + bar.get_height() / 2,
+                _lbl_x_cv = min(bar.get_width() + _max_cv * 0.02, 99.0)
+                ax_cv2.text(_lbl_x_cv, bar.get_y() + bar.get_height() / 2,
                             pct_br(pct), va="center", fontsize=9,
                             fontweight="bold", color="#1F2937")
             ax_cv2.set_xlabel("% da Receita", fontsize=10)
-            ax_cv2.set_xlim(0, _max_cv * 1.28)
+            ax_cv2.set_xlim(0, 100)
             ax_cv2.spines[["top", "right"]].set_visible(False)
             ax_cv2.tick_params(labelsize=9)
             fig_cv2.tight_layout()
@@ -5614,7 +5622,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
                      Inches(2.8), Inches(0.5),
                      font_size=14, color=BRANCO, align=PP_ALIGN.CENTER)
 
-        # Top produtos NF-e (nomes limpos — sem Ped./Nro.Item)
+        # Top produtos NF-e — tabela largura total (sem Ped./Nro.Item)
         if "xProd" in df_nfe.columns and "vProd" in df_nfe.columns:
             import re as _re_tbl
             def _clean_tbl(s):
@@ -5627,18 +5635,18 @@ def exportar_pptx(kpis, df_pares, df_trios,
             _grp_b2b  = ["xProd"] + ([_dest_b2b] if _dest_b2b else [])
             top_b2b = (_nfe_tbl.groupby(_grp_b2b)
                        .agg(receita=("vProd", "sum"), notas=("chave", "nunique"))
-                       .sort_values("receita", ascending=False).head(8).reset_index())
+                       .sort_values("receita", ascending=False).head(10).reset_index())
 
             add_text(sl, "TOP PRODUTOS (NF-e)",
-                     Inches(0.3), Inches(3.0), Inches(7.5), Inches(0.45),
+                     Inches(0.3), Inches(3.0), Inches(12.7), Inches(0.45),
                      font_size=14, bold=True, color=AZUL_ESC)
 
             if _dest_b2b:
-                hdrs_b2b   = ["#", "Produto", "Empresa", "Notas"]
-                col_ws_b2b = [Inches(0.4), Inches(3.3), Inches(3.0), Inches(0.6)]
+                hdrs_b2b   = ["#", "Produto", "Empresa", "Receita (R$)", "Notas"]
+                col_ws_b2b = [Inches(0.38), Inches(4.40), Inches(4.10), Inches(2.60), Inches(0.82)]
             else:
-                hdrs_b2b   = ["#", "Produto", "Notas"]
-                col_ws_b2b = [Inches(0.5), Inches(6.4), Inches(0.8)]
+                hdrs_b2b   = ["#", "Produto", "Receita (R$)", "Notas"]
+                col_ws_b2b = [Inches(0.45), Inches(7.80), Inches(3.00), Inches(1.05)]
 
             y_b = Inches(3.5)
             rh  = Inches(0.38)
@@ -5651,14 +5659,17 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 x += ww
             for ri, (_, row) in enumerate(top_b2b.iterrows()):
                 y_r = y_b + rh * (ri + 1)
+                if y_r + rh > Inches(7.35):
+                    break
                 bg  = CINZA_CLR if ri % 2 == 0 else BRANCO
                 x   = Inches(0.3)
                 if _dest_b2b:
-                    vals_b = [str(ri+1), str(row["xProd"])[:40],
-                              str(row.get(_dest_b2b, ""))[:38],
-                              fmt_num(row["notas"])]
+                    vals_b = [str(ri+1), str(row["xProd"])[:50],
+                              str(row.get(_dest_b2b, ""))[:42],
+                              brl(row["receita"]), fmt_num(row["notas"])]
                 else:
-                    vals_b = [str(ri+1), str(row["xProd"])[:60], fmt_num(row["notas"])]
+                    vals_b = [str(ri+1), str(row["xProd"])[:70],
+                              brl(row["receita"]), fmt_num(row["notas"])]
                 for vi, (val, ww) in enumerate(zip(vals_b, col_ws_b2b)):
                     add_rect(sl, x, y_r, ww, rh, bg)
                     al = PP_ALIGN.LEFT if vi in (1, 2) else PP_ALIGN.CENTER
@@ -5666,28 +5677,6 @@ def exportar_pptx(kpis, df_pares, df_trios,
                              ww - Inches(0.08), rh - Inches(0.08),
                              font_size=11, color=TEXTO, align=al)
                     x += ww
-
-        # Top produtos NF-e à direita (nomes limpos — sem Ped./Nro.Item)
-        if df_nfe is not None and not df_nfe.empty:
-            import re as _re_nfe
-            def _clean_nfe(s):
-                s = _re_nfe.sub(r"\s+Ped\.+\s*:.*$", "", str(s), flags=_re_nfe.IGNORECASE)
-                s = _re_nfe.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re_nfe.IGNORECASE)
-                return s.strip()
-            _nfe_c = df_nfe.copy()
-            _nfe_c["xProd"] = _nfe_c["xProd"].apply(_clean_nfe)
-            top_nfe = (_nfe_c.groupby("xProd")["vProd"].sum()
-                       .nlargest(8).reset_index().sort_values("vProd"))
-            add_text(sl, "TOP PRODUTOS (NF-e)",
-                     Inches(8.0), Inches(3.0), Inches(5.1), Inches(0.4),
-                     font_size=15, bold=True, color=AZUL_ESC)
-            fig_cb2, ax_cb2 = plt.subplots(figsize=(4.8, 3.8))
-            ax_cb2.barh(top_nfe["xProd"].str[:25], top_nfe["vProd"],
-                        color="#2563EB", height=0.6)
-            ax_cb2.tick_params(labelsize=7)
-            ax_cb2.spines[["top", "right"]].set_visible(False)
-            fig_cb2.tight_layout()
-            plt_to_pptx_image(fig_cb2, sl, Inches(8.0), Inches(3.45), Inches(5.1), Inches(3.8))
 
     # ══════════════════════════════════════════════════════════════════
     # SLIDE: OUTRAS SAÍDAS NF-e (transferências, devoluções, etc.)
@@ -6121,7 +6110,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_18"
+    _APP_CACHE_VER = "20260515_19"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -7874,9 +7863,13 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                             "| 10 | Vale Alimentação |\n"
                             "| 11 | Vale Refeição |\n"
                             "| 17 | PIX |\n"
-                            "| 99 | Outros |\n\n"
+                            "| 99 | Outros (SEFAZ) |\n\n"
                             "Fonte: Tabela tPag da NF-e/NFC-e (SEFAZ). "
-                            "Notas com pagamento misto têm a receita rateada proporcionalmente."
+                            "Notas com pagamento misto têm a receita rateada proporcionalmente.\n\n"
+                            "⚠️ **Desconhecido cod X**: quando aparece essa descrição, o código X não consta "
+                            "na tabela oficial SEFAZ. É um código proprietário do sistema PDV. "
+                            "Verifique nas configurações do seu software de caixa qual forma de pagamento "
+                            "está cadastrada com esse número para identificá-la corretamente."
                         )
 
             # ── SUBTAB 6: CANAL DE VENDA ──────────────────────
@@ -7897,7 +7890,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                             "Internet (iFood / site)": "#F59E0B",
                             "Delivery próprio":     "#059669",
                             "Teleatendimento":      "#7C3AED",
-                            "Não se aplica":        "#9CA3AF",
+                            "NF-e B2B":             "#9CA3AF",
                             "Outros":               "#6B7280",
                         }
                         _cores_cv = [_CORES_CANAL.get(c, "#2563EB")
@@ -7917,6 +7910,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                             height=max(200, len(df_canal) * 52),
                             showlegend=False,
                             xaxis_title="% da Receita",
+                            xaxis=dict(range=[0, 100]),
                             yaxis_title="",
                             margin=dict(l=0, r=40, t=10, b=10),
                         )
@@ -7949,14 +7943,18 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                         st.markdown(
                             "| Código | Canal de Venda |\n"
                             "|--------|----------------|\n"
-                            "| 0 | Não se aplica (operação sem contato direto) |\n"
+                            "| 0 | **NF-e B2B** — nota emitida para outra empresa (CNPJ) |\n"
                             "| 1 | Presencial — balcão / PDV |\n"
                             "| 2 | Internet — iFood, site próprio |\n"
                             "| 3 | Teleatendimento — pedido por telefone |\n"
                             "| 4 | Delivery próprio (entregador da empresa) |\n"
                             "| 9 | Outros |\n\n"
                             "Fonte: Campo indPres da NF-e/NFC-e (SEFAZ). "
-                            "O valor é definido no momento da emissão da nota pelo sistema do emissor."
+                            "O valor é definido no momento da emissão da nota pelo sistema do emissor.\n\n"
+                            "ℹ️ **NF-e B2B (código 0)**: o campo *indPres = 0* (\"não se aplica\") é o padrão "
+                            "para NF-e emitidas a outras empresas. Essas notas não têm canal de venda ao "
+                            "consumidor e costumam ter ticket médio mais alto por serem vendas em atacado "
+                            "ou fornecimento a CNPJs."
                         )
 
 
