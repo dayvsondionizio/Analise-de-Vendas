@@ -1058,6 +1058,16 @@ def carregar_zip(file_bytes: bytes):
             nNF    = gettxt(ide, "nNF")
             dhEmi  = gettxt(ide, "dhEmi") or None
             xNatOp = gettxt(ide, "xNatOp")
+            ind_pres = gettxt(ide, "indPres") or "0"
+            _tpag_parts = []
+            _pag_el = infNFe.find(t("pag"))
+            if _pag_el is not None:
+                for _dp in _pag_el.findall(t("detPag")):
+                    _cod = gettxt(_dp, "tPag")
+                    _val = getfloat(_dp, "vPag")
+                    if _cod:
+                        _tpag_parts.append(f"{_cod}:{_val:.2f}")
+            tpag = "|".join(_tpag_parts)
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -1095,6 +1105,7 @@ def carregar_zip(file_bytes: bytes):
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
+                    "ind_pres": ind_pres, "tpag": tpag,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -1217,6 +1228,16 @@ def carregar_xmls_multi(arquivos: tuple):
             nNF    = gettxt(ide, "nNF")
             dhEmi  = gettxt(ide, "dhEmi") or None
             xNatOp = gettxt(ide, "xNatOp")
+            ind_pres = gettxt(ide, "indPres") or "0"
+            _tpag_parts = []
+            _pag_el = infNFe.find(t("pag"))
+            if _pag_el is not None:
+                for _dp in _pag_el.findall(t("detPag")):
+                    _cod = gettxt(_dp, "tPag")
+                    _val = getfloat(_dp, "vPag")
+                    if _cod:
+                        _tpag_parts.append(f"{_cod}:{_val:.2f}")
+            tpag = "|".join(_tpag_parts)
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -1253,6 +1274,7 @@ def carregar_xmls_multi(arquivos: tuple):
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
+                    "ind_pres": ind_pres, "tpag": tpag,
                 }
 
                 if mod == "65":
@@ -1370,6 +1392,16 @@ def carregar_pasta(caminho: str):
             nNF    = gettxt(ide, "nNF")
             dhEmi  = gettxt(ide, "dhEmi") or None
             xNatOp = gettxt(ide, "xNatOp")
+            ind_pres = gettxt(ide, "indPres") or "0"
+            _tpag_parts = []
+            _pag_el = infNFe.find(t("pag"))
+            if _pag_el is not None:
+                for _dp in _pag_el.findall(t("detPag")):
+                    _cod = gettxt(_dp, "tPag")
+                    _val = getfloat(_dp, "vPag")
+                    if _cod:
+                        _tpag_parts.append(f"{_cod}:{_val:.2f}")
+            tpag = "|".join(_tpag_parts)
 
             situacao = "Autorizada"
             if prot_el is not None:
@@ -1417,6 +1449,8 @@ def carregar_pasta(caminho: str):
                     "cnpj_emit":    cnpj_emit,
                     "situacao":     situacao,
                     "xNatOp":       xNatOp,
+                    "ind_pres":     ind_pres,
+                    "tpag":         tpag,
                 }
 
                 if mod == "65":
@@ -1584,6 +1618,7 @@ def carregar_pastas(caminhos: tuple):
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
+                    "ind_pres": ind_pres, "tpag": tpag,
                 }
                 if mod == "65":
                     r_nfce.append(row)
@@ -1857,6 +1892,16 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             dhEmi  = _gettxt(ide, "dhEmi") or None
             xNatOp = _gettxt(ide, "xNatOp")
             tpNF   = _gettxt(ide, "tpNF")  # "0"=entrada, "1"=saída
+            ind_pres = _gettxt(ide, "indPres") or "0"
+            _tpag_parts = []
+            _pag_el = infNFe.find(_t("pag"))
+            if _pag_el is not None:
+                for _dp in _pag_el.findall(_t("detPag")):
+                    _cod = _gettxt(_dp, "tPag")
+                    _val = _getfloat(_dp, "vPag")
+                    if _cod:
+                        _tpag_parts.append(f"{_cod}:{_val:.2f}")
+            tpag = "|".join(_tpag_parts)
             situacao = "Autorizada"
             if prot_el is not None:
                 infProt = prot_el.find(_t("infProt"))
@@ -1910,6 +1955,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
+                    "ind_pres": ind_pres, "tpag": tpag,
                 }
                 if mod == "65": rows_n.append(row)
                 elif mod == "55": rows_e.append(row)
@@ -2274,6 +2320,112 @@ _MESES_ABREV_COMPRAS = {
     1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
     7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez",
 }
+
+# ── Meios de pagamento (tPag — campo pag/detPag da NF-e/NFC-e) ────────────────
+_TPAG_LABEL = {
+    "01": "Dinheiro",
+    "02": "Cheque",
+    "03": "Cartão Crédito",
+    "04": "Cartão Débito",
+    "05": "Crédito Loja",
+    "10": "Vale Alimentação",
+    "11": "Vale Refeição",
+    "12": "Vale Presente",
+    "13": "Vale Combustível",
+    "15": "Boleto Bancário",
+    "16": "Depósito Bancário",
+    "17": "PIX",
+    "18": "Transferência Bancária",
+    "19": "Cashback / Fidelidade",
+    "90": "Sem Pagamento",
+    "99": "Outros",
+}
+
+# ── Canal de venda (indPres — campo ide da NF-e/NFC-e) ────────────────────────
+_INDPRES_LABEL = {
+    "0": "Não se aplica",
+    "1": "Presencial (balcão)",
+    "2": "Internet (iFood / site)",
+    "3": "Teleatendimento",
+    "4": "Delivery próprio",
+    "9": "Outros",
+}
+
+
+def calc_meios_pagamento(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega transações e receita por meio de pagamento (campo tpag do XML)."""
+    if df.empty or "tpag" not in df.columns:
+        return pd.DataFrame()
+    notas = df.drop_duplicates("chave")[["chave", "tpag", "vNF"]].copy()
+    notas = notas[notas["tpag"].notna() & (notas["tpag"].astype(str).str.strip() != "")]
+    if notas.empty:
+        return pd.DataFrame()
+    rows = []
+    for _, nota in notas.iterrows():
+        tpag_str = str(nota["tpag"]).strip()
+        vNF = float(nota["vNF"]) if pd.notna(nota["vNF"]) else 0.0
+        partes = [p for p in tpag_str.split("|") if ":" in p]
+        if not partes:
+            rows.append({"tpag": "99", "label": _TPAG_LABEL.get("99", "Outros"),
+                         "transacoes": 1.0, "receita": vNF})
+            continue
+        total_vpag = sum(float(p.split(":")[1]) for p in partes)
+        for parte in partes:
+            cod, val_str = parte.split(":", 1)
+            try:
+                val = float(val_str)
+            except Exception:
+                val = 0.0
+            pct = (val / total_vpag) if total_vpag > 0 else (1.0 / len(partes))
+            rows.append({
+                "tpag":       cod.strip(),
+                "label":      _TPAG_LABEL.get(cod.strip(), f"Outros ({cod.strip()})"),
+                "transacoes": pct,
+                "receita":    vNF * pct,
+            })
+    if not rows:
+        return pd.DataFrame()
+    result = (
+        pd.DataFrame(rows)
+        .groupby(["tpag", "label"], sort=False)
+        .agg(transacoes=("transacoes", "sum"), receita=("receita", "sum"))
+        .reset_index()
+        .sort_values("receita", ascending=False)
+        .reset_index(drop=True)
+    )
+    total = result["receita"].sum()
+    result["pct"] = result["receita"] / total * 100 if total else 0.0
+    result["transacoes"] = result["transacoes"].round().astype(int)
+    result.insert(0, "Rank", range(1, len(result) + 1))
+    return result[["Rank", "label", "transacoes", "receita", "pct"]].rename(columns={
+        "label": "Meio de Pagamento", "transacoes": "Transações",
+        "receita": "Receita (R$)", "pct": "% Receita",
+    })
+
+
+def calc_canal_venda(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega por canal de venda (campo ind_pres do XML — indPres)."""
+    if df.empty or "ind_pres" not in df.columns:
+        return pd.DataFrame()
+    notas = df.drop_duplicates("chave")[["chave", "ind_pres", "vNF"]].copy()
+    if notas.empty:
+        return pd.DataFrame()
+    notas["ind_pres"] = notas["ind_pres"].fillna("0").astype(str).str.strip()
+    notas["canal"] = notas["ind_pres"].map(_INDPRES_LABEL).fillna("Outros")
+    result = (
+        notas.groupby(["ind_pres", "canal"], sort=False)
+        .agg(transacoes=("chave", "count"), receita=("vNF", "sum"))
+        .reset_index()
+        .sort_values("receita", ascending=False)
+        .reset_index(drop=True)
+    )
+    total = result["receita"].sum()
+    result["pct"] = result["receita"] / total * 100 if total else 0.0
+    result.insert(0, "Rank", range(1, len(result) + 1))
+    return result[["Rank", "canal", "transacoes", "receita", "pct"]].rename(columns={
+        "canal": "Canal de Venda", "transacoes": "Transações",
+        "receita": "Receita (R$)", "pct": "% Receita",
+    })
 
 
 def parse_planilha_compras(arquivo) -> pd.DataFrame:
@@ -3121,7 +3273,9 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_nfe: pd.DataFrame = None,
                    df_nfe_outros: pd.DataFrame = None,
                    df_por_hora: pd.DataFrame = None,
-                   df_por_turno: pd.DataFrame = None) -> bytes:
+                   df_por_turno: pd.DataFrame = None,
+                   df_meios_pag: pd.DataFrame = None,
+                   df_canal: pd.DataFrame = None) -> bytes:
 
     _FMT_BRL  = 'R$ #,##0.00'
     _FMT_PCT  = '0.00"%"'
@@ -3505,6 +3659,44 @@ def exportar_excel(kpis, df_pares, df_trios,
                         "Consolidado de transações e receita por turno (Manhã / Tarde / Noite). "
                         "Use para dimensionar equipe e estoque por período do dia.",
                     ])
+
+        # ── Meios de Pagamento ────────────────────────────────────────────────────
+        if df_meios_pag is not None and not df_meios_pag.empty:
+            from openpyxl.cell import MergedCell
+            _df_mp_xls = df_meios_pag.copy()
+            _df_mp_xls["Receita (R$)"] = _df_mp_xls["Receita (R$)"].round(2)
+            _df_mp_xls["% Receita"] = (_df_mp_xls["% Receita"] / 100).round(4)
+            _df_mp_xls.to_excel(writer, sheet_name="Meios de Pagamento", index=False)
+            _inserir_cabecalho_aba(
+                writer, "Meios de Pagamento",
+                "Meios de Pagamento",
+                ["Receita bruta agrupada por meio de pagamento (campo tPag do XML NF-e/NFC-e)."],
+            )
+            ws_mp = writer.sheets["Meios de Pagamento"]
+            for _cell in ws_mp["E"]:
+                if isinstance(_cell, MergedCell): continue
+                if _cell.row <= 4: continue
+                if _cell.value is not None and _cell.row > 4:
+                    _cell.number_format = "0.0%"
+
+        # ── Canal de Venda ────────────────────────────────────────────────────────
+        if df_canal is not None and not df_canal.empty:
+            from openpyxl.cell import MergedCell
+            _df_cv_xls = df_canal.copy()
+            _df_cv_xls["Receita (R$)"] = _df_cv_xls["Receita (R$)"].round(2)
+            _df_cv_xls["% Receita"] = (_df_cv_xls["% Receita"] / 100).round(4)
+            _df_cv_xls.to_excel(writer, sheet_name="Canal de Venda", index=False)
+            _inserir_cabecalho_aba(
+                writer, "Canal de Venda",
+                "Canal de Venda",
+                ["Canal de venda agrupado por indicador de presença (campo indPres do XML NF-e/NFC-e)."],
+            )
+            ws_cv = writer.sheets["Canal de Venda"]
+            for _cell in ws_cv["E"]:
+                if isinstance(_cell, MergedCell): continue
+                if _cell.row <= 4: continue
+                if _cell.value is not None and _cell.row > 4:
+                    _cell.number_format = "0.0%"
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
         if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
@@ -5776,7 +5968,7 @@ def main():
 
     # ── Fingerprint da fonte de dados ──
     # _APP_CACHE_VER: incrementar sempre que mudar lógica de processamento de arquivos
-    _APP_CACHE_VER = "20260514_17"
+    _APP_CACHE_VER = "20260514_18"
     _fp_entrada = tuple(sorted((f.name, f.size) for f in arquivos_entrada)) if arquivos_entrada else ()
     _fp_pe   = _pasta_entrada if _pasta_entrada else ""
     _fp_sped = (arquivo_sped.name, arquivo_sped.size) if arquivo_sped else ()
@@ -5865,6 +6057,8 @@ def main():
         df_horas     = _R["df_horas"]
         df_por_hora  = _R["df_por_hora"]
         df_por_turno = _R["df_por_turno"]
+        df_meios_pag = _R.get("df_meios_pag", pd.DataFrame())
+        df_canal     = _R.get("df_canal", pd.DataFrame())
         df_entradas        = _R.get("df_entradas", pd.DataFrame())
         df_entradas_outros = _R.get("df_entradas_outros", pd.DataFrame())
         sn_result          = _R.get("sn_result", None)
@@ -6111,6 +6305,8 @@ def main():
             _render_prog(93, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
             df_horas = calc_horas_oportunidade(df)
             df_por_hora, df_por_turno = calc_vendas_horario(df)
+            df_meios_pag = calc_meios_pagamento(df_all)
+            df_canal     = calc_canal_venda(df_all)
 
         else:
             # ── Compras-only: sem XMLs — tudo de vendas vazio ────
@@ -6130,6 +6326,7 @@ def main():
             df_elev = df_redu = pd.DataFrame()
             df_sim_preco = df_sim_rec = df_combos = df_metas = pd.DataFrame()
             df_horas = df_por_hora = df_por_turno = pd.DataFrame()
+            df_meios_pag = df_canal = pd.DataFrame()
             df_nfe_rejeitadas = pd.DataFrame()
             _render_prog(50, "📦 Processando planilha de compras...", _t0, _box_txt, _box_bar)
 
@@ -6355,6 +6552,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             "df_sim_preco": df_sim_preco, "df_sim_rec": df_sim_rec,
             "df_combos": df_combos,  "df_metas": df_metas,
             "df_horas": df_horas,    "df_por_hora": df_por_hora, "df_por_turno": df_por_turno,
+            "df_meios_pag":   df_meios_pag,
+            "df_canal":       df_canal,
             "df_entradas": df_entradas, "sn_result": sn_result,
             "df_sped_parsed": df_sped_parsed,
             "df_compras": df_compras,
@@ -7302,7 +7501,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
         with tabs[tab_idx["Temporal"]]:
             st.subheader("Análise Temporal de Vendas")
 
-            subtabs = st.tabs(["Fluxo por Horário", "Por Turno", "Dia da Semana", "Horários com Potencial"])
+            subtabs = st.tabs(["Fluxo por Horário", "Por Turno", "Dia da Semana", "Horários com Potencial", "Meios de Pagamento", "Canal de Venda"])
 
             # ── SUBTAB 1: FLUXO POR HORÁRIO ──────────────────
             with subtabs[0]:
@@ -7460,8 +7659,32 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     fig_h.update_layout(height=400)
                     st.plotly_chart(fig_h, use_container_width=True)
 
+            # ── SUBTAB 5: MEIOS DE PAGAMENTO ──────────────────
+            with subtabs[4]:
+                _df_mp = st.session_state.get("df_meios_pag", pd.DataFrame())
+                if _df_mp.empty:
+                    st.info("Dados de meio de pagamento não disponíveis. Os XMLs precisam conter o campo `<tPag>` (NF-e 4.0).")
+                else:
+                    st.markdown("#### Receita por Meio de Pagamento")
+                    _df_mp_disp = _df_mp.copy()
+                    _df_mp_disp["Receita (R$)"] = _df_mp_disp["Receita (R$)"].apply(brl)
+                    _df_mp_disp["% Receita"] = _df_mp_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                    st.dataframe(_df_mp_disp, use_container_width=True, hide_index=True)
 
-    #  SIMULAÇÕES 
+            # ── SUBTAB 6: CANAL DE VENDA ──────────────────────
+            with subtabs[5]:
+                _df_cv = st.session_state.get("df_canal", pd.DataFrame())
+                if _df_cv.empty:
+                    st.info("Dados de canal de venda não disponíveis. Os XMLs precisam conter o campo `<indPres>` (NF-e 4.0).")
+                else:
+                    st.markdown("#### Receita por Canal de Venda")
+                    _df_cv_disp = _df_cv.copy()
+                    _df_cv_disp["Receita (R$)"] = _df_cv_disp["Receita (R$)"].apply(brl)
+                    _df_cv_disp["% Receita"] = _df_cv_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                    st.dataframe(_df_cv_disp, use_container_width=True, hide_index=True)
+
+
+    #  SIMULAÇÕES
     with tabs[tab_idx["Simulações"]]:
         st.subheader("Precificação de Combos")
         if df_combos.empty:
@@ -8065,7 +8288,9 @@ Diferenças maiores devem ser investigadas com o contador.
                                      df_nfe=df_nfe,
                                      df_nfe_outros=df_nfe_outros,
                                      df_por_hora=df_por_hora,
-                                     df_por_turno=df_por_turno)
+                                     df_por_turno=df_por_turno,
+                                     df_meios_pag=st.session_state.get("df_meios_pag", pd.DataFrame()),
+                                     df_canal=st.session_state.get("df_canal", pd.DataFrame()))
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
