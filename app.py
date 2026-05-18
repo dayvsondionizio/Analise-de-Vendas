@@ -8016,13 +8016,11 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 c3.metric("Ticket Médio B2B",  brl(fat_b2b / n_b2b if n_b2b else 0))
                 c4.metric("% do Total",        (f"{fat_b2b/kpis['faturamento']*100:.1f}".replace(".", ",") + "%") if kpis["faturamento"] else "—")
 
-            # ── Breakdown por CFOP / Natureza (estilo Questor) ───────────
-            # Usa df_all (NFC-e + NF-e) para bater com o total do Questor
-            _df_cfop_base = df_all if not df_all.empty else df_nfe
+            # ── Breakdown por CFOP / Natureza (apenas NF-e) ─────────────
+            _df_cfop_base = df_nfe
             if "CFOP" in _df_cfop_base.columns and "chave" in _df_cfop_base.columns:
                 st.markdown("#### Totais por CFOP e Natureza da Operação")
-                st.caption("Tabela comparável ao relatório **'Totais ICMS por Natureza'** do Questor (NFC-e + NF-e). "
-                           "Use para identificar qual CFOP está gerando diferença em relação ao sistema fiscal.")
+                st.caption("Totais das **NF-e de saída** agrupados por CFOP e Natureza da Operação.")
                 _has_natop = "xNatOp" in _df_cfop_base.columns
                 _grp_keys  = ["CFOP"] + (["xNatOp"] if _has_natop else [])
                 _cfop_grp  = (
@@ -8042,17 +8040,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 _cfop_grp = _cfop_grp.rename(columns={"xNatOp": "Natureza (xNatOp)", "notas": "Notas"})
                 _cols_cfop = ["CFOP"] + (["Natureza (xNatOp)"] if _has_natop else []) + ["Notas", "Vlr Contábil"]
                 st.dataframe(_cfop_grp[_cols_cfop], use_container_width=True, hide_index=True)
-                st.caption(f"**Total no app (NFC-e + NF-e): {brl(_total_cfop)}** — compare linha a linha com o Questor para identificar o CFOP divergente.")
-
-                st.info(
-                    "ℹ️ **Atenção — pequena diferença esperada vs. Questor:** "
-                    "O total de faturamento considera o **Valor Total da Nota (vNF)** dos XMLs fiscais, "
-                    "que pode incluir **fretes, seguros e outras despesas acessórias** nas NF-e (B2B). "
-                    "O relatório *Totais ICMS por Natureza* do Questor utiliza o **Valor Contábil** por item/natureza, "
-                    "que geralmente exclui essas despesas. "
-                    "As **NFC-e (consumidor final) batem exatamente** — a diferença concentra-se nas **NF-e (B2B)** "
-                    "e costuma ser inferior a **0,03%** do faturamento total. Não representa erro contábil."
-                )
+                st.caption(f"**Total NF-e de saída: {brl(_total_cfop)}**")
 
             # ── Lista individual de NF-e de venda ──────────────────────
             if "chave" in df_nfe.columns and "vNF" in df_nfe.columns:
@@ -8105,8 +8093,12 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 with col_b2:
                     st.markdown("#### Receita por Produto (NF-e)")
                     import plotly.express as _px
-                    _chart_df = top_b2b.head(10).iloc[::-1].copy()
-                    _chart_df["_receita_num"] = _chart_df["receita"].values
+                    # Agrupa só por produto para evitar barras duplicadas no gráfico
+                    _chart_df = (
+                        _df_nfe_view.groupby("xProd_clean")["vProd"].sum()
+                        .nlargest(10).iloc[::-1].reset_index()
+                        .rename(columns={"xProd_clean": "Produto", "vProd": "_receita_num"})
+                    )
                     _fig_nfe = _px.bar(
                         _chart_df, x="_receita_num", y="Produto",
                         orientation="h",
