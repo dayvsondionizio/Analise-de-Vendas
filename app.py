@@ -8065,7 +8065,11 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     s = _re.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re.IGNORECASE)
                     return s.strip()
 
-                _df_nfe_view = df_nfe.copy()
+                # Deduplica itens por (chave, numItem) para evitar double-count
+                # quando o mesmo XML aparece em mais de um ZIP enviado pelo usuário
+                _dedup_item = [c for c in ["chave", "numItem"] if c in df_nfe.columns]
+                _df_nfe_view = (df_nfe.drop_duplicates(subset=_dedup_item) if _dedup_item
+                                else df_nfe).copy()
                 _df_nfe_view["xProd_clean"] = _df_nfe_view["xProd"].astype(str).apply(_limpar_xprod)
                 _dest_col = "destinatario" if "destinatario" in _df_nfe_view.columns else None
 
