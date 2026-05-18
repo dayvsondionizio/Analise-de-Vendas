@@ -8091,8 +8091,16 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 col_b1, col_b2 = st.columns([3, 2])
                 with col_b1:
                     st.markdown("#### Top Produtos (NF-e)")
-                    st.dataframe(top_b2b[_cols_show],
-                                 use_container_width=True, hide_index=True, height=450)
+                    _total_row = {c: "" for c in _cols_show}
+                    _total_row["Produto"] = "TOTAL"
+                    _total_row["Notas"] = top_b2b["Notas"].sum()
+                    _total_row["Receita"] = brl(top_b2b["receita"].sum())
+                    _top_b2b_display = pd.concat(
+                        [top_b2b[_cols_show], pd.DataFrame([_total_row])],
+                        ignore_index=True
+                    )
+                    st.dataframe(_top_b2b_display,
+                                 use_container_width=True, hide_index=True, height=480)
 
                 with col_b2:
                     st.markdown("#### Receita por Produto (NF-e)")
