@@ -2858,12 +2858,14 @@ def calc_turno(df: pd.DataFrame) -> pd.DataFrame | None:
 
 #  PROMPT 5 — Produtos âncora (pedido com 1 só item) 
 def calc_solo_produtos(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    contagem = df.groupby("chave")["numItem"].count()
+    _dedup = [c for c in ["chave", "numItem"] if c in df.columns]
+    df = df.drop_duplicates(subset=_dedup) if _dedup else df
+    contagem = df.groupby("chave")["numItem"].nunique()
     notas_solo = contagem[contagem == 1].index
     solo = df[df["chave"].isin(notas_solo)]
     return (
         solo.groupby("xProd")
-        .agg(frequencia=("chave", "count"), receita=("vProd", "sum"))
+        .agg(frequencia=("chave", "nunique"), receita=("vProd", "sum"))
         .reset_index()
         .sort_values("frequencia", ascending=False)
         .head(top_n)
