@@ -5723,7 +5723,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
                        .agg(receita=("vProd", "sum"), notas=("chave", "nunique"))
                        .sort_values("receita", ascending=False).head(10).reset_index())
 
-            add_text(sl, "TOP PRODUTOS (NF-e)",
+            _n_top_b2b = len(top_b2b)
+            add_text(sl, f"TOP {_n_top_b2b} PRODUTOS (NF-e)  —  lista completa no Excel",
                      Inches(0.3), Inches(3.0), Inches(12.7), Inches(0.45),
                      font_size=14, bold=True, color=AZUL_ESC)
 
@@ -5763,6 +5764,13 @@ def exportar_pptx(kpis, df_pares, df_trios,
                              ww - Inches(0.08), rh - Inches(0.08),
                              font_size=11, color=TEXTO, align=al)
                     x += ww
+
+            # Nota de rodapé
+            add_text(sl,
+                     f"* Exibindo os {_n_top_b2b} maiores por receita. "
+                     "Acesse o Excel (aba 'NF-e Vendas') para a lista completa com todos os produtos e empresas.",
+                     Inches(0.3), Inches(7.1), Inches(12.7), Inches(0.3),
+                     font_size=9, color=RGBColor(0x6B, 0x72, 0x80))
 
     # ══════════════════════════════════════════════════════════════════
     # SLIDE: OUTRAS SAÍDAS NF-e (transferências, devoluções, etc.)
@@ -8615,7 +8623,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v16"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v17"   # bumpar aqui a cada mudança nas funções de export
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
 
     if st.session_state.get("_export_fp") != _fp_atual:
