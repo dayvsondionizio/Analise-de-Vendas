@@ -6520,10 +6520,17 @@ def main():
             _render_prog(55, "🧺 Distribuição da cesta de compras...", _t0, _box_txt, _box_bar)
             df_cesta = calc_cesta(df)
 
+            # df_all_dedup: remove itens duplicados (mesmo XML em dois ZIPs).
+            # calc_curva_abc nao precisa pois normaliza por vNF; as demais funcoes
+            # que somam vProd diretamente precisam receber dados deduplicados.
+            _dedup_cols_all = [c for c in ["chave", "numItem"] if c in df_all.columns]
+            df_all_dedup = (df_all.drop_duplicates(subset=_dedup_cols_all)
+                            if _dedup_cols_all else df_all)
+
             _render_prog(60, "🏷️ Classificando produtos (BCG, remoção, solo)...", _t0, _box_txt, _box_bar)
-            df_bcg     = calc_bcg(df_all)
-            df_abc     = calc_curva_abc(df_all)
-            df_remocao = calc_remocao(df_all)
+            df_bcg     = calc_bcg(df_all_dedup)
+            df_abc     = calc_curva_abc(df_all)        # usa normalização própria — ok com df_all
+            df_remocao = calc_remocao(df_all_dedup)
             df_solo    = calc_solo_produtos(df)
             df_anti    = calc_anti_pares(df)
 
@@ -6532,13 +6539,13 @@ def main():
             df_dia_tipo, df_dia_semana = calc_por_dia_semana(df)
 
             _render_prog(80, "💡 Identificando ticket drivers...", _t0, _box_txt, _box_bar)
-            df_elev, df_redu = calc_ticket_drivers(df_all)
+            df_elev, df_redu = calc_ticket_drivers(df_all_dedup)
 
             _render_prog(87, "🧮 Gerando simulações de preço e receita...", _t0, _box_txt, _box_bar)
-            df_sim_preco = calc_simulacao_precos(df_all)
-            df_sim_rec   = calc_simulacao_receita(kpis, df_all)
+            df_sim_preco = calc_simulacao_precos(df_all_dedup)
+            df_sim_rec   = calc_simulacao_receita(kpis, df_all_dedup)
             df_combos    = calc_combo_pricing(df_pares, df)
-            df_metas     = calc_metas(df_all)
+            df_metas     = calc_metas(df_all_dedup)
 
             _render_prog(93, "⏰ Analisando fluxo por horário...", _t0, _box_txt, _box_bar)
             df_horas = calc_horas_oportunidade(df)
