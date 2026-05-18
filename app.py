@@ -32,7 +32,7 @@ def _limpar_xprod(s) -> str:
 
 st.set_page_config(
     page_title="Análise de Vendas e Compras",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
