@@ -3271,8 +3271,10 @@ def exportar_excel(kpis, df_pares, df_trios,
                    cliente: str, periodo: str,
                    sn_result=None,
                    df_all: pd.DataFrame = None,
+                   df_nfce: pd.DataFrame = None,
                    df_nfe: pd.DataFrame = None,
                    df_nfe_outros: pd.DataFrame = None,
+                   df_nfe_rejeitadas: pd.DataFrame = None,
                    df_por_hora: pd.DataFrame = None,
                    df_por_turno: pd.DataFrame = None,
                    df_meios_pag: pd.DataFrame = None,
@@ -3664,6 +3666,7 @@ def exportar_excel(kpis, df_pares, df_trios,
         # ── Meios de Pagamento ────────────────────────────────────────────────────
         if df_meios_pag is not None and not df_meios_pag.empty:
             from openpyxl.cell import MergedCell
+            from openpyxl.styles import Font, PatternFill, Alignment
             _df_mp_xls = df_meios_pag.copy()
             _df_mp_xls["Receita (R$)"] = _df_mp_xls["Receita (R$)"].round(2)
             _df_mp_xls["% Receita"] = (_df_mp_xls["% Receita"] / 100).round(4)
@@ -3688,6 +3691,55 @@ def exportar_excel(kpis, df_pares, df_trios,
                 if _cell.row <= 4: continue
                 if _cell.value is not None:
                     _cell.number_format = "0.0%"
+
+            # ── Breakdown NFC-e / NF-e ──────────────────────────────────
+            _secoes_mp = []
+            for _lbl, _df_src in [("NFC-e (Consumidor Final)", df_nfce), ("NF-e (B2B / Empresas)", df_nfe)]:
+                if _df_src is not None and not (hasattr(_df_src, "empty") and _df_src.empty):
+                    _mp_sec = calc_meios_pagamento(_df_src)
+                    if not _mp_sec.empty:
+                        _mp_sec["Receita (R$)"] = _mp_sec["Receita (R$)"].round(2)
+                        _mp_sec["% Receita"] = (_mp_sec["% Receita"] / 100).round(4)
+                        _secoes_mp.append((_lbl, _mp_sec))
+
+            if _secoes_mp:
+                # Localiza a primeira linha vazia após a tabela principal
+                _last_row = ws_mp.max_row + 2
+                _fill_titulo = PatternFill("solid", fgColor="1F3864")
+                _fill_header = PatternFill("solid", fgColor="2E74B5")
+                _font_white  = Font(bold=True, color="FFFFFF")
+                _cols_mp = list(_df_mp_xls.columns)
+
+                for _sec_label, _sec_df in _secoes_mp:
+                    # Título da seção
+                    _tc = ws_mp.cell(row=_last_row, column=1, value=_sec_label)
+                    _tc.font = _font_white
+                    _tc.fill = _fill_titulo
+                    _tc.alignment = Alignment(horizontal="center")
+                    ws_mp.merge_cells(
+                        start_row=_last_row, start_column=1,
+                        end_row=_last_row, end_column=len(_cols_mp)
+                    )
+                    _last_row += 1
+
+                    # Cabeçalho das colunas
+                    for _ci, _ch in enumerate(_cols_mp, start=1):
+                        _hc = ws_mp.cell(row=_last_row, column=_ci, value=_ch)
+                        _hc.font = _font_white
+                        _hc.fill = _fill_header
+                    _last_row += 1
+
+                    # Dados
+                    for _, _row in _sec_df.iterrows():
+                        for _ci, _ch in enumerate(_cols_mp, start=1):
+                            _val = _row.get(_ch, "")
+                            _dc = ws_mp.cell(row=_last_row, column=_ci, value=_val)
+                            if _ch == "Receita (R$)":
+                                _dc.number_format = _FMT_BRL
+                            elif _ch == "% Receita":
+                                _dc.number_format = "0.0%"
+                        _last_row += 1
+                    _last_row += 1  # linha em branco entre seções
 
         # ── Canal de Venda ────────────────────────────────────────────────────────
         if df_canal is not None and not df_canal.empty:
@@ -3773,6 +3825,36 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "NF-e emitidas com finalidade diferente de venda direta: transferências entre unidades, "
                     "devoluções, remessas. Estão separadas para não distorcer o faturamento real.",
                 ])
+
+        # ── Notas Rejeitadas ──────────────────────────────────────────────
+        if df_nfe_rejeitadas is not None and not (hasattr(df_nfe_rejeitadas, "empty") and df_nfe_rejeitadas.empty):
+            _rej_xl = df_nfe_rejeitadas.copy()
+            if "chave" in _rej_xl.columns:
+                _rej_xl = _rej_xl.drop_duplicates("chave")
+            _cols_rej = [c for c in ["_motivo_rejeicao", "nNF", "dhEmi", "CFOP",
+                                     "xNatOp", "emitente", "destinatario", "vNF"]
+                         if c in _rej_xl.columns]
+            if _cols_rej:
+                _rej_xl = _rej_xl[_cols_rej].sort_values(
+                    "dhEmi" if "dhEmi" in _cols_rej else _cols_rej[0]
+                )
+                _rej_xl = _rej_xl.rename(columns={
+                    "_motivo_rejeicao": "Motivo da Rejeição",
+                    "nNF": "Nº NF", "dhEmi": "Data Emissão",
+                    "xNatOp": "Natureza (xNatOp)",
+                    "emitente": "Emitente", "destinatario": "Destinatário",
+                    "vNF": "Valor Total (R$)",
+                })
+                _rej_xl.to_excel(writer, sheet_name="Notas Rejeitadas", index=False)
+                _fmt(writer, "Notas Rejeitadas", {"Valor Total (R$)": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "Notas Rejeitadas",
+                    "NOTAS FISCAIS REJEITADAS / NÃO CONTABILIZADAS", [
+                        "NF-e identificadas nos XMLs mas excluídas da análise de vendas. "
+                        "Motivos comuns: nota emitida por fornecedor (compra, não venda), "
+                        "CFOP de entrada (1xxx/2xxx), ou emitente diferente do CNPJ da empresa.",
+                        "Verifique se alguma nota foi excluída incorretamente e, se necessário, "
+                        "corrija o CNPJ ou o tipo de operação antes de reenviar os arquivos.",
+                    ])
 
         # Ajusta largura de todas as colunas em todas as abas
         _autofit(writer)
@@ -8530,7 +8612,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v14"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v15"   # bumpar aqui a cada mudança nas funções de export
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
 
     if st.session_state.get("_export_fp") != _fp_atual:
@@ -8565,8 +8647,10 @@ Diferenças maiores devem ser investigadas com o contador.
                                      cli_label, per_label,
                                      sn_result=sn_result,
                                      df_all=df_all,
+                                     df_nfce=df_nfce,
                                      df_nfe=df_nfe,
                                      df_nfe_outros=df_nfe_outros,
+                                     df_nfe_rejeitadas=df_nfe_rejeitadas,
                                      df_por_hora=df_por_hora,
                                      df_por_turno=df_por_turno,
                                      df_meios_pag=df_meios_pag,
