@@ -2185,7 +2185,7 @@ def calc_basket_trios(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 
 def calc_cesta(df: pd.DataFrame) -> pd.DataFrame:
-    ipc = df.groupby("chave")["numItem"].count().reset_index(name="itens")
+    ipc = df.groupby("chave")["numItem"].nunique().reset_index(name="itens")
     _total = len(ipc)  # total real de pedidos (igual ao KPI)
     ipc = ipc[ipc["itens"] > 0]  # oculta linha "0 itens" (artefatos sem detalhe de item)
     dist = ipc["itens"].value_counts().sort_index().reset_index()
@@ -2848,6 +2848,8 @@ def calc_remocao(df: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
 def calc_turno(df: pd.DataFrame) -> pd.DataFrame | None:
     if "turno" not in df.columns:
         return None
+    _dedup = [c for c in ["chave", "numItem"] if c in df.columns]
+    df = df.drop_duplicates(subset=_dedup) if _dedup else df
     return (
         df.groupby(["turno", "xProd"])
         .agg(frequencia=("chave", "nunique"), receita=("vProd", "sum"))
@@ -2908,6 +2910,8 @@ def calc_por_dia_semana(df: pd.DataFrame):
     if "dia_semana" not in df.columns:
         return None, None
 
+    _dedup = [c for c in ["chave", "numItem"] if c in df.columns]
+    df = df.drop_duplicates(subset=_dedup) if _dedup else df
     dia_pt   = df["dia_semana"].map(DAYS_MAP)
     tipo_dia = df["dia_semana"].isin(["Saturday", "Sunday"]).map({True: "Final de Semana", False: "Dia Útil"})
     df2 = df.assign(dia_pt=dia_pt, tipo_dia=tipo_dia)
