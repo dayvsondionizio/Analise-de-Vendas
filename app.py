@@ -5723,11 +5723,6 @@ def exportar_pptx(kpis, df_pares, df_trios,
                        .agg(receita=("vProd", "sum"), notas=("chave", "nunique"))
                        .sort_values("receita", ascending=False).head(10).reset_index())
 
-            _n_top_b2b = len(top_b2b)
-            add_text(sl, f"TOP {_n_top_b2b} PRODUTOS (NF-e)  —  lista completa no Excel",
-                     Inches(0.3), Inches(3.0), Inches(12.7), Inches(0.45),
-                     font_size=14, bold=True, color=AZUL_ESC)
-
             if _dest_b2b:
                 hdrs_b2b   = ["#", "Produto", "Empresa", "Receita (R$)", "Notas"]
                 col_ws_b2b = [Inches(0.38), Inches(4.40), Inches(4.10), Inches(2.60), Inches(0.82)]
@@ -5737,6 +5732,13 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
             y_b = Inches(3.5)
             rh  = Inches(0.38)
+            # Quantas linhas realmente cabem no slide (limita antes de contar)
+            _max_fit = int((Inches(7.35) - y_b - rh) / rh)
+            top_b2b  = top_b2b.head(_max_fit)
+            _n_top_b2b = len(top_b2b)
+            add_text(sl, f"TOP {_n_top_b2b} PRODUTOS (NF-e)  —  lista completa no Excel",
+                     Inches(0.3), Inches(3.0), Inches(12.7), Inches(0.45),
+                     font_size=14, bold=True, color=AZUL_ESC)
             x   = Inches(0.3)
             for hdr, ww in zip(hdrs_b2b, col_ws_b2b):
                 add_rect(sl, x, y_b, ww, rh, RGBColor(0x1A, 0x23, 0x4E))
@@ -8623,7 +8625,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v17"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v18"   # bumpar aqui a cada mudança nas funções de export
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
 
     if st.session_state.get("_export_fp") != _fp_atual:
