@@ -8106,8 +8106,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     st.markdown("#### Receita por Produto (NF-e)")
                     import plotly.express as _px
                     _chart_df = top_b2b.head(10).iloc[::-1].copy()
-                    _chart_df["_receita_num"] = _df_nfe_view.groupby(
-                        _df_nfe_view["xProd"].astype(str).apply(_limpar_xprod))["vProd"].sum().nlargest(10).iloc[::-1].values
+                    _chart_df["_receita_num"] = _chart_df["receita"].values
                     _fig_nfe = _px.bar(
                         _chart_df, x="_receita_num", y="Produto",
                         orientation="h",
