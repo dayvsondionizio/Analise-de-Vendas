@@ -6206,6 +6206,8 @@ def main():
                 for _k in _KEYS_RESETAR:
                     if _k in st.session_state:
                         del st.session_state[_k]
+                # Libera memória dos ZIPs/XMLs cacheados pelo @st.cache_data
+                st.cache_data.clear()
                 # Incrementa chave do uploader para forçar limpeza dos arquivos
                 st.session_state["_upload_key"] = st.session_state.get("_upload_key", 0) + 1
                 st.rerun()
