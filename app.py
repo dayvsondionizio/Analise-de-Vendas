@@ -5712,7 +5712,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
                 s = _re_tbl.sub(r"\s+Ped\.+\s*:.*$", "", str(s), flags=_re_tbl.IGNORECASE)
                 s = _re_tbl.sub(r"\s+Nro\.?\s*Item\s*:.*$", "", s, flags=_re_tbl.IGNORECASE)
                 return s.strip()
-            _nfe_tbl = df_nfe.copy()
+            # Deduplica por (chave, numItem) para evitar double-count de itens
+            _dedup_b2b = [c for c in ["chave", "numItem"] if c in df_nfe.columns]
+            _nfe_tbl = (df_nfe.drop_duplicates(subset=_dedup_b2b) if _dedup_b2b
+                        else df_nfe).copy()
             _nfe_tbl["xProd"] = _nfe_tbl["xProd"].apply(_clean_tbl)
             _dest_b2b = "destinatario" if "destinatario" in _nfe_tbl.columns else None
             _grp_b2b  = ["xProd"] + ([_dest_b2b] if _dest_b2b else [])
@@ -8612,7 +8615,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v15"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v16"   # bumpar aqui a cada mudança nas funções de export
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
 
     if st.session_state.get("_export_fp") != _fp_atual:
