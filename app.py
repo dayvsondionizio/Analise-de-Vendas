@@ -1008,7 +1008,7 @@ def carregar_nfe(file_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False, max_entries=6)
+@st.cache_data(show_spinner=False, max_entries=6, ttl=7200)
 def carregar_zip(file_bytes: bytes):
     """
     Lê um arquivo ZIP contendo XMLs de NF-e/NFC-e.
