@@ -2069,8 +2069,6 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             _lf.write(f"[processar] total_xml={n_total_xml} rows_nfce={len(rows_nfce)} rows_nfe={len(rows_nfe)} skipped={skipped}\n")
     except Exception:
         pass
-    except Exception:
-        pass
 
     # Remove notas cujo evento de cancelamento foi detectado
     if chaves_canceladas:
@@ -2119,7 +2117,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
     skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
-    return df_nfce, df_nfe, len(all_xml_bytes), skipped, n_entrada_rejeitadas
+    return df_nfce, df_nfe, n_total_xml, skipped, n_entrada_rejeitadas
 
 
 def _abrir_seletor_pasta() -> str:
