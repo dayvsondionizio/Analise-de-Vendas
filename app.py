@@ -2011,27 +2011,43 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     # Sub-ZIPs dentro de ZIPs são tratados recursivamente (mesmo comportamento de sempre)
     # RAR / 7z / XML individual: usa extrair_xml_bytes como sempre (geralmente menores)
     def _processar_zip_stream(zip_data: bytes, zip_nome: str):
-        """Abre o ZIP e processa XMLs em lotes de _BATCH, sem carregar tudo na RAM."""
+        """Abre o ZIP e processa XMLs em lotes de _BATCH, sem carregar tudo na RAM.
+        Suporta: XMLs diretos, XMLs em subpastas, sub-ZIPs, RARs e 7z dentro do ZIP."""
         if _arquivo_excluido(zip_nome):
             return
         try:
             with zipfile.ZipFile(io.BytesIO(zip_data)) as _zf:
                 _all_e = _zf.namelist()
-                _xml_e  = [e for e in _all_e
-                           if e.lower().endswith(".xml") and not _arquivo_excluido(e)]
-                _zip_e  = [e for e in _all_e
-                           if e.lower().endswith(".zip") and not _arquivo_excluido(e)]
-                # Processa XMLs diretos (incluindo XMLs em subpastas) em lotes
+                _xml_e = [e for e in _all_e
+                          if e.lower().endswith(".xml") and not _arquivo_excluido(e)]
+                _zip_e = [e for e in _all_e
+                          if e.lower().endswith(".zip") and not _arquivo_excluido(e)]
+                _rar7z = [e for e in _all_e
+                          if e.lower().rsplit(".", 1)[-1] in ("rar", "7z", "7zip")
+                          and not _arquivo_excluido(e)]
+
+                # XMLs diretos (incluindo XMLs em subpastas dentro do ZIP)
                 for _i in range(0, len(_xml_e), _BATCH):
                     _batch = [_zf.read(e) for e in _xml_e[_i:_i + _BATCH]]
                     _parse_lote(_batch)
                     del _batch
                     _gc.collect()
-                # Sub-ZIPs dentro do ZIP: processa recursivamente
+
+                # Sub-ZIPs: processa recursivamente em streaming
                 for _sub in _zip_e:
                     _sub_data = _zf.read(_sub)
                     _processar_zip_stream(_sub_data, _sub)
                     del _sub_data
+                    _gc.collect()
+
+                # RARs e 7z dentro do ZIP: usa extrair_xml_bytes (lida com RAR nativamente)
+                for _sub in _rar7z:
+                    _sub_data = _zf.read(_sub)
+                    _xml_list = extrair_xml_bytes(_sub_data, _sub)
+                    for _i in range(0, len(_xml_list), _BATCH):
+                        _parse_lote(_xml_list[_i:_i + _BATCH])
+                        _gc.collect()
+                    del _sub_data, _xml_list
                     _gc.collect()
         except Exception:
             pass
