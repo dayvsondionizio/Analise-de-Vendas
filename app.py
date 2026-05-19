@@ -1008,7 +1008,7 @@ def carregar_nfe(file_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=6)
 def carregar_zip(file_bytes: bytes):
     """
     Lê um arquivo ZIP contendo XMLs de NF-e/NFC-e.
@@ -1116,31 +1116,42 @@ def carregar_zip(file_bytes: bytes):
         except Exception:
             return [], [], 1
 
-    # Lê todos os bytes do ZIP de uma vez (sequencial — ZipFile não é thread-safe)
-    with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
-        xml_names  = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-        all_bytes  = [zf.read(entry) for entry in xml_names]
-
-    # Parseia em paralelo
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Processa XMLs em lotes de 200 — paralelismo dentro do lote, baixo pico de RAM
+    import gc
+    from concurrent.futures import ThreadPoolExecutor
+    _BATCH = 200
     rows_nfce = []
     rows_nfe  = []
     skipped   = 0
-    n_workers = min(16, max(4, len(all_bytes) // 500 + 1))
-    with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        for r_nfce, r_nfe, sk in pool.map(_parse_entry, all_bytes):
-            rows_nfce.extend(r_nfce)
-            rows_nfe.extend(r_nfe)
-            skipped += sk
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+        xml_names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+        for i in range(0, len(xml_names), _BATCH):
+            batch_bytes = [zf.read(e) for e in xml_names[i:i + _BATCH]]
+            n_workers = min(8, len(batch_bytes))
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for r_nfce, r_nfe, sk in pool.map(_parse_entry, batch_bytes):
+                    rows_nfce.extend(r_nfce)
+                    rows_nfe.extend(r_nfe)
+                    skipped += sk
+            del batch_bytes  # libera os ~6MB do lote antes do próximo
+            gc.collect()
+
+    # Colunas de string que se beneficiam do tipo category (alta repetição, baixa cardinalidade)
+    _CAT_COLS = ["xProd", "NCM", "CFOP", "destinatario", "emitente",
+                 "cnpj_emit", "situacao", "fonte", "categoria",
+                 "dia_semana", "turno", "xNatOp", "ind_pres"]
 
     def montar_df(rows, fonte):
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame(rows)
-        for col in ["qCom", "vUnCom", "vProd", "vNF"]:
+        for col in ["vProd", "vNF"]:  # float64 — precisão monetária
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype(int)
+        for col in ["qCom", "vUnCom"]:  # float32 — qtd/preço unitário, menos crítico
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("float32")
+        df["numItem"] = pd.to_numeric(df["numItem"], errors="coerce").fillna(0).astype("int16")
         if "dhEmi" in df.columns:
             df["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce", utc=False)
             # Se timezone-aware (ex: "2026-02-01T08:30:00-03:00"), converte para naive local
@@ -1149,6 +1160,10 @@ def carregar_zip(file_bytes: bytes):
         if "xProd" in df.columns:
             df["categoria"] = categorizar_serie(df["xProd"], df.get("NCM"))
         df["fonte"] = fonte
+        # Converte colunas de string repetitivas para category (economiza 60-70% RAM)
+        for col in _CAT_COLS:
+            if col in df.columns:
+                df[col] = df[col].astype("category")
         return df
 
     df_nfce_z = montar_df(rows_nfce, "NFC-e")
