@@ -1983,10 +1983,58 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         except Exception:
             return None, None, 1, None, 0
 
-    # Coleta todos os bytes de XMLs
-    all_xml_bytes = []
+    # ── Processa em lotes para não explodir a RAM ──────────────────────────────
+    import gc as _gc
+    from concurrent.futures import ThreadPoolExecutor
+
+    _BATCH = 200
+    rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas = [], [], 0, 0
+    chaves_canceladas: set = set()
+    n_total_xml = 0
+
+    def _parse_lote(batch_bytes: list):
+        nonlocal rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas, chaves_canceladas, n_total_xml
+        if not batch_bytes:
+            return
+        n_total_xml += len(batch_bytes)
+        _w = min(8, len(batch_bytes))
+        with ThreadPoolExecutor(max_workers=_w) as _pool:
+            for r_n, r_e, sk, chave_canc, n_ent in _pool.map(parse_xml, batch_bytes):
+                if r_n: rows_nfce.extend(r_n)
+                if r_e: rows_nfe.extend(r_e)
+                skipped += sk
+                n_entrada_rejeitadas += n_ent
+                if chave_canc: chaves_canceladas.add(chave_canc)
+
+    # Cada arquivo é processado individualmente — nunca acumula todos na RAM
     for nome, data in arquivos:
-        all_xml_bytes.extend(extrair_xml_bytes(data, nome))
+        ext_f = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
+        if ext_f == "zip" and not _arquivo_excluido(nome):
+            # ZIP direto: itera entradas em lotes sem extrair tudo de uma vez
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as _zf:
+                    _entries = [
+                        e for e in _zf.namelist()
+                        if e.lower().endswith(".xml") and not _arquivo_excluido(e)
+                    ]
+                    for _i in range(0, len(_entries), _BATCH):
+                        _batch = [_zf.read(e) for e in _entries[_i:_i + _BATCH]]
+                        _parse_lote(_batch)
+                        del _batch
+                        _gc.collect()
+            except Exception:
+                pass
+        else:
+            # RAR, 7z, XML individual: extrai tudo (geralmente menor) e processa em lotes
+            try:
+                _xml_list = extrair_xml_bytes(data, nome)
+                for _i in range(0, len(_xml_list), _BATCH):
+                    _parse_lote(_xml_list[_i:_i + _BATCH])
+                    _gc.collect()
+                del _xml_list
+                _gc.collect()
+            except Exception:
+                pass
 
     # Pastas locais
     if pastas:
@@ -2000,11 +2048,17 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 if abs_p in vistos: continue
                 vistos.add(abs_p)
                 ext = xf.suffix.lower().lstrip(".")
-                if ext in ("xml",):
-                    try: all_xml_bytes.append(xf.read_bytes())
+                if ext == "xml":
+                    try: _parse_lote([xf.read_bytes()])
                     except: pass
                 elif ext in ("zip", "rar", "7z"):
-                    try: all_xml_bytes.extend(extrair_xml_bytes(xf.read_bytes(), xf.name))
+                    try:
+                        _xml_list = extrair_xml_bytes(xf.read_bytes(), xf.name)
+                        for _i in range(0, len(_xml_list), _BATCH):
+                            _parse_lote(_xml_list[_i:_i + _BATCH])
+                            _gc.collect()
+                        del _xml_list
+                        _gc.collect()
                     except: pass
 
     # Log de diagnóstico
@@ -2012,25 +2066,9 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         import os as _os
         _os.makedirs(r"C:\Temp", exist_ok=True)
         with open(r"C:\Temp\app_debug.log", "a", encoding="utf-8") as _lf:
-            _lf.write(f"[processar] total all_xml_bytes={len(all_xml_bytes)}\n")
+            _lf.write(f"[processar] total_xml={n_total_xml} rows_nfce={len(rows_nfce)} rows_nfe={len(rows_nfe)} skipped={skipped}\n")
     except Exception:
         pass
-
-    # Parseia em paralelo
-    from concurrent.futures import ThreadPoolExecutor
-    rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas = [], [], 0, 0
-    chaves_canceladas: set = set()
-    with ThreadPoolExecutor(max_workers=min(16, max(4, len(all_xml_bytes) // 500 + 1))) as pool:
-        for r_n, r_e, sk, chave_canc, n_ent in pool.map(parse_xml, all_xml_bytes):
-            if r_n: rows_nfce.extend(r_n)
-            if r_e: rows_nfe.extend(r_e)
-            skipped += sk
-            n_entrada_rejeitadas += n_ent
-            if chave_canc: chaves_canceladas.add(chave_canc)
-
-    try:
-        with open(r"C:\Temp\app_debug.log", "a", encoding="utf-8") as _lf:
-            _lf.write(f"[processar] rows_nfce={len(rows_nfce)} rows_nfe={len(rows_nfe)} skipped={skipped}\n")
     except Exception:
         pass
 
@@ -6379,11 +6417,37 @@ def main():
         _n_entrada_rej = 0
 
         # Processa XMLs/ZIPs/RARs/7z + pastas
+        # Lê e processa UM arquivo por vez para não acumular todos na RAM
         if _arqs_xml or _pastas_validas:
-            _arqs_tuple = tuple((f.name, f.read()) for f in _arqs_xml)
-            df_nfce, df_nfe, _n_xml, _n_skip, _n_entrada_rej = processar_fontes_universal(
-                _arqs_tuple, tuple(_pastas_validas)
-            )
+            import gc as _gc2
+            _chunks_nfce, _chunks_nfe = [], []
+            _n_xml, _n_skip, _n_entrada_rej = 0, 0, 0
+
+            for _f in _arqs_xml:
+                _fbytes = _f.read()
+                _df_nfce_i, _df_nfe_i, _nx_i, _ns_i, _ne_i = processar_fontes_universal(
+                    ((_f.name, _fbytes),), ()
+                )
+                del _fbytes
+                _gc2.collect()
+                if not _df_nfce_i.empty: _chunks_nfce.append(_df_nfce_i)
+                if not _df_nfe_i.empty:  _chunks_nfe.append(_df_nfe_i)
+                _n_xml += _nx_i; _n_skip += _ns_i; _n_entrada_rej += _ne_i
+                del _df_nfce_i, _df_nfe_i
+                _gc2.collect()
+
+            if _pastas_validas:
+                _df_nfce_p, _df_nfe_p, _nx_p, _ns_p, _ne_p = processar_fontes_universal(
+                    (), tuple(_pastas_validas)
+                )
+                if not _df_nfce_p.empty: _chunks_nfce.append(_df_nfce_p)
+                if not _df_nfe_p.empty:  _chunks_nfe.append(_df_nfe_p)
+                _n_xml += _nx_p; _n_skip += _ns_p; _n_entrada_rej += _ne_p
+
+            df_nfce = pd.concat(_chunks_nfce, ignore_index=True) if _chunks_nfce else pd.DataFrame()
+            df_nfe  = pd.concat(_chunks_nfe,  ignore_index=True) if _chunks_nfe  else pd.DataFrame()
+            del _chunks_nfce, _chunks_nfe
+            _gc2.collect()
 
         # Processa Excels e combina
         for _xf in _arqs_xls:
