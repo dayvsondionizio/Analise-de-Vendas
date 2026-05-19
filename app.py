@@ -2010,20 +2010,35 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     for nome, data in arquivos:
         ext_f = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
         if ext_f == "zip" and not _arquivo_excluido(nome):
-            # ZIP direto: itera entradas em lotes sem extrair tudo de uma vez
+            # ZIP: tenta iterar entradas diretas em lotes (mais eficiente)
+            # Se não encontrar XMLs diretos, usa extrair_xml_bytes (suporta sub-ZIPs e recursão)
+            _found = False
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as _zf:
                     _entries = [
                         e for e in _zf.namelist()
                         if e.lower().endswith(".xml") and not _arquivo_excluido(e)
                     ]
-                    for _i in range(0, len(_entries), _BATCH):
-                        _batch = [_zf.read(e) for e in _entries[_i:_i + _BATCH]]
-                        _parse_lote(_batch)
-                        del _batch
-                        _gc.collect()
+                    if _entries:
+                        _found = True
+                        for _i in range(0, len(_entries), _BATCH):
+                            _batch = [_zf.read(e) for e in _entries[_i:_i + _BATCH]]
+                            _parse_lote(_batch)
+                            del _batch
+                            _gc.collect()
             except Exception:
                 pass
+            if not _found:
+                # ZIP com sub-ZIPs ou estrutura complexa — extrai recursivamente
+                try:
+                    _xml_list = extrair_xml_bytes(data, nome)
+                    for _i in range(0, len(_xml_list), _BATCH):
+                        _parse_lote(_xml_list[_i:_i + _BATCH])
+                        _gc.collect()
+                    del _xml_list
+                    _gc.collect()
+                except Exception:
+                    pass
         else:
             # RAR, 7z, XML individual: extrai tudo (geralmente menor) e processa em lotes
             try:
