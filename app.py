@@ -2102,8 +2102,10 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     except Exception:
         pass
 
-    # Remove notas cujo evento de cancelamento foi detectado
+    # Salva linhas canceladas antes de remover (para aba "Notas Canceladas" no Excel)
+    rows_canceladas = []
     if chaves_canceladas:
+        rows_canceladas = [r for r in rows_nfce + rows_nfe if r["chave"] in chaves_canceladas]
         rows_nfce = [r for r in rows_nfce if r["chave"] not in chaves_canceladas]
         rows_nfe  = [r for r in rows_nfe  if r["chave"] not in chaves_canceladas]
         skipped  += len(chaves_canceladas)
@@ -2149,7 +2151,11 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         df_nfe = df_nfe[df_nfe["situacao"] == "Autorizada"].reset_index(drop=True)
     skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
-    return df_nfce, df_nfe, n_total_xml, skipped, n_entrada_rejeitadas
+    df_canceladas = montar_df(rows_canceladas, "Cancelada") if rows_canceladas else pd.DataFrame()
+    if not df_canceladas.empty:
+        df_canceladas = df_canceladas.drop_duplicates(subset=["chave"])
+
+    return df_nfce, df_nfe, n_total_xml, skipped, n_entrada_rejeitadas, df_canceladas
 
 
 def _abrir_seletor_pasta() -> str:
@@ -3364,6 +3370,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_nfe: pd.DataFrame = None,
                    df_nfe_outros: pd.DataFrame = None,
                    df_nfe_rejeitadas: pd.DataFrame = None,
+                   df_canceladas: pd.DataFrame = None,
                    df_por_hora: pd.DataFrame = None,
                    df_por_turno: pd.DataFrame = None,
                    df_meios_pag: pd.DataFrame = None,
@@ -3943,6 +3950,37 @@ def exportar_excel(kpis, df_pares, df_trios,
                         "CFOP de entrada (1xxx/2xxx), ou emitente diferente do CNPJ da empresa.",
                         "Verifique se alguma nota foi excluída incorretamente e, se necessário, "
                         "corrija o CNPJ ou o tipo de operação antes de reenviar os arquivos.",
+                    ])
+
+        # ── Notas Canceladas ──────────────────────────────────────────────
+        if df_canceladas is not None and not (hasattr(df_canceladas, "empty") and df_canceladas.empty):
+            _canc_xl = df_canceladas.copy()
+            if "chave" in _canc_xl.columns:
+                _canc_xl = _canc_xl.drop_duplicates("chave")
+            _cols_canc = [c for c in ["chave", "nNF", "dhEmi", "CFOP",
+                                      "xNatOp", "emitente", "destinatario", "vNF"]
+                          if c in _canc_xl.columns]
+            if _cols_canc:
+                _canc_xl = _canc_xl[_cols_canc].sort_values(
+                    "dhEmi" if "dhEmi" in _cols_canc else _cols_canc[0]
+                )
+                _canc_xl = _canc_xl.rename(columns={
+                    "chave":        "Chave de Acesso",
+                    "nNF":          "Nº NF",
+                    "dhEmi":        "Data Emissão",
+                    "xNatOp":       "Natureza (xNatOp)",
+                    "emitente":     "Emitente",
+                    "destinatario": "Destinatário",
+                    "vNF":          "Valor Total (R$)",
+                })
+                _canc_xl.to_excel(writer, sheet_name="Notas Canceladas", index=False)
+                _fmt(writer, "Notas Canceladas", {"Valor Total (R$)": _FMT_BRL})
+                _inserir_cabecalho_aba(writer, "Notas Canceladas",
+                    "NOTAS FISCAIS CANCELADAS", [
+                        "NF-e / NFC-e identificadas nos XMLs como canceladas (evento 110111 "
+                        "com cStat 135 — Cancelamento homologado pela SEFAZ).",
+                        "Essas notas foram excluídas de todas as análises de faturamento, "
+                        "produtos e indicadores. Listadas aqui apenas para controle e auditoria.",
                     ])
 
         # Ajusta largura de todas as colunas em todas as abas
@@ -6357,6 +6395,7 @@ def main():
         df_nfe       = _R["df_nfe"]
         df_nfe_outros      = _R.get("df_nfe_outros", pd.DataFrame())
         df_nfe_rejeitadas  = _R.get("df_nfe_rejeitadas", pd.DataFrame())
+        df_canceladas      = _R.get("df_canceladas", pd.DataFrame())
         df           = df_nfce
         df_all       = _R["df_all"]
         cli_label    = _R["cli_label"]
@@ -6445,38 +6484,42 @@ def main():
 
         df_nfce, df_nfe, _n_xml, _n_skip = pd.DataFrame(), pd.DataFrame(), 0, 0
         _n_entrada_rej = 0
+        df_canceladas = pd.DataFrame()
 
         # Processa XMLs/ZIPs/RARs/7z + pastas
         # Lê e processa UM arquivo por vez para não acumular todos na RAM
         if _arqs_xml or _pastas_validas:
             import gc as _gc2
-            _chunks_nfce, _chunks_nfe = [], []
+            _chunks_nfce, _chunks_nfe, _chunks_canc = [], [], []
             _n_xml, _n_skip, _n_entrada_rej = 0, 0, 0
 
             for _f in _arqs_xml:
                 _fbytes = _f.read()
-                _df_nfce_i, _df_nfe_i, _nx_i, _ns_i, _ne_i = processar_fontes_universal(
+                _df_nfce_i, _df_nfe_i, _nx_i, _ns_i, _ne_i, _df_canc_i = processar_fontes_universal(
                     ((_f.name, _fbytes),), ()
                 )
                 del _fbytes
                 _gc2.collect()
                 if not _df_nfce_i.empty: _chunks_nfce.append(_df_nfce_i)
                 if not _df_nfe_i.empty:  _chunks_nfe.append(_df_nfe_i)
+                if not _df_canc_i.empty: _chunks_canc.append(_df_canc_i)
                 _n_xml += _nx_i; _n_skip += _ns_i; _n_entrada_rej += _ne_i
-                del _df_nfce_i, _df_nfe_i
+                del _df_nfce_i, _df_nfe_i, _df_canc_i
                 _gc2.collect()
 
             if _pastas_validas:
-                _df_nfce_p, _df_nfe_p, _nx_p, _ns_p, _ne_p = processar_fontes_universal(
+                _df_nfce_p, _df_nfe_p, _nx_p, _ns_p, _ne_p, _df_canc_p = processar_fontes_universal(
                     (), tuple(_pastas_validas)
                 )
                 if not _df_nfce_p.empty: _chunks_nfce.append(_df_nfce_p)
                 if not _df_nfe_p.empty:  _chunks_nfe.append(_df_nfe_p)
+                if not _df_canc_p.empty: _chunks_canc.append(_df_canc_p)
                 _n_xml += _nx_p; _n_skip += _ns_p; _n_entrada_rej += _ne_p
 
-            df_nfce = pd.concat(_chunks_nfce, ignore_index=True) if _chunks_nfce else pd.DataFrame()
-            df_nfe  = pd.concat(_chunks_nfe,  ignore_index=True) if _chunks_nfe  else pd.DataFrame()
-            del _chunks_nfce, _chunks_nfe
+            df_nfce       = pd.concat(_chunks_nfce, ignore_index=True) if _chunks_nfce else pd.DataFrame()
+            df_nfe        = pd.concat(_chunks_nfe,  ignore_index=True) if _chunks_nfe  else pd.DataFrame()
+            df_canceladas = pd.concat(_chunks_canc, ignore_index=True) if _chunks_canc else pd.DataFrame()
+            del _chunks_nfce, _chunks_nfe, _chunks_canc
             _gc2.collect()
 
         # Processa Excels e combina
@@ -6903,6 +6946,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             "df_nfce": df_nfce,      "df_nfe": df_nfe,        "df_all": df_all,
             "df_nfe_outros": df_nfe_outros if not _only_compras else pd.DataFrame(),
             "df_nfe_rejeitadas": df_nfe_rejeitadas if not _only_compras else pd.DataFrame(),
+            "df_canceladas": df_canceladas if not _only_compras else pd.DataFrame(),
             "cli_label": cli_label,  "per_label": per_label,  "cnpj_label": cnpj_label,
             "tem_nfe": tem_nfe,      "fonte_label": fonte_label,
             "kpis": kpis,            "kpis_nfce": kpis_nfce,
@@ -8788,6 +8832,7 @@ Diferenças maiores devem ser investigadas com o contador.
                                      df_nfe=df_nfe,
                                      df_nfe_outros=df_nfe_outros,
                                      df_nfe_rejeitadas=df_nfe_rejeitadas,
+                                     df_canceladas=df_canceladas,
                                      df_por_hora=df_por_hora,
                                      df_por_turno=df_por_turno,
                                      df_meios_pag=df_meios_pag,
