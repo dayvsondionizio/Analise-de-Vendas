@@ -6522,6 +6522,17 @@ def main():
             del _chunks_nfce, _chunks_nfe, _chunks_canc
             _gc2.collect()
 
+            # Filtro cross-arquivo: evento de cancelamento e NF-e podem estar em
+            # ZIPs diferentes. Após juntar todos os chunks, remove globalmente do
+            # df_nfce/df_nfe qualquer chave que tenha sido cancelada em qualquer ZIP.
+            if not df_canceladas.empty and "chave" in df_canceladas.columns:
+                _global_canceladas = set(df_canceladas["chave"].dropna())
+                if not df_nfce.empty and "chave" in df_nfce.columns:
+                    df_nfce = df_nfce[~df_nfce["chave"].isin(_global_canceladas)].reset_index(drop=True)
+                if not df_nfe.empty and "chave" in df_nfe.columns:
+                    df_nfe = df_nfe[~df_nfe["chave"].isin(_global_canceladas)].reset_index(drop=True)
+                df_canceladas = df_canceladas.drop_duplicates(subset=["chave"])
+
         # Processa Excels e combina
         for _xf in _arqs_xls:
             _xb = _xf.read()
