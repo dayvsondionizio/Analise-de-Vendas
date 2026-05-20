@@ -7617,6 +7617,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
         abas.append("Outras Saídas NF-e")
     if not df_nfe_rejeitadas.empty:
         abas.append("NF-e Rejeitadas")
+    if not df_canceladas.empty:
+        abas.append("Canceladas")
     if sn_result is not None:
         abas.append("Simples Nacional")
     tabs = st.tabs(abas)
@@ -8532,6 +8534,74 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 if "_motivo_rejeicao" in _det_rej.columns:
                     _det_rej = _det_rej.rename(columns={"_motivo_rejeicao": "Motivo"})
                 st.dataframe(_det_rej, use_container_width=True, hide_index=True)
+
+    #  CANCELADAS
+    if "Canceladas" in tab_idx and not df_canceladas.empty:
+        with tabs[tab_idx["Canceladas"]]:
+            st.subheader("Notas Fiscais Canceladas")
+            st.caption(
+                "NF-e / NFC-e identificadas nos XMLs como **canceladas** (evento 110111 — "
+                "cStat 135 homologado pela SEFAZ). "
+                "Essas notas foram **excluídas de todas as análises** de faturamento, produtos e indicadores. "
+                "Listadas aqui apenas para controle e auditoria."
+            )
+
+            _canc_notas = df_canceladas.drop_duplicates("chave") if "chave" in df_canceladas.columns else df_canceladas
+            _canc_total = _canc_notas["vNF"].sum() if "vNF" in _canc_notas.columns else 0
+            _canc_n     = len(_canc_notas)
+            _canc_emit  = _canc_notas["emitente"].nunique() if "emitente" in _canc_notas.columns else 0
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Notas Canceladas", fmt_num(_canc_n))
+            c2.metric("Valor Total Cancelado", brl(_canc_total),
+                      help="Este valor NÃO entra no faturamento da empresa")
+            c3.metric("Emitentes Distintos", fmt_num(_canc_emit))
+
+            if _canc_total > 0:
+                _fat_ref = kpis.get("faturamento", 0)
+                if _fat_ref > 0:
+                    st.info(
+                        f"💡 **Impacto do cancelamento:** o valor de **{brl(_canc_total)}** "
+                        f"foi corretamente excluído do faturamento ({_canc_total / (_fat_ref + _canc_total) * 100:.1f}% "
+                        f"do total bruto antes dos cancelamentos).",
+                        icon="💡",
+                    )
+
+            # Breakdown por emitente
+            if "emitente" in _canc_notas.columns and "chave" in _canc_notas.columns:
+                st.markdown("#### Resumo por Emitente")
+                _grp_canc = (
+                    _canc_notas.groupby("emitente", dropna=False)
+                    .agg(n_notas=("chave", "nunique"), total_vNF=("vNF", "sum"))
+                    .reset_index()
+                    .sort_values("total_vNF", ascending=False)
+                )
+                _grp_canc["Vlr Total (R$)"] = _grp_canc["total_vNF"].apply(brl)
+                _grp_canc = _grp_canc.rename(columns={"emitente": "Emitente", "n_notas": "Notas"})
+                st.dataframe(
+                    _grp_canc[["Emitente", "Notas", "Vlr Total (R$)"]],
+                    use_container_width=True, hide_index=True,
+                )
+
+            # Detalhamento completo
+            with st.expander("Ver todas as notas canceladas individualmente"):
+                _cols_canc = [c for c in ["chave", "nNF", "dhEmi", "CFOP",
+                                          "xNatOp", "emitente", "destinatario", "vNF"]
+                              if c in _canc_notas.columns]
+                _det_canc = (
+                    _canc_notas[_cols_canc]
+                    .sort_values("dhEmi" if "dhEmi" in _cols_canc else _cols_canc[0])
+                    .copy()
+                )
+                if "vNF" in _det_canc.columns:
+                    _det_canc["vNF"] = _det_canc["vNF"].apply(brl)
+                _det_canc = _det_canc.rename(columns={
+                    "chave": "Chave de Acesso", "nNF": "Nº NF",
+                    "dhEmi": "Data Emissão", "xNatOp": "Natureza (xNatOp)",
+                    "emitente": "Emitente", "destinatario": "Destinatário",
+                    "vNF": "Valor Total (R$)",
+                })
+                st.dataframe(_det_canc, use_container_width=True, hide_index=True)
 
     #  SIMPLES NACIONAL
     if "Simples Nacional" in tab_idx and sn_result is not None:
