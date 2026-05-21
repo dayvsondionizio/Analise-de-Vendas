@@ -458,6 +458,9 @@ def _classifica_cfop(cfop: str, xnatop: str = "") -> str:
     if c4 in _CFOP_DEVOLUCAO:        return "DEVOLUÇÃO"
     if c4 in _CFOP_OUTROS_NAO_VENDA: return "OUTROS"
     if c4 in _CFOP_VENDA:            return "VENDA"
+    # Faixa 59xx / 69xx: "Outras saídas" — nunca é venda (amostras, brindes, doações, etc.)
+    if len(c4) == 4 and c4[:2] in ("59", "69"):
+        return "OUTROS"
     return "VENDA"   # CFOP desconhecido de saída → assume venda
 
 
