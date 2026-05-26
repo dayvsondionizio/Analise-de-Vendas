@@ -2863,7 +2863,9 @@ def calc_cross_fornecedor_item_compras(df: pd.DataFrame) -> pd.DataFrame:
     else:
         _nota_col = "num_nota"
 
-    grp = _df.groupby(["fornecedor", "produto"]).agg(
+    _tem_unidade = "unidade" in _df.columns and _df["unidade"].astype(str).str.strip().ne("").any()
+    _grp_cols = ["fornecedor", "produto"] + (["unidade"] if _tem_unidade else [])
+    grp = _df.groupby(_grp_cols).agg(
         total=("valor", "sum"),
         qtd=("quantidade", "sum"),
         n_notas=(_nota_col, "nunique"),
@@ -2871,9 +2873,10 @@ def calc_cross_fornecedor_item_compras(df: pd.DataFrame) -> pd.DataFrame:
     grp = grp.sort_values(["fornecedor", "total"], ascending=[True, False]).reset_index(drop=True)
     grp = grp.rename(columns={
         "fornecedor": "Fornecedor", "produto": "Produto",
-        "total": "Total (R$)", "qtd": "Qtd. Total", "n_notas": "Nº Notas",
+        "unidade": "Un.", "total": "Total (R$)", "qtd": "Qtd. Total", "n_notas": "Nº Notas",
     })
-    return grp[["Fornecedor", "Produto", "Total (R$)", "Qtd. Total", "Nº Notas"]]
+    _out_cols = ["Fornecedor", "Produto"] + (["Un."] if _tem_unidade else []) + ["Total (R$)", "Qtd. Total", "Nº Notas"]
+    return grp[[c for c in _out_cols if c in grp.columns]]
 
 
 def calc_evolucao_precos_compras(df: pd.DataFrame) -> pd.DataFrame:
@@ -4118,9 +4121,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 _tot_f[_col] = _forn_exp[_col].sum()
             _forn_exp = pd.concat([_forn_exp, pd.DataFrame([_tot_f])], ignore_index=True)
             _forn_exp.to_excel(writer, sheet_name="Fornecedores", index=False)
+            _cols_num_forn = {"Rank", "Nº Notas", "Itens Distintos"}
             _fmt(writer, "Fornecedores",
-                 {**{c: _FMT_BRL for c in _forn_exp.select_dtypes("number").columns},
-                  **{c: _FMT_PCT for c in _forn_exp.columns if "%" in str(c)}})
+                 {**{c: _FMT_BRL for c in _forn_exp.select_dtypes("number").columns
+                     if "%" not in str(c) and str(c) not in _cols_num_forn},
+                  **{c: _FMT_PCT for c in _forn_exp.columns if "%" in str(c)},
+                  **{c: _FMT_NUM for c in _cols_num_forn if c in _forn_exp.columns}})
             _inserir_cabecalho_aba(writer, "Fornecedores",
                 "RANKING DE FORNECEDORES", [
                     "Ranking de fornecedores por valor total comprado, com CNPJ, regime tributário e "
@@ -4135,10 +4141,11 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             df_src.to_excel(writer, sheet_name=sheet_name, index=False)
             _fmt(writer, sheet_name,
                  {**{c: _FMT_BRL for c in df_src.select_dtypes("number").columns
-                     if "%" not in str(c) and "Rank" not in str(c)},
+                     if "%" not in str(c) and "Rank" not in str(c) and str(c) != "Nº Notas"},
                   **{c: _FMT_PCT for c in df_src.columns if "%" in str(c)},
                   **{c: _FMT_NUM2 for c in df_src.columns
-                     if "qtd" in str(c).lower() or "quant" in str(c).lower()}})
+                     if "qtd" in str(c).lower() or "quant" in str(c).lower()},
+                  **{c: _FMT_NUM for c in ["Nº Notas"] if c in df_src.columns}})
             _obs = ["Classifica os produtos comprados por valor total: A = 80% do gasto, B = 15%, C = 5%. "
                     "Use para priorizar negociação de preço — focar no grupo A tem mais impacto no "
                     "resultado do que negociar produtos C."]
@@ -4194,7 +4201,10 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
         if not _cross_c.empty:
             _cross_c.to_excel(writer, sheet_name="Fornecedor x Produto", index=False)
             _fmt(writer, "Fornecedor x Produto",
-                 {c: _FMT_BRL for c in _cross_c.select_dtypes("number").columns})
+                 {**{c: _FMT_BRL for c in _cross_c.select_dtypes("number").columns
+                     if str(c) not in ("Qtd. Total", "Nº Notas")},
+                  **{c: _FMT_NUM2 for c in ["Qtd. Total"] if c in _cross_c.columns},
+                  **{c: _FMT_NUM  for c in ["Nº Notas"]   if c in _cross_c.columns}})
             _inserir_cabecalho_aba(writer, "Fornecedor x Produto",
                 "CRUZAMENTO FORNECEDOR × PRODUTO", [
                     "Mostra qual fornecedor vende cada produto, com valor total e quantidade. Use para "
