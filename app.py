@@ -4115,10 +4115,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
         _forn_c = calc_ranking_fornecedores_compras(df_compras)
         if not _forn_c.empty:
             _forn_exp = _forn_c.copy()
+            _cols_nao_somar = {"Rank", "Nº Notas", "Itens Distintos"}
             _tot_f = {c: "" for c in _forn_exp.columns}
-            _tot_f[_forn_exp.columns[0]] = "TOTAL"
+            _tot_f["Fornecedor"] = "TOTAL"
             for _col in _forn_exp.select_dtypes("number").columns:
-                _tot_f[_col] = _forn_exp[_col].sum()
+                if str(_col) not in _cols_nao_somar:
+                    _tot_f[_col] = _forn_exp[_col].sum()
             _forn_exp = pd.concat([_forn_exp, pd.DataFrame([_tot_f])], ignore_index=True)
             _forn_exp.to_excel(writer, sheet_name="Fornecedores", index=False)
             _cols_num_forn = {"Rank", "Nº Notas", "Itens Distintos"}
