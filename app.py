@@ -6310,6 +6310,26 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
 
 def main():
+    # ── Inicializa flags de visibilidade antes de qualquer widget ────────────
+    # Garante que st.rerun() e troca de modo não resetem os valores do usuário.
+    # setdefault só escreve se a chave NÃO existir — preserva escolhas feitas.
+    _vis_defaults = {
+        "show_pares": True, "show_combos": True,
+        "show_cesta_dist": True, "show_cesta_solo": True,
+        "show_candidatos": True, "show_abc": True,
+        "show_elev": True, "show_redu": True,
+        "show_simulacoes": True, "show_metas": True,
+        "show_temp_horario": True, "show_temp_turno": True,
+        "show_temp_dow": True, "show_temp_potencial": True,
+        "show_temp_pagamento": True, "show_temp_canal": True,
+        "show_nfe_b2b": True, "show_canceladas": True, "show_simples": True,
+        "show_c_evolucao": True, "show_c_fornecedores": True, "show_c_abc": True,
+        "show_c_forn_prod": True, "show_c_regime": True,
+        "show_c_preco": True, "show_c_outras": True,
+    }
+    for _k, _v in _vis_defaults.items():
+        st.session_state.setdefault(_k, _v)
+
     st.markdown("""
     <style>
     .block-container { padding-top: 1.2rem; }
@@ -7212,49 +7232,49 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             st.caption("Desmarque para ocultar do dashboard e dos relatórios.")
 
             st.markdown("**📦 Market Basket**")
-            st.checkbox("Pares de Produtos",    value=True, key="show_pares")
-            st.checkbox("Combos de 3 Produtos", value=True, key="show_combos")
+            st.checkbox("Pares de Produtos", value=st.session_state["show_pares"], key="show_pares")
+            st.checkbox("Combos de 3 Produtos", value=st.session_state["show_combos"], key="show_combos")
 
             st.markdown("**🛒 Cesta de Compras**")
-            st.checkbox("Distribuição da Cesta",    value=True, key="show_cesta_dist")
+            st.checkbox("Distribuição da Cesta", value=st.session_state["show_cesta_dist"], key="show_cesta_dist")
             st.checkbox("Produtos Âncora (Solo)",   value=True, key="show_cesta_solo")
 
             st.markdown("**🗑 Candidatos a Remoção**")
-            st.checkbox("Candidatos a Remoção", value=True, key="show_candidatos")
+            st.checkbox("Candidatos a Remoção", value=st.session_state["show_candidatos"], key="show_candidatos")
 
             st.markdown("**📊 Curva ABC**")
-            st.checkbox("Curva ABC", value=True, key="show_abc")
+            st.checkbox("Curva ABC", value=st.session_state["show_abc"], key="show_abc")
 
             st.markdown("**🎯 Ticket Drivers**")
-            st.checkbox("Elevadores de Ticket", value=True, key="show_elev")
-            st.checkbox("Redutores de Ticket",  value=True, key="show_redu")
+            st.checkbox("Elevadores de Ticket", value=st.session_state["show_elev"], key="show_elev")
+            st.checkbox("Redutores de Ticket", value=st.session_state["show_redu"], key="show_redu")
 
             st.markdown("**🕒 Temporal**")
-            st.checkbox("Fluxo por Horário",      value=True, key="show_temp_horario")
-            st.checkbox("Produtos por Turno",     value=True, key="show_temp_turno")
-            st.checkbox("Dia da Semana",          value=True, key="show_temp_dow")
-            st.checkbox("Horários c/ Potencial",  value=True, key="show_temp_potencial")
-            st.checkbox("Meios de Pagamento",     value=True, key="show_temp_pagamento")
-            st.checkbox("Canal de Venda",         value=True, key="show_temp_canal")
+            st.checkbox("Fluxo por Horário", value=st.session_state["show_temp_horario"], key="show_temp_horario")
+            st.checkbox("Produtos por Turno", value=st.session_state["show_temp_turno"], key="show_temp_turno")
+            st.checkbox("Dia da Semana", value=st.session_state["show_temp_dow"], key="show_temp_dow")
+            st.checkbox("Horários c/ Potencial", value=st.session_state["show_temp_potencial"], key="show_temp_potencial")
+            st.checkbox("Meios de Pagamento", value=st.session_state["show_temp_pagamento"], key="show_temp_pagamento")
+            st.checkbox("Canal de Venda", value=st.session_state["show_temp_canal"], key="show_temp_canal")
 
             st.markdown("**🎮 Simulações / Metas**")
-            st.checkbox("Precificação de Combos", value=True, key="show_simulacoes")
-            st.checkbox("Metas por Produto",      value=True, key="show_metas")
+            st.checkbox("Precificação de Combos", value=st.session_state["show_simulacoes"], key="show_simulacoes")
+            st.checkbox("Metas por Produto", value=st.session_state["show_metas"], key="show_metas")
 
             st.markdown("**🏢 B2B / Operacional**")
             st.checkbox("NF-e (B2B)",       value=True, key="show_nfe_b2b")
-            st.checkbox("Canceladas",       value=True, key="show_canceladas")
-            st.checkbox("Simples Nacional", value=True, key="show_simples")
+            st.checkbox("Canceladas", value=st.session_state["show_canceladas"], key="show_canceladas")
+            st.checkbox("Simples Nacional", value=st.session_state["show_simples"], key="show_simples")
 
             if not df_compras.empty:
                 st.markdown("**🛍 Compras**")
-                st.checkbox("Evolução Mensal",      value=True, key="show_c_evolucao")
-                st.checkbox("Fornecedores",         value=True, key="show_c_fornecedores")
+                st.checkbox("Evolução Mensal", value=st.session_state["show_c_evolucao"], key="show_c_evolucao")
+                st.checkbox("Fornecedores", value=st.session_state["show_c_fornecedores"], key="show_c_fornecedores")
                 st.checkbox("Curva ABC (Compras)",  value=True, key="show_c_abc")
-                st.checkbox("Fornecedor × Produto", value=True, key="show_c_forn_prod")
-                st.checkbox("Regime",               value=True, key="show_c_regime")
-                st.checkbox("Evolução de Preços",   value=True, key="show_c_preco")
-                st.checkbox("Outras Entradas",      value=True, key="show_c_outras")
+                st.checkbox("Fornecedor × Produto", value=st.session_state["show_c_forn_prod"], key="show_c_forn_prod")
+                st.checkbox("Regime", value=st.session_state["show_c_regime"], key="show_c_regime")
+                st.checkbox("Evolução de Preços", value=st.session_state["show_c_preco"], key="show_c_preco")
+                st.checkbox("Outras Entradas", value=st.session_state["show_c_outras"], key="show_c_outras")
 
     # ── MODO COMPRAS (dashboard completo + export + saída antecipada) ─
     if _modo == "Compras" and not df_compras.empty:
