@@ -4120,13 +4120,15 @@ def exportar_excel(kpis, df_pares, df_trios,
 
 
 def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
-                           df_compras_outros: pd.DataFrame = None) -> bytes:
+                           df_compras_outros: pd.DataFrame = None,
+                           vis_flags: dict = None) -> bytes:
     """Gera Excel com todas as análises de compras — mesmo estilo do de vendas (sem cores)."""
 
     _FMT_BRL = 'R$ #,##0.00'
     _FMT_PCT = '0.00"%"'
     _FMT_NUM = '#,##0'
     _FMT_NUM2 = '#,##0.00'
+    _show = lambda k: (vis_flags or {}).get(k, True)
 
     # df com todas as entradas (comercialização + outros), com coluna Tipo
     _df_compras_tipo = df_compras.copy()
@@ -7793,8 +7795,13 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
         _nome_base_c = (
             f"Analise_de_Compras_{cli_label.replace(' ', '_')}_{per_label.replace(' ', '_')}"
         )
+        _vis_compras = {k: st.session_state.get(k, True) for k in [
+            "show_c_evolucao", "show_c_fornecedores", "show_c_abc",
+            "show_c_forn_prod", "show_c_regime", "show_c_preco", "show_c_outras",
+        ]}
         _xlsx_compras = exportar_excel_compras(df_compras, cli_label, per_label,
-                                               df_compras_outros=df_compras_outros)
+                                               df_compras_outros=df_compras_outros,
+                                               vis_flags=_vis_compras)
         st.download_button(
             label="⬇️ Baixar Excel de Compras (.xlsx)",
             data=_xlsx_compras,
