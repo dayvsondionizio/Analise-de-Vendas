@@ -7369,7 +7369,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     st.info("Sem dados mensais disponíveis.")
 
         # ── Fornecedores ──────────────────────────────────────────────
-        with _subtabs_c[_tidx_c["Fornecedores"]]:
+        if "Fornecedores" in _tidx_c:
+         with _subtabs_c[_tidx_c["Fornecedores"]]:
             _rank_forn = calc_ranking_fornecedores_compras(df_compras)
             if not _rank_forn.empty:
                 _rank_forn_disp = _rank_forn.copy()
@@ -7385,7 +7386,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 st.info("Sem dados de fornecedores.")
 
         # ── Curva ABC ─────────────────────────────────────────────────
-        with _subtabs_c[_tidx_c["Curva ABC"]]:
+        if "Curva ABC" in _tidx_c:
+         with _subtabs_c[_tidx_c["Curva ABC"]]:
             _rank_abc = calc_ranking_produtos_compras(df_compras)
             if not _rank_abc.empty:
                 _total_abc = _rank_abc["Total (R$)"].sum()
@@ -7452,7 +7454,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 st.info("Sem dados para curva ABC.")
 
         # ── Fornecedor × Produto ──────────────────────────────────────
-        with _subtabs_c[_tidx_c["Fornecedor × Produto"]]:
+        if "Fornecedor × Produto" in _tidx_c:
+         with _subtabs_c[_tidx_c["Fornecedor × Produto"]]:
             _cross = calc_cross_fornecedor_item_compras(df_compras)
             if not _cross.empty:
                 _cross_disp = _cross.copy()
@@ -7464,7 +7467,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 st.info("Sem dados de cruzamento.")
 
         # ── Regime ───────────────────────────────────────────────────
-        with _subtabs_c[_tidx_c["Regime"]]:
+        if "Regime" in _tidx_c:
+         with _subtabs_c[_tidx_c["Regime"]]:
             if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
                 _df_sn_r  = df_compras[df_compras["regime"].str.contains("Simples", case=False, na=False)]
                 _df_nor_r = df_compras[~df_compras["regime"].str.contains("Simples", case=False, na=False)]
@@ -7647,7 +7651,8 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     st.info("Sem dados suficientes para análise de preços.")
 
         # ── Outras Entradas (bonificação, uso/consumo, ativo, etc.) ─────
-        with _subtabs_c[_tidx_c["Outras Entradas"]]:
+        if "Outras Entradas" in _tidx_c:
+         with _subtabs_c[_tidx_c["Outras Entradas"]]:
             st.subheader("Outras Entradas — Não Computadas no Total de Compras")
             st.caption(
                 "Lançamentos da planilha Questor classificados por CFOP. "
