@@ -4221,7 +4221,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
             ])
 
         # 2. Evolução Mensal
-        if _n_meses > 1:
+        if _n_meses > 1 and _show("show_c_evolucao"):
             _ev_c = calc_evolucao_mensal_compras(df_compras)
             if not _ev_c.empty:
                 _ev_c_exp = _ev_c.drop(columns=["mes"], errors="ignore")
@@ -4236,8 +4236,9 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     ])
 
         # 3. Fornecedores
-        _forn_c = calc_ranking_fornecedores_compras(df_compras)
-        if not _forn_c.empty:
+        if _show("show_c_fornecedores"):
+         _forn_c = calc_ranking_fornecedores_compras(df_compras)
+         if not _forn_c.empty:
             _forn_exp = _forn_c.copy()
             _cols_nao_somar = {"Rank", "Nº Notas", "Itens Distintos"}
             _tot_f = {c: "" for c in _forn_exp.columns}
@@ -4279,52 +4280,55 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 _obs.append(obs_extra)
             _inserir_cabecalho_aba(writer, sheet_name, titulo, _obs)
 
-        # 4a. ABC com TODAS as entradas (coluna Tipo identifica cada categoria)
-        _prod_todos = calc_ranking_produtos_compras(_df_todos)
-        _escreve_abc_compras(
-            _prod_todos, "Curva ABC Produtos",
-            titulo="CURVA ABC — TODAS AS ENTRADAS (COMERCIALIZAÇÃO + OUTROS)",
-            obs_extra=(
-                "Inclui TODAS as entradas: comercialização (revenda), uso/consumo, ativo imobilizado, "
-                "bonificações etc. A coluna 'Tipo' identifica cada categoria. Use o AutoFiltro na coluna "
-                "'Tipo' para isolar apenas a categoria desejada. "
-                + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
-            ),
-        )
+        # 4a/4b/4c. ABC (guarda tudo pelo flag show_c_abc)
+        if _show("show_c_abc"):
+            # 4a. ABC com TODAS as entradas (coluna Tipo identifica cada categoria)
+            _prod_todos = calc_ranking_produtos_compras(_df_todos)
+            _escreve_abc_compras(
+                _prod_todos, "Curva ABC Produtos",
+                titulo="CURVA ABC — TODAS AS ENTRADAS (COMERCIALIZAÇÃO + OUTROS)",
+                obs_extra=(
+                    "Inclui TODAS as entradas: comercialização (revenda), uso/consumo, ativo imobilizado, "
+                    "bonificações etc. A coluna 'Tipo' identifica cada categoria. Use o AutoFiltro na coluna "
+                    "'Tipo' para isolar apenas a categoria desejada. "
+                    + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+                ),
+            )
 
-        # 4b. ABC só comercialização
-        _prod_c = calc_ranking_produtos_compras(df_compras)
-        _escreve_abc_compras(
-            _prod_c, "ABC Comercialização",
-            titulo="CURVA ABC — APENAS COMPRAS PARA COMERCIALIZAÇÃO",
-            obs_extra=(
-                "Apenas CFOPs de compra para revenda (1.102, 1.103, 1.401, 1.403 e interestaduais). "
-                "Use para decisões de estoque, precificação e negociação com fornecedores. "
-                + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
-            ),
-        )
+            # 4b. ABC só comercialização
+            _prod_c = calc_ranking_produtos_compras(df_compras)
+            _escreve_abc_compras(
+                _prod_c, "ABC Comercialização",
+                titulo="CURVA ABC — APENAS COMPRAS PARA COMERCIALIZAÇÃO",
+                obs_extra=(
+                    "Apenas CFOPs de compra para revenda (1.102, 1.103, 1.401, 1.403 e interestaduais). "
+                    "Use para decisões de estoque, precificação e negociação com fornecedores. "
+                    + ("Esta aba consolida todos os meses do período." if _n_meses > 1 else "")
+                ),
+            )
 
-        # 4c. ABC por mês (usa df_todos para consistência com aba consolidada)
-        if _n_meses > 1 and "mes" in _df_todos.columns:
-            _meses_abc_c = sorted(_df_todos["mes"].dropna().unique())
-            for _m in _meses_abc_c:
-                _df_m = _df_todos[_df_todos["mes"] == _m]
-                if _df_m.empty:
-                    continue
-                _abc_m = calc_ranking_produtos_compras(_df_m)
-                _mes_label = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" if hasattr(_m, "month") else str(_m)
-                _sheet_abc_m = f"ABC Compras {_mes_label}"[:31]
-                _escreve_abc_compras(
-                    _abc_m, _sheet_abc_m,
-                    titulo=f"CURVA ABC — TODAS AS ENTRADAS — {_mes_label.upper()}",
-                    obs_extra=f"Curva ABC somente do mês {_mes_label} (todas as entradas). "
-                              "Compare com outros meses para identificar mudanças de mix, "
-                              "sazonalidade ou variação de volume por produto.",
-                )
+            # 4c. ABC por mês (usa df_todos para consistência com aba consolidada)
+            if _n_meses > 1 and "mes" in _df_todos.columns:
+                _meses_abc_c = sorted(_df_todos["mes"].dropna().unique())
+                for _m in _meses_abc_c:
+                    _df_m = _df_todos[_df_todos["mes"] == _m]
+                    if _df_m.empty:
+                        continue
+                    _abc_m = calc_ranking_produtos_compras(_df_m)
+                    _mes_label = f"{_MESES_ABREV_COMPRAS[_m.month]} {_m.year}" if hasattr(_m, "month") else str(_m)
+                    _sheet_abc_m = f"ABC Compras {_mes_label}"[:31]
+                    _escreve_abc_compras(
+                        _abc_m, _sheet_abc_m,
+                        titulo=f"CURVA ABC — TODAS AS ENTRADAS — {_mes_label.upper()}",
+                        obs_extra=f"Curva ABC somente do mês {_mes_label} (todas as entradas). "
+                                  "Compare com outros meses para identificar mudanças de mix, "
+                                  "sazonalidade ou variação de volume por produto.",
+                    )
 
         # 5. Fornecedor × Produto
-        _cross_c = calc_cross_fornecedor_item_compras(df_compras)
-        if not _cross_c.empty:
+        if _show("show_c_forn_prod"):
+         _cross_c = calc_cross_fornecedor_item_compras(df_compras)
+         if not _cross_c.empty:
             _cross_c.to_excel(writer, sheet_name="Fornecedor x Produto", index=False)
             _fmt(writer, "Fornecedor x Produto",
                  {**{c: _FMT_BRL for c in _cross_c.select_dtypes("number").columns
@@ -4339,7 +4343,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 ])
 
         # 6. Regime dos Fornecedores
-        if "regime" in df_compras.columns and df_compras["regime"].ne("").any():
+        if _show("show_c_regime") and "regime" in df_compras.columns and df_compras["regime"].ne("").any():
             _nota_col_e = next((c for c in ["chave_nf", "chave", "nota"] if c in df_compras.columns), None)
             _agg_e = {"Total (R$)": ("valor", "sum")}
             if _nota_col_e:
@@ -4372,7 +4376,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 ])
 
         # 7. Evolução de Preços + Maiores Aumentos + Maiores Quedas
-        if _n_meses > 1:
+        if _n_meses > 1 and _show("show_c_preco"):
             _preco_c = calc_evolucao_precos_compras(df_compras)
             if not _preco_c.empty:
                 _mes_cols_p = [c for c in _preco_c.columns if c not in ("Produto", "Un.")]
@@ -4434,7 +4438,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                             ])
 
         # 8. Outras Entradas — sempre gerada (vazia = todos são comercialização)
-        if df_compras_outros is not None and not df_compras_outros.empty:
+        if _show("show_c_outras") and df_compras_outros is not None and not df_compras_outros.empty:
             _ot = df_compras_outros.copy()
             _cols_ot = [c for c in ["_tipo_op", "cfop", "fornecedor", "produto",
                                     "num_nota", "data", "valor"] if c in _ot.columns]
@@ -4456,7 +4460,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     "transferências, remessas. Estão separadas para não distorcer o total de compras "
                     "de comercialização.",
                 ])
-        else:
+        elif _show("show_c_outras"):
             pd.DataFrame([{
                 "Observação": "Todos os lançamentos desta planilha são compra para comercialização. Não há outras entradas a classificar."
             }]).to_excel(writer, sheet_name="Outras Entradas", index=False)
@@ -9163,7 +9167,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v21"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v22"   # bumpar aqui a cada mudança nas funções de export
     # Fingerprint inclui visibilidade: alteração no painel invalida cache
     _vis_keys_cache = [
         "show_pares", "show_combos", "show_cesta_dist", "show_cesta_solo",
@@ -9171,6 +9175,8 @@ Diferenças maiores devem ser investigadas com o contador.
         "show_simulacoes", "show_metas", "show_temp_horario", "show_temp_turno",
         "show_temp_dow", "show_temp_potencial", "show_temp_pagamento",
         "show_temp_canal", "show_nfe_b2b", "show_canceladas", "show_simples",
+        "show_c_evolucao", "show_c_fornecedores", "show_c_abc",
+        "show_c_forn_prod", "show_c_regime", "show_c_preco", "show_c_outras",
     ]
     _vis_fp = "".join("1" if st.session_state.get(k, True) else "0" for k in _vis_keys_cache)
     _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER + _vis_fp
