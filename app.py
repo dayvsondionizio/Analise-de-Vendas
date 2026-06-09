@@ -266,6 +266,7 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "CFOP":      cfop,
                     "xProd":     _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":       gettxt(prod, "NCM"),
+                    "uCom":      gettxt(prod, "uCom"),
                     "qCom":      getfloat(prod, "qCom"),
                     "vUnCom":    getfloat(prod, "vUnCom"),
                     "vProd":     getfloat(prod, "vProd"),
@@ -928,6 +929,7 @@ def carregar_nfce(file_bytes: bytes) -> pd.DataFrame:
         elif cl == "xprod":           col_map[c] = "xProd"
         elif cl == "ncm":             col_map[c] = "NCM"
         elif cl == "cfop":            col_map[c] = "CFOP"
+        elif cl == "ucom":            col_map[c] = "uCom"
         elif cl == "qcom":            col_map[c] = "qCom"
         elif cl == "vuncom":          col_map[c] = "vUnCom"
         elif cl == "vprod":           col_map[c] = "vProd"
@@ -985,6 +987,7 @@ def carregar_nfe(file_bytes: bytes) -> pd.DataFrame:
         elif cl == "xprod":           col_map[c] = "xProd"
         elif cl == "ncm":             col_map[c] = "NCM"
         elif cl == "cfop":            col_map[c] = "CFOP"
+        elif cl == "ucom":            col_map[c] = "uCom"
         elif cl == "qcom":            col_map[c] = "qCom"
         elif cl == "vuncom":          col_map[c] = "vUnCom"
         elif cl == "vprod":           col_map[c] = "vProd"
@@ -1106,6 +1109,7 @@ def carregar_zip(file_bytes: bytes):
                     "chave": chave, "nNF": nNF, "numItem": numItem,
                     "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
+                    "uCom":  gettxt(prod, "uCom"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
@@ -1290,6 +1294,7 @@ def carregar_xmls_multi(arquivos: tuple):
                     "chave": chave, "nNF": nNF, "numItem": numItem,
                     "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
+                    "uCom":  gettxt(prod, "uCom"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
@@ -1458,6 +1463,7 @@ def carregar_pasta(caminho: str):
                     "xProd":        _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":          gettxt(prod, "NCM"),
                     "CFOP":         gettxt(prod, "CFOP"),
+                    "uCom":         gettxt(prod, "uCom"),
                     "qCom":         getfloat(prod, "qCom"),
                     "vUnCom":       getfloat(prod, "vUnCom"),
                     "vProd":        getfloat(prod, "vProd"),
@@ -1634,6 +1640,7 @@ def carregar_pastas(caminhos: tuple):
                     "chave": chave, "nNF": nNF, "numItem": numItem,
                     "cProd": gettxt(prod, "cProd"), "xProd": _limpar_xprod(gettxt(prod, "xProd")),
                     "NCM":   gettxt(prod, "NCM"),   "CFOP":  gettxt(prod, "CFOP"),
+                    "uCom":  gettxt(prod, "uCom"),
                     "qCom":  getfloat(prod, "qCom"), "vUnCom": getfloat(prod, "vUnCom"),
                     "vProd": getfloat(prod, "vProd"), "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
@@ -1971,6 +1978,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     "chave": chave, "nNF": nNF, "numItem": numItem,
                     "cProd": _gettxt(prod, "cProd"), "xProd": _limpar_xprod(_gettxt(prod, "xProd")),
                     "NCM": _gettxt(prod, "NCM"), "CFOP": _gettxt(prod, "CFOP"),
+                    "uCom": _gettxt(prod, "uCom"),
                     "qCom": _getfloat(prod, "qCom"), "vUnCom": _getfloat(prod, "vUnCom"),
                     "vProd": vp, "vNF": vNF,
                     "dhEmi": dhEmi, "destinatario": destinatario, "emitente": emitente, "cnpj_emit": cnpj_emit, "situacao": situacao, "xNatOp": xNatOp,
@@ -2382,7 +2390,115 @@ def calc_curva_abc(df: pd.DataFrame) -> pd.DataFrame:
         "pct_acumulado":"% Acumulado",
         "origem":       "Origem",
     })
+
+    # ── Preço unitário, unidade e variação de preço ───────────────────────────
+    _has_price = all(c in df.columns for c in ("vUnCom", "uCom", "qCom"))
+    if _has_price:
+        _dp = df[["xProd", "uCom", "vUnCom", "qCom"]].copy()
+        if "dhEmi" in df.columns:
+            _dp["dhEmi"] = pd.to_datetime(df["dhEmi"], errors="coerce")
+        _dp = _dp[(_dp["vUnCom"] > 0) & (_dp["qCom"] > 0)].copy()
+
+        if not _dp.empty:
+            # Unidade dominante (maior volume por quantidade)
+            _udom = (
+                _dp.groupby(["xProd", "uCom"])["qCom"].sum()
+                .reset_index()
+                .sort_values("qCom", ascending=False)
+                .groupby("xProd")
+                .first()
+                .reset_index()[["xProd", "uCom"]]
+                .rename(columns={"uCom": "_udom"})
+            )
+
+            # Quantas unidades distintas cada produto teve
+            _n_ucom = (
+                _dp.groupby("xProd")["uCom"].nunique()
+                .reset_index()
+                .rename(columns={"uCom": "_n_ucom"})
+            )
+
+            # Filtra pela unidade dominante e calcula preço médio ponderado
+            _dp2 = _dp.merge(_udom, on="xProd")
+            _dp2 = _dp2[_dp2["uCom"] == _dp2["_udom"]].copy()
+            _dp2["_vun_w"] = _dp2["vUnCom"] * _dp2["qCom"]
+            _preco = (
+                _dp2.groupby("xProd")
+                .agg(_sum_w=("_vun_w", "sum"), _sum_q=("qCom", "sum"))
+                .reset_index()
+            )
+            _preco["_preco_med"] = _preco["_sum_w"] / _preco["_sum_q"]
+
+            # Variação de preço: 1ª metade do período vs 2ª metade
+            _var_fmt = pd.Series("—", index=_dp2["xProd"].unique())
+            if "dhEmi" in _dp2.columns and _dp2["dhEmi"].notna().any():
+                _dmin = _dp2["dhEmi"].min()
+                _dmax = _dp2["dhEmi"].max()
+                _dmid = _dmin + (_dmax - _dmin) / 2
+                if _dmin < _dmid < _dmax:          # período longo o suficiente
+                    _early = _dp2[_dp2["dhEmi"] <= _dmid].copy()
+                    _late  = _dp2[_dp2["dhEmi"] >  _dmid].copy()
+
+                    def _wmed(d):
+                        g = d.groupby("xProd").apply(
+                            lambda x: (x["_vun_w"].sum() / x["_sum_q"].sum())
+                            if "_sum_q" in x.columns else
+                            (x["vUnCom"] * x["qCom"]).sum() / x["qCom"].sum()
+                        )
+                        return g
+
+                    # cálculo direto sem lambda recursivo
+                    def _avg_price(d):
+                        return (
+                            d.groupby("xProd")
+                            .apply(lambda x:
+                                   (x["vUnCom"] * x["qCom"]).sum() / x["qCom"].sum())
+                        )
+
+                    _pe = _avg_price(_early)
+                    _pl = _avg_price(_late)
+                    _both = _pe.rename("_pe").to_frame().join(
+                        _pl.rename("_pl"), how="inner")
+                    _both = _both[_both["_pe"] > 0]
+                    _both["_var"] = (_both["_pl"] - _both["_pe"]) / _both["_pe"] * 100
+
+                    def _fmt_v(v):
+                        if abs(v) < 1.0:
+                            return "—"
+                        return f"{'▲' if v > 0 else '▼'} {v:+.1f}%"
+
+                    _var_fmt = _both["_var"].map(_fmt_v)
+
+            # Junta tudo
+            _info = (_preco[["xProd", "_preco_med"]]
+                     .merge(_udom, on="xProd")
+                     .merge(_n_ucom, on="xProd"))
+
+            # Variação: se unidade variou → "—"; caso contrário usa _var_fmt
+            def _get_var(row):
+                if row["_n_ucom"] > 1:
+                    return "—"
+                return _var_fmt.get(row["xProd"], "—")
+
+            _info["_var_str"] = _info.apply(_get_var, axis=1)
+            _info = _info.rename(columns={"xProd": "Produto",
+                                           "_udom":     "Unid.",
+                                           "_preco_med":"Preço Unit. (R$)",
+                                           "_var_str":  "Var. Preço"})
+
+            prod = prod.merge(_info[["Produto","Unid.","Preço Unit. (R$)","Var. Preço"]],
+                              on="Produto", how="left")
+        else:
+            prod["Unid."] = ""
+            prod["Preço Unit. (R$)"] = None
+            prod["Var. Preço"] = "—"
+    else:
+        prod["Unid."] = ""
+        prod["Preço Unit. (R$)"] = None
+        prod["Var. Preço"] = "—"
+
     return prod[["Rank", "Produto", "Curva",
+                 "Unid.", "Preço Unit. (R$)", "Var. Preço",
                  "Frequência", "Freq. NFC-e", "Freq. NF-e",
                  "Receita (R$)", "Receita NFC-e", "Receita NF-e",
                  "% Receita", "% Acumulado", "Origem"]]
@@ -3380,7 +3496,10 @@ def exportar_excel(kpis, df_pares, df_trios,
                    df_por_hora: pd.DataFrame = None,
                    df_por_turno: pd.DataFrame = None,
                    df_meios_pag: pd.DataFrame = None,
-                   df_canal: pd.DataFrame = None) -> bytes:
+                   df_canal: pd.DataFrame = None,
+                   vis_flags: dict = None) -> bytes:
+
+    _show = lambda k: (vis_flags or {}).get(k, True)   # True = exibir (default)
 
     _FMT_BRL  = 'R$ #,##0.00'
     _FMT_PCT  = '0.00"%"'
@@ -3469,29 +3588,32 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "nas análises detalhadas.",
             ])
 
-        df_pares.to_excel(writer, sheet_name="Pares de Produtos", index=False)
-        _inserir_cabecalho_aba(writer, "Pares de Produtos",
-            "PARES DE PRODUTOS — COMPRAS SIMULTÂNEAS", [
-                "Mostra quais dois produtos são comprados juntos com mais frequência no mesmo pedido. "
-                "Quanto maior a frequência, mais natural é a combinação para o cliente. "
-                "Use para criar promoções do tipo \"leve junto\" ou posicionar os produtos próximos no ponto de venda.",
-            ])
+        if _show("show_pares"):
+            df_pares.to_excel(writer, sheet_name="Pares de Produtos", index=False)
+            _inserir_cabecalho_aba(writer, "Pares de Produtos",
+                "PARES DE PRODUTOS — COMPRAS SIMULTÂNEAS", [
+                    "Mostra quais dois produtos são comprados juntos com mais frequência no mesmo pedido. "
+                    "Quanto maior a frequência, mais natural é a combinação para o cliente. "
+                    "Use para criar promoções do tipo \"leve junto\" ou posicionar os produtos próximos no ponto de venda.",
+                ])
 
-        df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
-        _inserir_cabecalho_aba(writer, "Combos de 3",
-            "COMBOS DE 3 PRODUTOS — COMPRAS SIMULTÂNEAS", [
-                "Mesmo raciocínio dos pares, mas com três produtos simultâneos. A coluna Sugestão indica "
-                "o nome do combo. Use para criar combos formais no cardápio ou balcão — esses agrupamentos "
-                "já acontecem naturalmente, só precisam de um empurrão.",
-            ])
+        if _show("show_combos"):
+            df_trios.to_excel(writer, sheet_name="Combos de 3", index=False)
+            _inserir_cabecalho_aba(writer, "Combos de 3",
+                "COMBOS DE 3 PRODUTOS — COMPRAS SIMULTÂNEAS", [
+                    "Mesmo raciocínio dos pares, mas com três produtos simultâneos. A coluna Sugestão indica "
+                    "o nome do combo. Use para criar combos formais no cardápio ou balcão — esses agrupamentos "
+                    "já acontecem naturalmente, só precisam de um empurrão.",
+                ])
 
-        df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
-        _inserir_cabecalho_aba(writer, "Distribuição Cesta",
-            "DISTRIBUIÇÃO DA CESTA DE COMPRAS", [
-                "Mostra quantos itens diferentes os clientes costumam comprar por pedido. Ex.: se 40% dos "
-                "pedidos têm apenas 1 item, há grande oportunidade de aumentar o ticket sugerindo um segundo "
-                "produto no momento da compra.",
-            ])
+        if _show("show_cesta_dist"):
+            df_cesta.to_excel(writer, sheet_name="Distribuição Cesta", index=False)
+            _inserir_cabecalho_aba(writer, "Distribuição Cesta",
+                "DISTRIBUIÇÃO DA CESTA DE COMPRAS", [
+                    "Mostra quantos itens diferentes os clientes costumam comprar por pedido. Ex.: se 40% dos "
+                    "pedidos têm apenas 1 item, há grande oportunidade de aumentar o ticket sugerindo um segundo "
+                    "produto no momento da compra.",
+                ])
 
         # ── Curva ABC — período completo ──────────────────────────────────
         _MESES_PT_EXP = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
@@ -3500,6 +3622,7 @@ def exportar_excel(kpis, df_pares, df_trios,
             if df_src is None or df_src.empty:
                 return
             _cols = ["Rank","Produto","Curva",
+                     "Unid.","Preço Unit. (R$)","Var. Preço",
                      "Frequência","Freq. NFC-e","Freq. NF-e",
                      "Receita (R$)","Receita NFC-e","Receita NF-e",
                      "% Receita","% Acumulado","Origem"]
@@ -3507,6 +3630,7 @@ def exportar_excel(kpis, df_pares, df_trios,
             _exp = df_src[_cols].copy()
             _exp.to_excel(writer, sheet_name=sheet_name, index=False)
             _fmt(writer, sheet_name, {
+                "Preço Unit. (R$)": _FMT_BRL,
                 "Receita (R$)":  _FMT_BRL,
                 "Receita NFC-e": _FMT_BRL,
                 "Receita NF-e":  _FMT_BRL,
@@ -3529,11 +3653,11 @@ def exportar_excel(kpis, df_pares, df_trios,
                 _obs_abc.append(obs_extra)
             _inserir_cabecalho_aba(writer, sheet_name, "CURVA ABC — CLASSIFICAÇÃO DE PRODUTOS POR RECEITA", _obs_abc)
 
-        if df_abc is not None and not df_abc.empty:
+        if df_abc is not None and not df_abc.empty and _show("show_abc"):
             _escreve_abc(df_abc, "Curva ABC")
 
         # ── Curva ABC — uma aba por mês (só quando há mais de 1 mês) ────────
-        if df_all is not None and not df_all.empty and "dhEmi" in df_all.columns:
+        if df_all is not None and not df_all.empty and "dhEmi" in df_all.columns and _show("show_abc"):
             _periodos_exp = sorted(
                 df_all["dhEmi"].dropna().dt.to_period("M").unique())
             if len(_periodos_exp) > 1:
@@ -3550,7 +3674,7 @@ def exportar_excel(kpis, df_pares, df_trios,
 
         _tm_str = f"R$ {kpis['ticket_medio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        if not df_elev.empty:
+        if not df_elev.empty and _show("show_elev"):
             df_elev.to_excel(writer, sheet_name="Ticket Drivers Elevam", index=False)
             _fmt(writer, "Ticket Drivers Elevam", {
                 "Ticket Médio c/ Produto": _FMT_BRL,
@@ -3567,7 +3691,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "Sugestão: mantenha esses produtos visíveis, crie combos e treine a equipe para sugeri-los.",
                 ])
 
-        if not df_redu.empty:
+        if not df_redu.empty and _show("show_redu"):
             df_redu.to_excel(writer, sheet_name="Ticket Drivers Reduzem", index=False)
             _fmt(writer, "Ticket Drivers Reduzem", {
                 "Ticket Médio c/ Produto": _FMT_BRL,
@@ -3584,7 +3708,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "\"leve junto\" para aumentar o valor do pedido.",
                 ])
 
-        if not df_combos.empty:
+        if not df_combos.empty and _show("show_simulacoes"):
             df_combos.to_excel(writer, sheet_name="Combos Precificados", index=False)
             _fmt(writer, "Combos Precificados", {
                 "Preço A": _FMT_BRL, "Preço B": _FMT_BRL,
@@ -3598,7 +3722,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "desconto de 5% e 10%. Use como base para criar promoções formais sem perder margem.",
                 ])
 
-        if not df_metas.empty:
+        if not df_metas.empty and _show("show_metas"):
             _metas_exp = df_metas.copy()
             _metas_tot = {c: "" for c in _metas_exp.columns}
             _metas_tot["xProd"]      = "TOTAL"
@@ -3619,7 +3743,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ])
 
         # ── Simples Nacional ──────────────────────────────────────────
-        if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS"):
+        if sn_result is not None and sn_result.get("status") not in (None, "SEM_DADOS") and _show("show_simples"):
             _sn_fonte_label = {
                 "sped_xlsx": "Planilha do sistema fiscal (SPED)",
                 "ambos":     "Planilha SPED + XMLs (confronto)",
@@ -3723,7 +3847,7 @@ def exportar_excel(kpis, df_pares, df_trios,
 
 
         # ── Fluxo por Horário ─────────────────────────────────────────────
-        if df_por_hora is not None and not df_por_hora.empty:
+        if df_por_hora is not None and not df_por_hora.empty and _show("show_temp_horario"):
             _fh = df_por_hora[["hora", "turno", "transacoes", "receita", "ticket_medio", "pct_media"]].copy()
             _fh = _fh.rename(columns={
                 "hora": "Hora", "turno": "Turno", "transacoes": "Transações",
@@ -3745,7 +3869,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     "Turnos: Manhã = 05h–11h · Tarde = 12h–17h · Noite = 18h–23h.",
                 ])
 
-            if df_por_turno is not None and not df_por_turno.empty:
+            if df_por_turno is not None and not df_por_turno.empty and _show("show_temp_turno"):
                 _ft = df_por_turno[["turno", "transacoes", "receita", "ticket_medio", "pct"]].copy()
                 _ft = _ft.rename(columns={
                     "turno": "Turno", "transacoes": "Transações",
@@ -3766,7 +3890,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     ])
 
         # ── Meios de Pagamento ────────────────────────────────────────────────────
-        if df_meios_pag is not None and not df_meios_pag.empty:
+        if df_meios_pag is not None and not df_meios_pag.empty and _show("show_temp_pagamento"):
             from openpyxl.cell import MergedCell
             from openpyxl.styles import Font, PatternFill, Alignment
             _df_mp_xls = df_meios_pag.copy()
@@ -3844,7 +3968,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     _last_row += 1  # linha em branco entre seções
 
         # ── Canal de Venda ────────────────────────────────────────────────────────
-        if df_canal is not None and not df_canal.empty:
+        if df_canal is not None and not df_canal.empty and _show("show_temp_canal"):
             from openpyxl.cell import MergedCell
             _df_cv_xls = df_canal.copy()
             _df_cv_xls["Receita (R$)"] = _df_cv_xls["Receita (R$)"].round(2)
@@ -3872,7 +3996,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     _cell.number_format = "0.0%"
 
         # ── NF-e Vendas (B2B) ────────────────────────────────────────────
-        if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns:
+        if df_nfe is not None and not df_nfe.empty and "chave" in df_nfe.columns and _show("show_nfe_b2b"):
             _nfe_xl = df_nfe.drop_duplicates("chave").copy()
             # Só inclui xNatOp se tiver valores preenchidos (igual ao dashboard)
             _tem_natop_nfe = (
@@ -3959,7 +4083,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                     ])
 
         # ── Notas Canceladas ──────────────────────────────────────────────
-        if df_canceladas is not None and not (hasattr(df_canceladas, "empty") and df_canceladas.empty):
+        if df_canceladas is not None and not (hasattr(df_canceladas, "empty") and df_canceladas.empty) and _show("show_canceladas"):
             _canc_xl = df_canceladas.copy()
             if "chave" in _canc_xl.columns:
                 _canc_xl = _canc_xl.drop_duplicates("chave")
@@ -4771,7 +4895,8 @@ def exportar_pptx(kpis, df_pares, df_trios,
                   df_por_hora=None, df_por_turno=None,
                   sn_result=None,
                   df_nfe_outros=None,
-                  df_meios_pag=None, df_canal=None) -> bytes:
+                  df_meios_pag=None, df_canal=None,
+                  vis_flags: dict = None) -> bytes:
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt, Emu
@@ -4790,6 +4915,15 @@ def exportar_pptx(kpis, df_pares, df_trios,
     CINZA_CLR = RGBColor(0xF8, 0xF9, 0xFA)
     LARANJA   = RGBColor(0xE6, 0x7E, 0x22)
     TEXTO     = RGBColor(0x1F, 0x29, 0x37)
+
+    # ── Controle de visibilidade ──────────────────────────────────────────
+    _vis  = vis_flags or {}
+    _show = lambda key: _vis.get(key, True)          # True = exibir (default)
+    _to_remove: list = []                             # índices de slides a apagar
+
+    def _mark_remove():
+        """Marca o slide mais recente para remoção."""
+        _to_remove.append(len(prs.slides) - 1)
 
     def pct_br(v: float) -> str:
         """Percentual no padrão brasileiro: 25,8%"""
@@ -4932,6 +5066,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
     #  SLIDE 3: PARES DE PRODUTOS
     sl = prs.slides.add_slide(blank)
+    if not _show("show_pares"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
 
     _n_pares = len(df_pares)
@@ -5005,8 +5140,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
         _draw_pares_tbl(df_pares.head(10),    Inches(0.3), y_tbl, cw2, num_offset=0)
         _draw_pares_tbl(df_pares.iloc[10:20], Inches(6.8), y_tbl, cw2, num_offset=10)
 
-    #  SLIDE 5: COMBOS DE 3 
+    #  SLIDE 5: COMBOS DE 3
     sl = prs.slides.add_slide(blank)
+    if not _show("show_combos"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "TOP 10 COMBINAÇÕES DE 3 PRODUTOS",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5042,8 +5178,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
              Inches(0.3), Inches(6.9), Inches(12), Inches(0.4),
              font_size=13, color=RGBColor(0x7F, 0x8C, 0x8D))
 
-    #  SLIDE 6: DISTRIBUIÇÃO DA CESTA 
+    #  SLIDE 6: DISTRIBUIÇÃO DA CESTA
     sl = prs.slides.add_slide(blank)
+    if not _show("show_cesta_dist"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "DISTRIBUIÇÃO DO TAMANHO DA CESTA DE COMPRAS",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5133,6 +5270,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
     #  SLIDE 8: PRODUTOS SOLO (ÂNCORA)
     if df_solo is not None and not df_solo.empty:
         sl = prs.slides.add_slide(blank)
+        if not _show("show_cesta_solo"): _mark_remove()
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "PRODUTOS ÂNCORA — COMPRADOS COMO ÚNICO ITEM",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5177,8 +5315,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  Inches(0.5), insight_top + Inches(0.08), Inches(12.3), Inches(0.65),
                  font_size=15, bold=True, color=AZUL_ESC)
 
-    #  SLIDE 9: CANDIDATOS A REMOÇÃO 
+    #  SLIDE 9: CANDIDATOS A REMOÇÃO
     sl = prs.slides.add_slide(blank)
+    if not _show("show_candidatos"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "CANDIDATOS A REMOÇÃO DO CARDÁPIO",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5343,8 +5482,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          Inches(1.6), Inches(0.26),
                          font_size=13, color=RGBColor(0x6B, 0x72, 0x80), align=PP_ALIGN.RIGHT)
 
-    #  SLIDE 10: TICKET DRIVERS 
+    #  SLIDE 10: TICKET DRIVERS
     sl = prs.slides.add_slide(blank)
+    if not _show("show_elev") and not _show("show_redu"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "PRODUTOS QUE INFLUENCIAM O TICKET MÉDIO",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5403,8 +5543,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
              Inches(0.3), Inches(6.55), Inches(11.8), Inches(0.9),
              font_size=10, color=RGBColor(0x6B, 0x72, 0x80))
 
-    #  SLIDE 11: SIMULAÇÃO DE RECEITA 
+    #  SLIDE 11: SIMULAÇÃO DE RECEITA
     sl = prs.slides.add_slide(blank)
+    if not _show("show_simulacoes"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "SIMULAÇÕES DE CRESCIMENTO DE RECEITA",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5456,8 +5597,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  Inches(8.55), Inches(6.42), Inches(2.5), Inches(0.6),
                  font_size=13, bold=True, color=_bc, wrap=False)
 
-    #  SLIDE 12: SIMULAÇÃO DE PREÇOS 
+    #  SLIDE 12: SIMULAÇÃO DE PREÇOS
     sl = prs.slides.add_slide(blank)
+    if not _show("show_simulacoes"): _mark_remove()
     add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
     add_text(sl, "SIMULAÇÃO DE AJUSTE DE PREÇOS (+10% / +15% / +20%)",
              Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5503,9 +5645,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
                          font_size=12, color=col_v, align=al)
                 x += ww
 
-    #  SLIDE 13: COMBOS PRECIFICADOS 
+    #  SLIDE 13: COMBOS PRECIFICADOS
     if not df_combos.empty:
         sl = prs.slides.add_slide(blank)
+        if not _show("show_simulacoes"): _mark_remove()
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "PRECIFICAÇÃO DE COMBOS",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -5545,9 +5688,10 @@ def exportar_pptx(kpis, df_pares, df_trios,
                  Inches(0.5), Inches(6.45), Inches(12.3), Inches(0.55),
                  font_size=15, color=RGBColor(0x06, 0x5F, 0x46))
 
-    #  SLIDE 14: METAS 
+    #  SLIDE 14: METAS
     if not df_metas.empty:
         sl = prs.slides.add_slide(blank)
+        if not _show("show_metas"): _mark_remove()
         add_rect(sl, 0, 0, W, Inches(1.0), AZUL_ESC)
         add_text(sl, "METAS MENSAIS POR PRODUTO",
                  Inches(0.5), Inches(0.1), Inches(12), Inches(0.8),
@@ -6146,14 +6290,21 @@ def exportar_pptx(kpis, df_pares, df_trios,
                     _x_f += _vw
 
 
+    # ── Remove slides marcados como ocultos (maior→menor, evita deslocamento) ──
+    if _to_remove:
+        for _idx in sorted(set(_to_remove), reverse=True):
+            try:
+                _rId = prs.slides._sldIdLst[_idx].rId
+                prs.part.drop_rel(_rId)
+                del prs.slides._sldIdLst[_idx]
+            except Exception:
+                pass
+
     buf = io.BytesIO()
     prs.save(buf)
     return buf.getvalue()
 
 
-#
-# INTERFACE STREAMLIT
-#
 def main():
     st.markdown("""
     <style>
@@ -7046,6 +7197,61 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                 st.session_state["_modo_dashboard"] = "Compras"
                 st.rerun()
 
+    # ── Painel de visibilidade das análises (sidebar — visível em ambos os modos) ─
+    def _vis(*keys):
+        """Retorna True se pelo menos uma chave de visibilidade está ativa."""
+        return any(st.session_state.get(k, True) for k in keys)
+
+    with st.sidebar:
+        st.divider()
+        with st.expander("⚙️ Análises Visíveis", expanded=False):
+            st.caption("Desmarque para ocultar do dashboard e dos relatórios.")
+
+            st.markdown("**📦 Market Basket**")
+            st.checkbox("Pares de Produtos",    value=True, key="show_pares")
+            st.checkbox("Combos de 3 Produtos", value=True, key="show_combos")
+
+            st.markdown("**🛒 Cesta de Compras**")
+            st.checkbox("Distribuição da Cesta",    value=True, key="show_cesta_dist")
+            st.checkbox("Produtos Âncora (Solo)",   value=True, key="show_cesta_solo")
+
+            st.markdown("**🗑 Candidatos a Remoção**")
+            st.checkbox("Candidatos a Remoção", value=True, key="show_candidatos")
+
+            st.markdown("**📊 Curva ABC**")
+            st.checkbox("Curva ABC", value=True, key="show_abc")
+
+            st.markdown("**🎯 Ticket Drivers**")
+            st.checkbox("Elevadores de Ticket", value=True, key="show_elev")
+            st.checkbox("Redutores de Ticket",  value=True, key="show_redu")
+
+            st.markdown("**🕒 Temporal**")
+            st.checkbox("Fluxo por Horário",      value=True, key="show_temp_horario")
+            st.checkbox("Produtos por Turno",     value=True, key="show_temp_turno")
+            st.checkbox("Dia da Semana",          value=True, key="show_temp_dow")
+            st.checkbox("Horários c/ Potencial",  value=True, key="show_temp_potencial")
+            st.checkbox("Meios de Pagamento",     value=True, key="show_temp_pagamento")
+            st.checkbox("Canal de Venda",         value=True, key="show_temp_canal")
+
+            st.markdown("**🎮 Simulações / Metas**")
+            st.checkbox("Precificação de Combos", value=True, key="show_simulacoes")
+            st.checkbox("Metas por Produto",      value=True, key="show_metas")
+
+            st.markdown("**🏢 B2B / Operacional**")
+            st.checkbox("NF-e (B2B)",       value=True, key="show_nfe_b2b")
+            st.checkbox("Canceladas",       value=True, key="show_canceladas")
+            st.checkbox("Simples Nacional", value=True, key="show_simples")
+
+            if not df_compras.empty:
+                st.markdown("**🛍 Compras**")
+                st.checkbox("Evolução Mensal",      value=True, key="show_c_evolucao")
+                st.checkbox("Fornecedores",         value=True, key="show_c_fornecedores")
+                st.checkbox("Curva ABC (Compras)",  value=True, key="show_c_abc")
+                st.checkbox("Fornecedor × Produto", value=True, key="show_c_forn_prod")
+                st.checkbox("Regime",               value=True, key="show_c_regime")
+                st.checkbox("Evolução de Preços",   value=True, key="show_c_preco")
+                st.checkbox("Outras Entradas",      value=True, key="show_c_outras")
+
     # ── MODO COMPRAS (dashboard completo + export + saída antecipada) ─
     if _modo == "Compras" and not df_compras.empty:
 
@@ -7125,12 +7331,22 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
         # ── define abas condicionalmente ─────────────────────────────
         _n_meses_c = df_compras["mes"].nunique() if "mes" in df_compras.columns else 1
         _abas_c = []
-        if _n_meses_c > 1:
+        if _n_meses_c > 1 and st.session_state.get("show_c_evolucao", True):
             _abas_c.append("Evolução Mensal")
-        _abas_c += ["Fornecedores", "Curva ABC", "Fornecedor × Produto", "Regime"]
-        if _n_meses_c > 1:
+        if st.session_state.get("show_c_fornecedores", True):
+            _abas_c.append("Fornecedores")
+        if st.session_state.get("show_c_abc", True):
+            _abas_c.append("Curva ABC")
+        if st.session_state.get("show_c_forn_prod", True):
+            _abas_c.append("Fornecedor × Produto")
+        if st.session_state.get("show_c_regime", True):
+            _abas_c.append("Regime")
+        if _n_meses_c > 1 and st.session_state.get("show_c_preco", True):
             _abas_c.append("Evolução de Preços")
-        _abas_c.append("Outras Entradas")   # sempre visível
+        if st.session_state.get("show_c_outras", True):
+            _abas_c.append("Outras Entradas")
+        if not _abas_c:
+            _abas_c = ["(sem análises visíveis)"]
         _subtabs_c = st.tabs(_abas_c)
         _tidx_c = {name: i for i, name in enumerate(_abas_c)}
 
@@ -7614,50 +7830,64 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
     st.divider()
 
-    #  ABAS 
-    abas = [
-        "Market Basket",
-        "Cesta",
-        "Candidatos a Remoção",
-        "Curva ABC",
-        "Ticket Drivers",
-        "Simulações",
-        "Metas",
-    ]
-    if df_turno is not None or df_dia_tipo is not None or df_por_hora is not None:
-        abas.insert(6, "Temporal")
-    if not df_nfe.empty:
+    #  ABAS  (dinâmicas — respeitam painel de visibilidade)
+    abas = []
+    if _vis("show_pares", "show_combos"):
+        abas.append("Market Basket")
+    if _vis("show_cesta_dist", "show_cesta_solo"):
+        abas.append("Cesta")
+    if _vis("show_candidatos"):
+        abas.append("Candidatos a Remoção")
+    if _vis("show_abc"):
+        abas.append("Curva ABC")
+    if _vis("show_elev", "show_redu"):
+        abas.append("Ticket Drivers")
+    if _vis("show_simulacoes"):
+        abas.append("Simulações")
+    _tem_temporal_dados = (df_turno is not None or df_dia_tipo is not None or df_por_hora is not None)
+    _tem_temporal_vis   = _vis("show_temp_horario", "show_temp_turno", "show_temp_dow",
+                               "show_temp_potencial", "show_temp_pagamento", "show_temp_canal")
+    if _tem_temporal_dados and _tem_temporal_vis:
+        abas.append("Temporal")
+    if _vis("show_metas"):
+        abas.append("Metas")
+    if not df_nfe.empty and _vis("show_nfe_b2b"):
         abas.append("NF-e (B2B)")
     if not df_nfe_outros.empty:
         abas.append("Outras Saídas NF-e")
     if not df_nfe_rejeitadas.empty:
         abas.append("NF-e Rejeitadas")
-    if not df_canceladas.empty:
+    if not df_canceladas.empty and _vis("show_canceladas"):
         abas.append("Canceladas")
-    if sn_result is not None:
+    if sn_result is not None and _vis("show_simples"):
         abas.append("Simples Nacional")
+    if not abas:
+        abas = ["(sem análises visíveis)"]
     tabs = st.tabs(abas)
     tab_idx = {name: i for i, name in enumerate(abas)}
 
     #  MARKET BASKET
-    with tabs[tab_idx["Market Basket"]]:
-        col_p, col_t3 = st.columns(2)
+    if "Market Basket" in tab_idx:
+        with tabs[tab_idx["Market Basket"]]:
+            col_p, col_t3 = st.columns(2)
 
-        with col_p:
-            st.subheader("Top Pares de Produtos")
-            st.dataframe(df_pares, use_container_width=True, hide_index=True, height=380)
-            if not df_pares.empty:
-                top1 = df_pares.iloc[0]
-                st.success(f"Par mais frequente: **{top1['Produto A']}** + **{top1['Produto B']}** "
-                           f"— {fmt_num(top1['Frequência'])} pedidos juntos")
+            with col_p:
+                if st.session_state.get("show_pares", True):
+                    st.subheader("Top Pares de Produtos")
+                    st.dataframe(df_pares, use_container_width=True, hide_index=True, height=380)
+                    if not df_pares.empty:
+                        top1 = df_pares.iloc[0]
+                        st.success(f"Par mais frequente: **{top1['Produto A']}** + **{top1['Produto B']}** "
+                                   f"— {fmt_num(top1['Frequência'])} pedidos juntos")
 
-        with col_t3:
-            st.subheader("Combos de 3 Produtos")
-            st.dataframe(df_trios, use_container_width=True, hide_index=True, height=380)
-            if not df_trios.empty:
-                top3 = df_trios.iloc[0]
-                st.success(f"Combo mais frequente: **{top3['Produto A']}** + **{top3['Produto B']}** "
-                           f"+ **{top3['Produto C']}** — {fmt_num(top3['Frequência'])} vezes")
+            with col_t3:
+                if st.session_state.get("show_combos", True):
+                    st.subheader("Combos de 3 Produtos")
+                    st.dataframe(df_trios, use_container_width=True, hide_index=True, height=380)
+                    if not df_trios.empty:
+                        top3 = df_trios.iloc[0]
+                        st.success(f"Combo mais frequente: **{top3['Produto A']}** + **{top3['Produto B']}** "
+                                   f"+ **{top3['Produto C']}** — {fmt_num(top3['Frequência'])} vezes")
 
     #  TURNO 
     if "Turno" in tab_idx:
@@ -7678,615 +7908,654 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     col_t.dataframe(tbl_t, use_container_width=True,
                                     hide_index=True, height=320)
 
-    #  CESTA 
-    with tabs[tab_idx["Cesta"]]:
-        subtab_cesta = st.tabs(["Distribuição", "Produtos Solo"])
+    #  CESTA
+    if "Cesta" in tab_idx:
+        with tabs[tab_idx["Cesta"]]:
+            _cesta_subtabs_names = []
+            if st.session_state.get("show_cesta_dist", True):
+                _cesta_subtabs_names.append("Distribuição")
+            if st.session_state.get("show_cesta_solo", True):
+                _cesta_subtabs_names.append("Produtos Solo")
+            if not _cesta_subtabs_names:
+                _cesta_subtabs_names = ["(vazio)"]
+            subtab_cesta = st.tabs(_cesta_subtabs_names)
+            _cesta_idx = {n: i for i, n in enumerate(_cesta_subtabs_names)}
 
-        with subtab_cesta[0]:
-            st.subheader("Distribuição do Tamanho da Cesta")
-            col_g, col_i = st.columns([3, 2])
-            with col_g:
-                st.plotly_chart(fig_cesta(df_cesta), use_container_width=True)
-            with col_i:
-                pct_1_2 = df_cesta[df_cesta["Itens/Pedido"] <= 2]["Nº Pedidos"].sum() / df_cesta["Nº Pedidos"].sum() * 100
-                st.metric("Pedidos com 1-2 itens", f"{pct_1_2:.1f}".replace(".", ",") + "%")
-                st.metric("Cada +1 item equivale a", brl(kpis["ticket_medio"]))
-                st.dataframe(df_cesta.head(15), use_container_width=True,
-                             hide_index=True, height=300)
-            pct_1_2_br = f"{pct_1_2:.1f}".replace(".", ",") + "%"
-            st.warning(f" {pct_1_2_br} dos pedidos têm apenas 1 ou 2 itens — "
-                       "converter para 3+ itens é o maior alavancador de faturamento.")
+            if "Distribuição" in _cesta_idx:
+                with subtab_cesta[_cesta_idx["Distribuição"]]:
+                    st.subheader("Distribuição do Tamanho da Cesta")
+                    col_g, col_i = st.columns([3, 2])
+                    with col_g:
+                        st.plotly_chart(fig_cesta(df_cesta), use_container_width=True)
+                    with col_i:
+                        pct_1_2 = df_cesta[df_cesta["Itens/Pedido"] <= 2]["Nº Pedidos"].sum() / df_cesta["Nº Pedidos"].sum() * 100
+                        st.metric("Pedidos com 1-2 itens", f"{pct_1_2:.1f}".replace(".", ",") + "%")
+                        st.metric("Cada +1 item equivale a", brl(kpis["ticket_medio"]))
+                        st.dataframe(df_cesta.head(15), use_container_width=True,
+                                     hide_index=True, height=300)
+                    pct_1_2_br = f"{pct_1_2:.1f}".replace(".", ",") + "%"
+                    st.warning(f" {pct_1_2_br} dos pedidos têm apenas 1 ou 2 itens — "
+                               "converter para 3+ itens é o maior alavancador de faturamento.")
 
-        with subtab_cesta[1]:
-            st.subheader("Produtos Âncora — Comprados como Único Item")
-            st.caption("Produtos que saem sozinhos com maior frequência — "
-                       "clientes que vêm só por isso. Oportunidade de upsell direto.")
-            if df_solo.empty:
-                st.info("Sem dados.")
-            else:
-                tbl_s = df_solo.copy()
-                tbl_s["receita"] = tbl_s["receita"].apply(brl)
-                tbl_s.columns = ["Produto", "Pedidos Solo", "Receita Solo"]
-                st.dataframe(tbl_s, use_container_width=True, hide_index=True)
-                top_solo = df_solo.iloc[0]
-                st.info(f" **{top_solo['xProd']}** é o produto mais comprado sozinho "
-                        f"({fmt_num(top_solo['frequencia'])} pedidos). "
-                        "Sugira um complemento natural no momento da compra.")
+            if "Produtos Solo" in _cesta_idx:
+                with subtab_cesta[_cesta_idx["Produtos Solo"]]:
+                    st.subheader("Produtos Âncora — Comprados como Único Item")
+                    st.caption("Produtos que saem sozinhos com maior frequência — "
+                               "clientes que vêm só por isso. Oportunidade de upsell direto.")
+                    if df_solo.empty:
+                        st.info("Sem dados.")
+                    else:
+                        tbl_s = df_solo.copy()
+                        tbl_s["receita"] = tbl_s["receita"].apply(brl)
+                        tbl_s.columns = ["Produto", "Pedidos Solo", "Receita Solo"]
+                        st.dataframe(tbl_s, use_container_width=True, hide_index=True)
+                        top_solo = df_solo.iloc[0]
+                        st.info(f" **{top_solo['xProd']}** é o produto mais comprado sozinho "
+                                f"({fmt_num(top_solo['frequencia'])} pedidos). "
+                                "Sugira um complemento natural no momento da compra.")
 
     #  CANDIDATOS A REMOÇÃO 
-    with tabs[tab_idx["Candidatos a Remoção"]]:
-        st.subheader("Candidatos a Remoção do Cardápio")
-        st.caption("Produtos com menor receita e baixa frequência — avalie custo de produção antes de remover")
+    if "Candidatos a Remoção" in tab_idx:
+        with tabs[tab_idx["Candidatos a Remoção"]]:
+            st.subheader("Candidatos a Remoção do Cardápio")
+            st.caption("Produtos com menor receita e baixa frequência — avalie custo de produção antes de remover")
 
-        col_rem, col_info = st.columns([3, 2])
-        with col_rem:
-            rem = df_remocao.copy()
-            rem["receita"] = rem["receita"].apply(brl)
-            rem.columns = ["Produto", "Frequência", "Receita"]
-            st.dataframe(rem, use_container_width=True, hide_index=True, height=500)
-        with col_info:
-            st.markdown("""
-            <div style="background:#FFF8E1;border-left:4px solid #F59E0B;padding:16px;border-radius:6px;margin-top:8px">
-            <b> Como avaliar</b><br><br>
-            Antes de remover um produto do cardápio, considere:<br><br>
-            • <b>Custo de produção</b> — o produto pode ser simples de fazer<br>
-            • <b>Perfil do cliente</b> — pode ser item de nicho fiel<br>
-            • <b>Sazonalidade</b> — pode ter melhor desempenho em outro período<br>
-            • <b>Complementaridade</b> — pode estar puxando venda de outro item<br><br>
-            Remova apenas o que não cobre sequer seu custo variável.
-            </div>
-            """, unsafe_allow_html=True)
+            col_rem, col_info = st.columns([3, 2])
+            with col_rem:
+                rem = df_remocao.copy()
+                rem["receita"] = rem["receita"].apply(brl)
+                rem.columns = ["Produto", "Frequência", "Receita"]
+                st.dataframe(rem, use_container_width=True, hide_index=True, height=500)
+            with col_info:
+                st.markdown("""
+                <div style="background:#FFF8E1;border-left:4px solid #F59E0B;padding:16px;border-radius:6px;margin-top:8px">
+                <b> Como avaliar</b><br><br>
+                Antes de remover um produto do cardápio, considere:<br><br>
+                • <b>Custo de produção</b> — o produto pode ser simples de fazer<br>
+                • <b>Perfil do cliente</b> — pode ser item de nicho fiel<br>
+                • <b>Sazonalidade</b> — pode ter melhor desempenho em outro período<br>
+                • <b>Complementaridade</b> — pode estar puxando venda de outro item<br><br>
+                Remova apenas o que não cobre sequer seu custo variável.
+                </div>
+                """, unsafe_allow_html=True)
 
-            top_rem = df_remocao.iloc[0] if not df_remocao.empty else None
-            if top_rem is not None:
-                st.info(f" **{top_rem['xProd']}** — produto com menor receita da lista. "
-                        f"Apenas {fmt_num(top_rem['frequencia'])} vendas no período.")
+                top_rem = df_remocao.iloc[0] if not df_remocao.empty else None
+                if top_rem is not None:
+                    st.info(f" **{top_rem['xProd']}** — produto com menor receita da lista. "
+                            f"Apenas {fmt_num(top_rem['frequencia'])} vendas no período.")
 
     #  CURVA ABC
-    with tabs[tab_idx["Curva ABC"]]:
-        st.subheader("Curva ABC — Relevância dos Produtos")
-        st.caption(
-            "**Frequência** = nº de pedidos distintos que contêm o produto (não o total de itens vendidos). "
-            "Um produto vendido 3x no mesmo pedido conta como frequência 1. "
-            "Por isso a soma das frequências da ABC é menor que o 'Total de Itens' do cabeçalho — são métricas diferentes."
-        )
+    if "Curva ABC" in tab_idx:
+        with tabs[tab_idx["Curva ABC"]]:
+            st.subheader("Curva ABC — Relevância dos Produtos")
+            st.caption(
+                "**Frequência** = nº de pedidos distintos que contêm o produto (não o total de itens vendidos). "
+                "Um produto vendido 3x no mesmo pedido conta como frequência 1. "
+                "Por isso a soma das frequências da ABC é menor que o 'Total de Itens' do cabeçalho — são métricas diferentes."
+            )
 
-        # ── Filtro por mês ──────────────────────────────────────────────────
-        _MESES_PT2 = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
-                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
-        _abc_df_base = df_all.copy()
-        if "dhEmi" in _abc_df_base.columns and _abc_df_base["dhEmi"].notna().any():
-            _periodos = sorted(_abc_df_base["dhEmi"].dropna().dt.to_period("M").unique())
-            _opcoes_mes = ["Todos os meses"] + [
-                f"{_MESES_PT2[p.month]} {p.year}" for p in _periodos]
-            _sel_mes = st.selectbox("📅 Período:", _opcoes_mes, key="abc_mes")
-            if _sel_mes != "Todos os meses":
-                _idx = _opcoes_mes.index(_sel_mes) - 1
-                _per = _periodos[_idx]
-                _abc_df_base = _abc_df_base[
-                    _abc_df_base["dhEmi"].dt.to_period("M") == _per]
-            _abc_titulo = f"— {_sel_mes}" if _sel_mes != "Todos os meses" else ""
-        else:
-            _abc_titulo = ""
+            # ── Filtro por mês ──────────────────────────────────────────────────
+            _MESES_PT2 = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
+                          7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
+            _abc_df_base = df_all.copy()
+            if "dhEmi" in _abc_df_base.columns and _abc_df_base["dhEmi"].notna().any():
+                _periodos = sorted(_abc_df_base["dhEmi"].dropna().dt.to_period("M").unique())
+                _opcoes_mes = ["Todos os meses"] + [
+                    f"{_MESES_PT2[p.month]} {p.year}" for p in _periodos]
+                _sel_mes = st.selectbox("📅 Período:", _opcoes_mes, key="abc_mes")
+                if _sel_mes != "Todos os meses":
+                    _idx = _opcoes_mes.index(_sel_mes) - 1
+                    _per = _periodos[_idx]
+                    _abc_df_base = _abc_df_base[
+                        _abc_df_base["dhEmi"].dt.to_period("M") == _per]
+                _abc_titulo = f"— {_sel_mes}" if _sel_mes != "Todos os meses" else ""
+            else:
+                _abc_titulo = ""
 
-        st.caption(f"Classifica os produtos pela participação acumulada na receita {_abc_titulo}.")
+            st.caption(f"Classifica os produtos pela participação acumulada na receita {_abc_titulo}.")
 
-        _df_abc_filtrado = calc_curva_abc(_abc_df_base) if not _abc_df_base.empty else df_abc
+            _df_abc_filtrado = calc_curva_abc(_abc_df_base) if not _abc_df_base.empty else df_abc
 
-        if _df_abc_filtrado is not None and not _df_abc_filtrado.empty:
-            df_abc_show = _df_abc_filtrado
-            _fat_abc = df_abc_show["Receita (R$)"].sum()
-            _ga = df_abc_show[df_abc_show["Curva"] == "A"]
-            _gb = df_abc_show[df_abc_show["Curva"] == "B"]
-            _gc = df_abc_show[df_abc_show["Curva"] == "C"]
+            if _df_abc_filtrado is not None and not _df_abc_filtrado.empty:
+                df_abc_show = _df_abc_filtrado
+                _fat_abc = df_abc_show["Receita (R$)"].sum()
+                _ga = df_abc_show[df_abc_show["Curva"] == "A"]
+                _gb = df_abc_show[df_abc_show["Curva"] == "B"]
+                _gc = df_abc_show[df_abc_show["Curva"] == "C"]
 
-            ca, cb, cc = st.columns(3)
-            with ca:
-                st.markdown(
-                    f"<div style='background:#D1FAE5;border-left:5px solid #059669;"
-                    f"padding:14px 16px;border-radius:6px'>"
-                    f"<div style='font-size:22px;font-weight:700;color:#065F46'>GRUPO A</div>"
-                    f"<div style='font-size:13px;color:#065F46;margin-top:4px'>"
-                    f"{len(_ga)} produtos · {_ga['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
-                    f"<div style='font-size:18px;font-weight:600;color:#059669;margin-top:6px'>"
-                    f"{brl(_ga['Receita (R$)'].sum())}</div>"
-                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos vitais (0–80%)</div>"
-                    f"</div>", unsafe_allow_html=True)
-            with cb:
-                st.markdown(
-                    f"<div style='background:#FEF3C7;border-left:5px solid #D97706;"
-                    f"padding:14px 16px;border-radius:6px'>"
-                    f"<div style='font-size:22px;font-weight:700;color:#92400E'>GRUPO B</div>"
-                    f"<div style='font-size:13px;color:#92400E;margin-top:4px'>"
-                    f"{len(_gb)} produtos · {_gb['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
-                    f"<div style='font-size:18px;font-weight:600;color:#D97706;margin-top:6px'>"
-                    f"{brl(_gb['Receita (R$)'].sum())}</div>"
-                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos importantes (80–95%)</div>"
-                    f"</div>", unsafe_allow_html=True)
-            with cc:
-                st.markdown(
-                    f"<div style='background:#F3F4F6;border-left:5px solid #6B7280;"
-                    f"padding:14px 16px;border-radius:6px'>"
-                    f"<div style='font-size:22px;font-weight:700;color:#374151'>GRUPO C</div>"
-                    f"<div style='font-size:13px;color:#374151;margin-top:4px'>"
-                    f"{len(_gc)} produtos · {_gc['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
-                    f"<div style='font-size:18px;font-weight:600;color:#6B7280;margin-top:6px'>"
-                    f"{brl(_gc['Receita (R$)'].sum())}</div>"
-                    f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Longa cauda (95–100%)</div>"
-                    f"</div>", unsafe_allow_html=True)
+                ca, cb, cc = st.columns(3)
+                with ca:
+                    st.markdown(
+                        f"<div style='background:#D1FAE5;border-left:5px solid #059669;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#065F46'>GRUPO A</div>"
+                        f"<div style='font-size:13px;color:#065F46;margin-top:4px'>"
+                        f"{len(_ga)} produtos · {_ga['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#059669;margin-top:6px'>"
+                        f"{brl(_ga['Receita (R$)'].sum())}</div>"
+                        f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos vitais (0–80%)</div>"
+                        f"</div>", unsafe_allow_html=True)
+                with cb:
+                    st.markdown(
+                        f"<div style='background:#FEF3C7;border-left:5px solid #D97706;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#92400E'>GRUPO B</div>"
+                        f"<div style='font-size:13px;color:#92400E;margin-top:4px'>"
+                        f"{len(_gb)} produtos · {_gb['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#D97706;margin-top:6px'>"
+                        f"{brl(_gb['Receita (R$)'].sum())}</div>"
+                        f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Produtos importantes (80–95%)</div>"
+                        f"</div>", unsafe_allow_html=True)
+                with cc:
+                    st.markdown(
+                        f"<div style='background:#F3F4F6;border-left:5px solid #6B7280;"
+                        f"padding:14px 16px;border-radius:6px'>"
+                        f"<div style='font-size:22px;font-weight:700;color:#374151'>GRUPO C</div>"
+                        f"<div style='font-size:13px;color:#374151;margin-top:4px'>"
+                        f"{len(_gc)} produtos · {_gc['Receita (R$)'].sum()/_fat_abc*100:.1f}% da receita</div>"
+                        f"<div style='font-size:18px;font-weight:600;color:#6B7280;margin-top:6px'>"
+                        f"{brl(_gc['Receita (R$)'].sum())}</div>"
+                        f"<div style='font-size:11px;color:#6B7280;margin-top:2px'>Longa cauda (95–100%)</div>"
+                        f"</div>", unsafe_allow_html=True)
 
-            st.markdown("---")
+                st.markdown("---")
 
-            # Determina origens disponíveis antes dos filtros
-            _origens_disp = []
-            _tem_nfe_abc  = False
-            _tem_nfce_abc = False
-            if "Origem" in df_abc_show.columns:
-                try:
-                    _origens_disp = sorted(df_abc_show["Origem"].dropna().unique().tolist())
-                except Exception:
-                    _origens_disp = []
-                _tem_nfe_abc  = any("NF-e" in str(o) for o in _origens_disp)
-                _tem_nfce_abc = any("NFC-e" in str(o) for o in _origens_disp)
+                # Determina origens disponíveis antes dos filtros
+                _origens_disp = []
+                _tem_nfe_abc  = False
+                _tem_nfce_abc = False
+                if "Origem" in df_abc_show.columns:
+                    try:
+                        _origens_disp = sorted(df_abc_show["Origem"].dropna().unique().tolist())
+                    except Exception:
+                        _origens_disp = []
+                    _tem_nfe_abc  = any("NF-e" in str(o) for o in _origens_disp)
+                    _tem_nfce_abc = any("NFC-e" in str(o) for o in _origens_disp)
 
-            _col_filt1, _col_filt2 = st.columns([2, 3])
-            with _col_filt1:
-                _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
-                                       horizontal=True, key="radio_abc")
-            with _col_filt2:
-                if _tem_nfe_abc and _tem_nfce_abc:
-                    _filtro_orig = st.radio(
-                        "Filtrar origem:", ["Todos", "NF-e (B2B)", "NFC-e"],
-                        horizontal=True, key="radio_abc_orig")
-                else:
-                    _filtro_orig = "Todos"
+                _col_filt1, _col_filt2 = st.columns([2, 3])
+                with _col_filt1:
+                    _filtro_abc = st.radio("Filtrar grupo:", ["Todos", "A", "B", "C"],
+                                           horizontal=True, key="radio_abc")
+                with _col_filt2:
+                    if _tem_nfe_abc and _tem_nfce_abc:
+                        _filtro_orig = st.radio(
+                            "Filtrar origem:", ["Todos", "NF-e (B2B)", "NFC-e"],
+                            horizontal=True, key="radio_abc_orig")
+                    else:
+                        _filtro_orig = "Todos"
 
-            # Aplica filtros de grupo e origem
-            _df_show = df_abc_show.copy()
-            if _filtro_abc != "Todos":
-                _df_show = _df_show[_df_show["Curva"] == _filtro_abc]
-            if _filtro_orig == "NF-e (B2B)" and "Origem" in _df_show.columns:
-                _df_show = _df_show[_df_show["Origem"].str.contains("NF-e", na=False)]
-            elif _filtro_orig == "NFC-e" and "Origem" in _df_show.columns:
-                _df_show = _df_show[_df_show["Origem"].str.contains("NFC-e", na=False) &
-                                    ~_df_show["Origem"].str.contains("NF-e saída", na=False)]
+                # Aplica filtros de grupo e origem
+                _df_show = df_abc_show.copy()
+                if _filtro_abc != "Todos":
+                    _df_show = _df_show[_df_show["Curva"] == _filtro_abc]
+                if _filtro_orig == "NF-e (B2B)" and "Origem" in _df_show.columns:
+                    _df_show = _df_show[_df_show["Origem"].str.contains("NF-e", na=False)]
+                elif _filtro_orig == "NFC-e" and "Origem" in _df_show.columns:
+                    _df_show = _df_show[_df_show["Origem"].str.contains("NFC-e", na=False) &
+                                        ~_df_show["Origem"].str.contains("NF-e saída", na=False)]
 
-            # Aviso quando há produtos NF-e (B2B) para cruzar com relatório
-            if _tem_nfe_abc:
-                _n_nfe_abc = int(df_abc_show["Origem"].str.contains("NF-e", na=False).sum())
-                st.info(
-                    f"**{_n_nfe_abc} produto(s) de NF-e (B2B)** identificados — "
-                    "vendas para pessoa juridica (pedidos/contratos). "
-                    "Filtre por 'NF-e (B2B)' para cruzar com o relatorio de NF-e."
-                )
+                # Aviso quando há produtos NF-e (B2B) para cruzar com relatório
+                if _tem_nfe_abc:
+                    _n_nfe_abc = int(df_abc_show["Origem"].str.contains("NF-e", na=False).sum())
+                    st.info(
+                        f"**{_n_nfe_abc} produto(s) de NF-e (B2B)** identificados — "
+                        "vendas para pessoa juridica (pedidos/contratos). "
+                        "Filtre por 'NF-e (B2B)' para cruzar com o relatorio de NF-e."
+                    )
 
-            _df_display = _df_show.copy()
-            _df_display["Receita (R$)"]  = _df_display["Receita (R$)"].apply(brl)
-            _df_display["% Receita"]     = _df_display["% Receita"].round(2).astype(str) + "%"
-            _df_display["% Acumulado"]   = _df_display["% Acumulado"].round(2).astype(str) + "%"
-            for _rc in ("Receita NFC-e", "Receita NF-e"):
-                if _rc in _df_display.columns:
-                    _df_display[_rc] = _df_display[_rc].apply(brl)
+                _df_display = _df_show.copy()
+                _df_display["Receita (R$)"]  = _df_display["Receita (R$)"].apply(brl)
+                _df_display["% Receita"]     = _df_display["% Receita"].round(2).astype(str) + "%"
+                _df_display["% Acumulado"]   = _df_display["% Acumulado"].round(2).astype(str) + "%"
+                for _rc in ("Receita NFC-e", "Receita NF-e"):
+                    if _rc in _df_display.columns:
+                        _df_display[_rc] = _df_display[_rc].apply(brl)
+                if "Preço Unit. (R$)" in _df_display.columns:
+                    _df_display["Preço Unit. (R$)"] = _df_display["Preço Unit. (R$)"].apply(
+                        lambda x: brl(x) if pd.notna(x) and x != "" else "—"
+                    )
 
-            # Badge de origem: ícone visual para NF-e (B2B) vs NFC-e (consumidor)
-            def _badge_origem(v):
-                if v == "NF-e":            return "NF-e (B2B)"
-                if v == "NFC-e":           return "NFC-e"
-                if "NF-e" in str(v) and "NFC-e" in str(v):
-                                           return "NF-e + NFC-e"
-                return v or ""
-            if "Origem" in _df_display.columns:
-                _df_display["Origem"] = _df_display["Origem"].apply(_badge_origem)
+                # Badge de origem: ícone visual para NF-e (B2B) vs NFC-e (consumidor)
+                def _badge_origem(v):
+                    if v == "NF-e":            return "NF-e (B2B)"
+                    if v == "NFC-e":           return "NFC-e"
+                    if "NF-e" in str(v) and "NFC-e" in str(v):
+                                               return "NF-e + NFC-e"
+                    return v or ""
+                if "Origem" in _df_display.columns:
+                    _df_display["Origem"] = _df_display["Origem"].apply(_badge_origem)
 
-            st.dataframe(_df_display, use_container_width=True, hide_index=True, height=420)
-        else:
-            st.info("Rode a análise para ver a Curva ABC.")
+                st.dataframe(_df_display, use_container_width=True, hide_index=True, height=420)
+            else:
+                st.info("Rode a análise para ver a Curva ABC.")
 
     #  TICKET DRIVERS
-    with tabs[tab_idx["Ticket Drivers"]]:
-        st.subheader("Produtos que Influenciam o Valor do Pedido")
+    if "Ticket Drivers" in tab_idx:
+        with tabs[tab_idx["Ticket Drivers"]]:
+            st.subheader("Produtos que Influenciam o Valor do Pedido")
 
-        col_e, col_r = st.columns(2)
+            col_e, col_r = st.columns(2)
 
-        # Ticket médio geral como referência no cabeçalho
-        if not df_elev.empty:
-            _tm_geral = df_elev["Ticket Médio Geral"].iloc[0]
-            st.caption(f"Ticket médio geral do período: **{brl(_tm_geral)}** — base de comparação para todos os produtos abaixo")
+            # Ticket médio geral como referência no cabeçalho
+            if not df_elev.empty:
+                _tm_geral = df_elev["Ticket Médio Geral"].iloc[0]
+                st.caption(f"Ticket médio geral do período: **{brl(_tm_geral)}** — base de comparação para todos os produtos abaixo")
 
-        with col_e:
-            st.markdown("####  Elevam o Ticket Médio")
-            st.caption("Quando presentes, o pedido tende a ser maior")
-            if df_elev.empty:
-                st.info("Dados insuficientes.")
-            else:
-                tbl = df_elev[["Produto", "Nº Pedidos",
-                               "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
-                tbl["Ticket Médio c/ Produto"] = tbl["Ticket Médio c/ Produto"].apply(brl)
-                tbl["Diferença R$"] = tbl["Diferença R$"].apply(lambda v: f"+{brl(v)}")
-                tbl["Diferença %"]  = tbl["Diferença %"].apply(lambda v: f"+{v:.1f}%".replace(".", ","))
-                st.dataframe(tbl, use_container_width=True, hide_index=True, height=400)
-                top = df_elev.iloc[0]
-                st.success(f"**{top['Produto']}** — pedidos com esse produto têm ticket "
-                           f"{brl(top['Diferença R$'])} acima da média. Deixe-o visível e sugira sempre.")
+            with col_e:
+                if st.session_state.get("show_elev", True):
+                    st.markdown("####  Elevam o Ticket Médio")
+                    st.caption("Quando presentes, o pedido tende a ser maior")
+                    if df_elev.empty:
+                        st.info("Dados insuficientes.")
+                    else:
+                        tbl = df_elev[["Produto", "Nº Pedidos",
+                                       "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
+                        tbl["Ticket Médio c/ Produto"] = tbl["Ticket Médio c/ Produto"].apply(brl)
+                        tbl["Diferença R$"] = tbl["Diferença R$"].apply(lambda v: f"+{brl(v)}")
+                        tbl["Diferença %"]  = tbl["Diferença %"].apply(lambda v: f"+{v:.1f}%".replace(".", ","))
+                        st.dataframe(tbl, use_container_width=True, hide_index=True, height=400)
+                        top = df_elev.iloc[0]
+                        st.success(f"**{top['Produto']}** — pedidos com esse produto têm ticket "
+                                   f"{brl(top['Diferença R$'])} acima da média. Deixe-o visível e sugira sempre.")
 
-        with col_r:
-            st.markdown("####  Reduzem o Ticket Médio")
-            st.caption("Quando presentes, o pedido tende a ser menor — avaliar perfil")
-            if df_redu.empty:
-                st.info("Dados insuficientes.")
-            else:
-                tbl2 = df_redu[["Produto", "Nº Pedidos",
-                                "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
-                tbl2["Ticket Médio c/ Produto"] = tbl2["Ticket Médio c/ Produto"].apply(brl)
-                tbl2["Diferença R$"] = tbl2["Diferença R$"].apply(lambda v: brl(v) if v < 0 else f"+{brl(v)}")
-                tbl2["Diferença %"]  = tbl2["Diferença %"].apply(lambda v: f"{v:.1f}%".replace(".", ","))
-                # Filtra só os que realmente reduzem (diferença negativa)
-                tbl2_show = tbl2[df_redu["Diferença R$"] < 0]
-                if tbl2_show.empty:
-                    st.info("Nenhum produto com impacto negativo significativo no ticket.")
-                else:
-                    st.dataframe(tbl2_show, use_container_width=True, hide_index=True, height=400)
-                    bot = df_redu[df_redu["Diferença R$"] < 0].iloc[0]
-                    st.info(f"ℹ **{bot['Produto']}** — pedidos com esse produto têm ticket menor. "
-                            "Pode ser perfil de cliente diferente ou produto de compra rápida/solo.")
+            with col_r:
+                if st.session_state.get("show_redu", True):
+                    st.markdown("####  Reduzem o Ticket Médio")
+                    st.caption("Quando presentes, o pedido tende a ser menor — avaliar perfil")
+                    if df_redu.empty:
+                        st.info("Dados insuficientes.")
+                    else:
+                        tbl2 = df_redu[["Produto", "Nº Pedidos",
+                                        "Ticket Médio c/ Produto", "Diferença R$", "Diferença %"]].copy()
+                        tbl2["Ticket Médio c/ Produto"] = tbl2["Ticket Médio c/ Produto"].apply(brl)
+                        tbl2["Diferença R$"] = tbl2["Diferença R$"].apply(lambda v: brl(v) if v < 0 else f"+{brl(v)}")
+                        tbl2["Diferença %"]  = tbl2["Diferença %"].apply(lambda v: f"{v:.1f}%".replace(".", ","))
+                        # Filtra só os que realmente reduzem (diferença negativa)
+                        tbl2_show = tbl2[df_redu["Diferença R$"] < 0]
+                        if tbl2_show.empty:
+                            st.info("Nenhum produto com impacto negativo significativo no ticket.")
+                        else:
+                            st.dataframe(tbl2_show, use_container_width=True, hide_index=True, height=400)
+                            bot = df_redu[df_redu["Diferença R$"] < 0].iloc[0]
+                            st.info(f"ℹ **{bot['Produto']}** — pedidos com esse produto têm ticket menor. "
+                                    "Pode ser perfil de cliente diferente ou produto de compra rápida/solo.")
 
     #  TEMPORAL 
     if "Temporal" in tab_idx:
         with tabs[tab_idx["Temporal"]]:
             st.subheader("Análise Temporal de Vendas")
 
-            subtabs = st.tabs(["Fluxo por Horário", "Por Turno", "Dia da Semana", "Horários com Potencial", "Meios de Pagamento", "Canal de Venda"])
+            # Subtabs dinâmicas baseadas no painel de visibilidade
+            _subtabs_temp_names = []
+            if st.session_state.get("show_temp_horario",   True): _subtabs_temp_names.append("Fluxo por Horário")
+            if st.session_state.get("show_temp_turno",     True): _subtabs_temp_names.append("Por Turno")
+            if st.session_state.get("show_temp_dow",       True): _subtabs_temp_names.append("Dia da Semana")
+            if st.session_state.get("show_temp_potencial", True): _subtabs_temp_names.append("Horários com Potencial")
+            if st.session_state.get("show_temp_pagamento", True): _subtabs_temp_names.append("Meios de Pagamento")
+            if st.session_state.get("show_temp_canal",     True): _subtabs_temp_names.append("Canal de Venda")
+            if not _subtabs_temp_names:
+                _subtabs_temp_names = ["(vazio)"]
+            subtabs = st.tabs(_subtabs_temp_names)
+            _stidx  = {n: i for i, n in enumerate(_subtabs_temp_names)}
 
             # ── SUBTAB 1: FLUXO POR HORÁRIO ──────────────────
-            with subtabs[0]:
-                if df_por_hora is None:
-                    st.warning("Dados de horário não disponíveis — o arquivo precisa ter coluna dhEmi.")
-                else:
-                    st.markdown("#### Volume de Vendas por Hora do Dia")
-                    st.caption("Cada barra representa o total de pedidos registrados naquele horário ao longo do mês")
+            if "Fluxo por Horário" in _stidx:
+                with subtabs[_stidx["Fluxo por Horário"]]:
+                    if df_por_hora is None:
+                        st.warning("Dados de horário não disponíveis — o arquivo precisa ter coluna dhEmi.")
+                    else:
+                        st.markdown("#### Volume de Vendas por Hora do Dia")
+                        st.caption("Cada barra representa o total de pedidos registrados naquele horário ao longo do mês")
 
-                    CORES_TURNO = {"Manhã": "#2563EB", "Tarde": "#E67E22", "Noite": "#1A234E"}
+                        CORES_TURNO = {"Manhã": "#2563EB", "Tarde": "#E67E22", "Noite": "#1A234E"}
 
-                    fig_hora = px.bar(
-                        df_por_hora.sort_values("hora"),
-                        x="hora", y="transacoes",
-                        color="turno",
-                        color_discrete_map=CORES_TURNO,
-                        text="transacoes",
-                        labels={"hora": "Hora do dia", "transacoes": "Nº de Pedidos", "turno": "Turno"},
-                        category_orders={"turno": ["Manhã", "Tarde", "Noite"]},
-                    )
-                    fig_hora.update_traces(texttemplate="%{text}", textposition="outside")
-                    fig_hora.update_xaxes(
-                        tickvals=list(range(0, 24)),
-                        ticktext=[f"{h:02d}h" for h in range(0, 24)],
-                    )
-                    fig_hora.update_layout(
-                        height=420,
-                        bargap=0.15,
-                        legend_title_text="Turno",
-                        xaxis_title="Hora do dia",
-                        yaxis_title="Nº de Pedidos",
-                    )
-                    st.plotly_chart(fig_hora, use_container_width=True)
-
-                    # Métricas-resumo
-                    hora_pico  = df_por_hora.loc[df_por_hora["transacoes"].idxmax()]
-                    hora_fraca = df_por_hora.loc[df_por_hora["transacoes"].idxmin()]
-                    turno_lider = df_por_turno.loc[df_por_turno["transacoes"].idxmax()] if df_por_turno is not None else None
-
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Hora de pico",
-                              f"{int(hora_pico['hora']):02d}h",
-                              f"{fmt_num(hora_pico['transacoes'])} pedidos")
-                    c2.metric("Hora mais fraca",
-                              f"{int(hora_fraca['hora']):02d}h",
-                              f"{fmt_num(hora_fraca['transacoes'])} pedidos")
-                    if turno_lider is not None:
-                        pct_br = f"{turno_lider['pct']:.1f}".replace(".", ",") + "%"
-                        c3.metric("Turno principal", turno_lider["turno"], f"{pct_br} dos pedidos")
-                        c4.metric("Ticket médio no turno", brl(turno_lider["ticket_medio"]))
-
-                    st.divider()
-
-                    # Cards por turno
-                    st.markdown("**Resumo por turno**")
-                    if df_por_turno is not None and not df_por_turno.empty:
-                        # Calcula intervalo real de horas por turno a partir dos dados
-                        _sufixo_turno = {
-                            "Manhã":  "café, pães e salgados dominam",
-                            "Tarde":  "lanche e refeição rápida",
-                            "Noite":  "finalização do dia",
-                        }
-                        desc_turno = {}
-                        if df_por_hora is not None and not df_por_hora.empty:
-                            for _t in ["Manhã", "Tarde", "Noite"]:
-                                _horas_t = df_por_hora[df_por_hora["turno"] == _t]["hora"]
-                                if not _horas_t.empty:
-                                    _h_ini = int(_horas_t.min())
-                                    _h_fim = int(_horas_t.max())
-                                    desc_turno[_t] = f"Das {_h_ini:02d}h às {_h_fim:02d}h — {_sufixo_turno.get(_t, '')}"
-                        cols_turno = st.columns(len(df_por_turno))
-                        for col_c, (_, row) in zip(cols_turno, df_por_turno.iterrows()):
-                            cor = CORES_TURNO.get(row["turno"], "#555")
-                            pct_s = f"{row['pct']:.1f}".replace(".", ",") + "%"
-                            col_c.markdown(
-                                f"""<div style="background:{cor};border-radius:10px;padding:16px;color:white;text-align:center">
-                                <div style="font-size:18px;font-weight:700">{row['turno']}</div>
-                                <div style="font-size:28px;font-weight:900;margin:6px 0">{pct_s}</div>
-                                <div style="font-size:13px;opacity:.85">dos pedidos</div>
-                                <hr style="border-color:rgba(255,255,255,.3);margin:8px 0">
-                                <div style="font-size:13px">{fmt_num(row['transacoes'])} pedidos</div>
-                                <div style="font-size:13px">{brl(row['receita'])} receita</div>
-                                <div style="font-size:12px;opacity:.8;margin-top:6px">{desc_turno.get(row['turno'],'')}</div>
-                                </div>""",
-                                unsafe_allow_html=True,
-                            )
-
-                    # Interpretação automática
-                    st.divider()
-                    if turno_lider is not None:
-                        pct_lider = f"{turno_lider['pct']:.1f}".replace(".", ",") + "%"
-                        st.info(
-                            f"**Leitura para o gestor:** O turno da **{turno_lider['turno']}** concentra "
-                            f"{pct_lider} de todos os pedidos do mês. A hora de maior movimento é as "
-                            f"**{int(hora_pico['hora']):02d}h** com {fmt_num(hora_pico['transacoes'])} pedidos. "
-                            f"O horário das **{int(hora_fraca['hora']):02d}h** é o mais fraco — avalie se vale "
-                            f"manter operação plena ou usar esse período para promoções direcionadas."
+                        fig_hora = px.bar(
+                            df_por_hora.sort_values("hora"),
+                            x="hora", y="transacoes",
+                            color="turno",
+                            color_discrete_map=CORES_TURNO,
+                            text="transacoes",
+                            labels={"hora": "Hora do dia", "transacoes": "Nº de Pedidos", "turno": "Turno"},
+                            category_orders={"turno": ["Manhã", "Tarde", "Noite"]},
                         )
+                        fig_hora.update_traces(texttemplate="%{text}", textposition="outside")
+                        fig_hora.update_xaxes(
+                            tickvals=list(range(0, 24)),
+                            ticktext=[f"{h:02d}h" for h in range(0, 24)],
+                        )
+                        fig_hora.update_layout(
+                            height=420,
+                            bargap=0.15,
+                            legend_title_text="Turno",
+                            xaxis_title="Hora do dia",
+                            yaxis_title="Nº de Pedidos",
+                        )
+                        st.plotly_chart(fig_hora, use_container_width=True)
+
+                        # Métricas-resumo
+                        hora_pico  = df_por_hora.loc[df_por_hora["transacoes"].idxmax()]
+                        hora_fraca = df_por_hora.loc[df_por_hora["transacoes"].idxmin()]
+                        turno_lider = df_por_turno.loc[df_por_turno["transacoes"].idxmax()] if df_por_turno is not None else None
+
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Hora de pico",
+                                  f"{int(hora_pico['hora']):02d}h",
+                                  f"{fmt_num(hora_pico['transacoes'])} pedidos")
+                        c2.metric("Hora mais fraca",
+                                  f"{int(hora_fraca['hora']):02d}h",
+                                  f"{fmt_num(hora_fraca['transacoes'])} pedidos")
+                        if turno_lider is not None:
+                            pct_br = f"{turno_lider['pct']:.1f}".replace(".", ",") + "%"
+                            c3.metric("Turno principal", turno_lider["turno"], f"{pct_br} dos pedidos")
+                            c4.metric("Ticket médio no turno", brl(turno_lider["ticket_medio"]))
+
+                        st.divider()
+
+                        # Cards por turno
+                        st.markdown("**Resumo por turno**")
+                        if df_por_turno is not None and not df_por_turno.empty:
+                            # Calcula intervalo real de horas por turno a partir dos dados
+                            _sufixo_turno = {
+                                "Manhã":  "café, pães e salgados dominam",
+                                "Tarde":  "lanche e refeição rápida",
+                                "Noite":  "finalização do dia",
+                            }
+                            desc_turno = {}
+                            if df_por_hora is not None and not df_por_hora.empty:
+                                for _t in ["Manhã", "Tarde", "Noite"]:
+                                    _horas_t = df_por_hora[df_por_hora["turno"] == _t]["hora"]
+                                    if not _horas_t.empty:
+                                        _h_ini = int(_horas_t.min())
+                                        _h_fim = int(_horas_t.max())
+                                        desc_turno[_t] = f"Das {_h_ini:02d}h às {_h_fim:02d}h — {_sufixo_turno.get(_t, '')}"
+                            cols_turno = st.columns(len(df_por_turno))
+                            for col_c, (_, row) in zip(cols_turno, df_por_turno.iterrows()):
+                                cor = CORES_TURNO.get(row["turno"], "#555")
+                                pct_s = f"{row['pct']:.1f}".replace(".", ",") + "%"
+                                col_c.markdown(
+                                    f"""<div style="background:{cor};border-radius:10px;padding:16px;color:white;text-align:center">
+                                    <div style="font-size:18px;font-weight:700">{row['turno']}</div>
+                                    <div style="font-size:28px;font-weight:900;margin:6px 0">{pct_s}</div>
+                                    <div style="font-size:13px;opacity:.85">dos pedidos</div>
+                                    <hr style="border-color:rgba(255,255,255,.3);margin:8px 0">
+                                    <div style="font-size:13px">{fmt_num(row['transacoes'])} pedidos</div>
+                                    <div style="font-size:13px">{brl(row['receita'])} receita</div>
+                                    <div style="font-size:12px;opacity:.8;margin-top:6px">{desc_turno.get(row['turno'],'')}</div>
+                                    </div>""",
+                                    unsafe_allow_html=True,
+                                )
+
+                        # Interpretação automática
+                        st.divider()
+                        if turno_lider is not None:
+                            pct_lider = f"{turno_lider['pct']:.1f}".replace(".", ",") + "%"
+                            st.info(
+                                f"**Leitura para o gestor:** O turno da **{turno_lider['turno']}** concentra "
+                                f"{pct_lider} de todos os pedidos do mês. A hora de maior movimento é as "
+                                f"**{int(hora_pico['hora']):02d}h** com {fmt_num(hora_pico['transacoes'])} pedidos. "
+                                f"O horário das **{int(hora_fraca['hora']):02d}h** é o mais fraco — avalie se vale "
+                                f"manter operação plena ou usar esse período para promoções direcionadas."
+                            )
 
             # ── SUBTAB 2: POR TURNO (produtos) ───────────────
-            with subtabs[1]:
-                st.markdown("#### Produtos Mais Vendidos por Turno")
-                if df_turno is None:
-                    st.warning("Dados de horário não disponíveis no arquivo.")
-                else:
-                    turnos = ["Manhã", "Tarde", "Noite"]
-                    cols_t = st.columns(3)
-                    for col_t, turno in zip(cols_t, turnos):
-                        sub = df_turno[df_turno["turno"] == turno].head(8)
-                        col_t.markdown(f"**{turno}**")
-                        if sub.empty:
-                            col_t.info("Sem dados")
-                        else:
-                            tbl_t = sub[["xProd", "frequencia", "receita"]].copy()
-                            tbl_t["receita"] = tbl_t["receita"].apply(brl)
-                            tbl_t.columns = ["Produto", "Freq.", "Receita"]
-                            col_t.dataframe(tbl_t, use_container_width=True, hide_index=True, height=340)
+            if "Por Turno" in _stidx:
+                with subtabs[_stidx["Por Turno"]]:
+                    st.markdown("#### Produtos Mais Vendidos por Turno")
+                    if df_turno is None:
+                        st.warning("Dados de horário não disponíveis no arquivo.")
+                    else:
+                        turnos = ["Manhã", "Tarde", "Noite"]
+                        cols_t = st.columns(3)
+                        for col_t, turno in zip(cols_t, turnos):
+                            sub = df_turno[df_turno["turno"] == turno].head(8)
+                            col_t.markdown(f"**{turno}**")
+                            if sub.empty:
+                                col_t.info("Sem dados")
+                            else:
+                                tbl_t = sub[["xProd", "frequencia", "receita"]].copy()
+                                tbl_t["receita"] = tbl_t["receita"].apply(brl)
+                                tbl_t.columns = ["Produto", "Freq.", "Receita"]
+                                col_t.dataframe(tbl_t, use_container_width=True, hide_index=True, height=340)
 
             # ── SUBTAB 3: DIA DA SEMANA ───────────────────────
-            with subtabs[2]:
-                st.markdown("#### Produtos por Dia da Semana")
-                if df_dia_tipo is None:
-                    st.warning("Dados de data não disponíveis no arquivo.")
-                else:
-                    col_u, col_f = st.columns(2)
-                    for col_v, tipo in [(col_u, "Dia Útil"), (col_f, "Final de Semana")]:
-                        sub = df_dia_tipo[df_dia_tipo["tipo_dia"] == tipo].head(10)
-                        col_v.markdown(f"**{tipo}**")
-                        if sub.empty:
-                            col_v.info("Sem dados")
-                        else:
-                            tbl_d = sub[["xProd", "frequencia", "receita"]].copy()
-                            tbl_d["receita"] = tbl_d["receita"].apply(brl)
-                            tbl_d.columns = ["Produto", "Freq.", "Receita"]
-                            col_v.dataframe(tbl_d, use_container_width=True, hide_index=True, height=400)
+            if "Dia da Semana" in _stidx:
+                with subtabs[_stidx["Dia da Semana"]]:
+                    st.markdown("#### Produtos por Dia da Semana")
+                    if df_dia_tipo is None:
+                        st.warning("Dados de data não disponíveis no arquivo.")
+                    else:
+                        col_u, col_f = st.columns(2)
+                        for col_v, tipo in [(col_u, "Dia Útil"), (col_f, "Final de Semana")]:
+                            sub = df_dia_tipo[df_dia_tipo["tipo_dia"] == tipo].head(10)
+                            col_v.markdown(f"**{tipo}**")
+                            if sub.empty:
+                                col_v.info("Sem dados")
+                            else:
+                                tbl_d = sub[["xProd", "frequencia", "receita"]].copy()
+                                tbl_d["receita"] = tbl_d["receita"].apply(brl)
+                                tbl_d.columns = ["Produto", "Freq.", "Receita"]
+                                col_v.dataframe(tbl_d, use_container_width=True, hide_index=True, height=400)
 
             # ── SUBTAB 4: HORÁRIOS COM POTENCIAL ─────────────
-            with subtabs[3]:
-                st.markdown("#### Horários com Potencial Inexplorado")
-                st.caption("Horários com volume abaixo da média — oportunidade de ação comercial")
-                if df_horas is None:
-                    st.warning("Dados de horário não disponíveis.")
-                else:
-                    fig_h = px.bar(
-                        df_horas, x="hora", y="notas", color="Status",
-                        color_discrete_map={
-                            "Ativo": "#27AE60",
-                            "Abaixo da média": "#F39C12",
-                            "Potencial inexplorado": "#E74C3C",
-                        },
-                        labels={"hora": "Hora", "notas": "Nº Pedidos", "Status": ""},
-                    )
-                    fig_h.update_xaxes(tickvals=list(range(0,24)),
-                                       ticktext=[f"{h:02d}h" for h in range(0,24)])
-                    fig_h.update_layout(height=400)
-                    st.plotly_chart(fig_h, use_container_width=True)
+            if "Horários com Potencial" in _stidx:
+                with subtabs[_stidx["Horários com Potencial"]]:
+                    st.markdown("#### Horários com Potencial Inexplorado")
+                    st.caption("Horários com volume abaixo da média — oportunidade de ação comercial")
+                    if df_horas is None:
+                        st.warning("Dados de horário não disponíveis.")
+                    else:
+                        fig_h = px.bar(
+                            df_horas, x="hora", y="notas", color="Status",
+                            color_discrete_map={
+                                "Ativo": "#27AE60",
+                                "Abaixo da média": "#F39C12",
+                                "Potencial inexplorado": "#E74C3C",
+                            },
+                            labels={"hora": "Hora", "notas": "Nº Pedidos", "Status": ""},
+                        )
+                        fig_h.update_xaxes(tickvals=list(range(0,24)),
+                                           ticktext=[f"{h:02d}h" for h in range(0,24)])
+                        fig_h.update_layout(height=400)
+                        st.plotly_chart(fig_h, use_container_width=True)
 
             # ── SUBTAB 5: MEIOS DE PAGAMENTO ──────────────────
-            with subtabs[4]:
-                if df_meios_pag.empty:
-                    st.info("Dados de meio de pagamento não disponíveis. Os XMLs precisam conter o campo `<tPag>` (NF-e 4.0).")
-                else:
-                    st.markdown("#### 💳 Receita por Meio de Pagamento")
-                    st.caption(
-                        "Percentual calculado sobre a receita bruta do período. "
-                        "Quando a nota tem múltiplos meios de pagamento (ex.: parte em dinheiro + parte no cartão), "
-                        "a receita é rateada proporcionalmente ao valor de cada forma."
-                    )
+            if "Meios de Pagamento" in _stidx:
+                with subtabs[_stidx["Meios de Pagamento"]]:
+                    if df_meios_pag.empty:
+                        st.info("Dados de meio de pagamento não disponíveis. Os XMLs precisam conter o campo `<tPag>` (NF-e 4.0).")
+                    else:
+                        st.markdown("#### 💳 Receita por Meio de Pagamento")
+                        st.caption(
+                            "Percentual calculado sobre a receita bruta do período. "
+                            "Quando a nota tem múltiplos meios de pagamento (ex.: parte em dinheiro + parte no cartão), "
+                            "a receita é rateada proporcionalmente ao valor de cada forma."
+                        )
 
-                    _col_mp_g, _col_mp_t = st.columns([3, 2])
-                    with _col_mp_g:
-                        _fig_mp = px.bar(
-                            df_meios_pag.sort_values("% Receita"),
-                            x="% Receita", y="Meio de Pagamento",
-                            orientation="h",
-                            text=df_meios_pag.sort_values("% Receita")["% Receita"].apply(
-                                lambda v: f"{v:.1f}%"
-                            ),
-                            color_discrete_sequence=["#2563EB"],
-                        )
-                        _fig_mp.update_traces(textposition="outside")
-                        _fig_mp.update_layout(
-                            height=max(220, len(df_meios_pag) * 48),
-                            showlegend=False,
-                            xaxis_title="% da Receita",
-                            yaxis_title="",
-                            margin=dict(l=0, r=40, t=10, b=10),
-                        )
-                        st.plotly_chart(_fig_mp, use_container_width=True)
+                        _col_mp_g, _col_mp_t = st.columns([3, 2])
+                        with _col_mp_g:
+                            _fig_mp = px.bar(
+                                df_meios_pag.sort_values("% Receita"),
+                                x="% Receita", y="Meio de Pagamento",
+                                orientation="h",
+                                text=df_meios_pag.sort_values("% Receita")["% Receita"].apply(
+                                    lambda v: f"{v:.1f}%"
+                                ),
+                                color_discrete_sequence=["#2563EB"],
+                            )
+                            _fig_mp.update_traces(textposition="outside")
+                            _fig_mp.update_layout(
+                                height=max(220, len(df_meios_pag) * 48),
+                                showlegend=False,
+                                xaxis_title="% da Receita",
+                                yaxis_title="",
+                                margin=dict(l=0, r=40, t=10, b=10),
+                            )
+                            st.plotly_chart(_fig_mp, use_container_width=True)
 
-                    with _col_mp_t:
-                        _df_mp_disp = df_meios_pag.copy()
-                        _df_mp_disp["Receita (R$)"] = _df_mp_disp["Receita (R$)"].apply(brl)
-                        _df_mp_disp["% Receita"]    = _df_mp_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
-                        st.dataframe(_df_mp_disp, use_container_width=True, hide_index=True,
-                                     height=max(220, len(df_meios_pag) * 48))
+                        with _col_mp_t:
+                            _df_mp_disp = df_meios_pag.copy()
+                            _df_mp_disp["Receita (R$)"] = _df_mp_disp["Receita (R$)"].apply(brl)
+                            _df_mp_disp["% Receita"]    = _df_mp_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                            st.dataframe(_df_mp_disp, use_container_width=True, hide_index=True,
+                                         height=max(220, len(df_meios_pag) * 48))
 
-                    _top_pag  = df_meios_pag.iloc[0]
-                    _pct_top  = f"{_top_pag['% Receita']:.1f}".replace(".", ",") + "%"
-                    _n_top    = fmt_num(int(_top_pag["Transações"]))
-                    st.info(
-                        f"**{_top_pag['Meio de Pagamento']}** é o meio de pagamento dominante — "
-                        f"**{_pct_top}** da receita em {_n_top} transações. "
-                        + (
-                            "Considere negociar taxas com a credenciadora se cartão liderar."
-                            if "cartão" in _top_pag["Meio de Pagamento"].lower()
-                            else "Avalie se o mix de meios de pagamento está alinhado ao perfil dos seus clientes."
+                        _top_pag  = df_meios_pag.iloc[0]
+                        _pct_top  = f"{_top_pag['% Receita']:.1f}".replace(".", ",") + "%"
+                        _n_top    = fmt_num(int(_top_pag["Transações"]))
+                        st.info(
+                            f"**{_top_pag['Meio de Pagamento']}** é o meio de pagamento dominante — "
+                            f"**{_pct_top}** da receita em {_n_top} transações. "
+                            + (
+                                "Considere negociar taxas com a credenciadora se cartão liderar."
+                                if "cartão" in _top_pag["Meio de Pagamento"].lower()
+                                else "Avalie se o mix de meios de pagamento está alinhado ao perfil dos seus clientes."
+                            )
                         )
-                    )
-                    with st.expander("ℹ️ Como interpretar — códigos tPag"):
-                        st.markdown(
-                            "| Código | Meio de Pagamento |\n"
-                            "|--------|-------------------|\n"
-                            "| 01 | Dinheiro |\n"
-                            "| 03 | Cartão de Crédito |\n"
-                            "| 04 | Cartão de Débito |\n"
-                            "| 10 | Vale Alimentação |\n"
-                            "| 11 | Vale Refeição |\n"
-                            "| 17 | PIX |\n"
-                            "| 99 | Outros (SEFAZ) |\n\n"
-                            "Fonte: Tabela tPag da NF-e/NFC-e (SEFAZ). "
-                            "Notas com pagamento misto têm a receita rateada proporcionalmente.\n\n"
-                            "⚠️ **Desconhecido cod X**: quando aparece essa descrição, o código X não consta "
-                            "na tabela oficial SEFAZ. É um código proprietário do sistema PDV. "
-                            "Verifique nas configurações do seu software de caixa qual forma de pagamento "
-                            "está cadastrada com esse número para identificá-la corretamente."
-                        )
+                        with st.expander("ℹ️ Como interpretar — códigos tPag"):
+                            st.markdown(
+                                "| Código | Meio de Pagamento |\n"
+                                "|--------|-------------------|\n"
+                                "| 01 | Dinheiro |\n"
+                                "| 03 | Cartão de Crédito |\n"
+                                "| 04 | Cartão de Débito |\n"
+                                "| 10 | Vale Alimentação |\n"
+                                "| 11 | Vale Refeição |\n"
+                                "| 17 | PIX |\n"
+                                "| 99 | Outros (SEFAZ) |\n\n"
+                                "Fonte: Tabela tPag da NF-e/NFC-e (SEFAZ). "
+                                "Notas com pagamento misto têm a receita rateada proporcionalmente.\n\n"
+                                "⚠️ **Desconhecido cod X**: quando aparece essa descrição, o código X não consta "
+                                "na tabela oficial SEFAZ. É um código proprietário do sistema PDV. "
+                                "Verifique nas configurações do seu software de caixa qual forma de pagamento "
+                                "está cadastrada com esse número para identificá-la corretamente."
+                            )
 
             # ── SUBTAB 6: CANAL DE VENDA ──────────────────────
-            with subtabs[5]:
-                if df_canal.empty:
-                    st.info("Dados de canal de venda não disponíveis. Os XMLs precisam conter o campo `<indPres>` (NF-e 4.0).")
-                else:
-                    st.markdown("#### 🛍️ Receita por Canal de Venda")
-                    st.caption(
-                        "Canal onde a venda foi realizada, extraído do campo indPres de cada nota. "
-                        "Permite separar vendas presenciais de pedidos online (iFood / site) e delivery."
-                    )
-
-                    _col_cv_g, _col_cv_t = st.columns([3, 2])
-                    with _col_cv_g:
-                        _CORES_CANAL = {
-                            "Presencial (balcão)":  "#2563EB",
-                            "Internet (iFood / site)": "#F59E0B",
-                            "Delivery próprio":     "#059669",
-                            "Teleatendimento":      "#7C3AED",
-                            "NF-e B2B":             "#9CA3AF",
-                            "Outros":               "#6B7280",
-                        }
-                        _cores_cv = [_CORES_CANAL.get(c, "#2563EB")
-                                     for c in df_canal.sort_values("% Receita")["Canal de Venda"]]
-                        _fig_cv = px.bar(
-                            df_canal.sort_values("% Receita"),
-                            x="% Receita", y="Canal de Venda",
-                            orientation="h",
-                            text=df_canal.sort_values("% Receita")["% Receita"].apply(
-                                lambda v: f"{v:.1f}%"
-                            ),
-                            color="Canal de Venda",
-                            color_discrete_sequence=_cores_cv,
+            if "Canal de Venda" in _stidx:
+                with subtabs[_stidx["Canal de Venda"]]:
+                    if df_canal.empty:
+                        st.info("Dados de canal de venda não disponíveis. Os XMLs precisam conter o campo `<indPres>` (NF-e 4.0).")
+                    else:
+                        st.markdown("#### 🛍️ Receita por Canal de Venda")
+                        st.caption(
+                            "Canal onde a venda foi realizada, extraído do campo indPres de cada nota. "
+                            "Permite separar vendas presenciais de pedidos online (iFood / site) e delivery."
                         )
-                        _fig_cv.update_traces(textposition="outside")
-                        _fig_cv.update_layout(
-                            height=max(200, len(df_canal) * 52),
-                            showlegend=False,
-                            xaxis_title="% da Receita",
-                            xaxis=dict(range=[0, 100]),
-                            yaxis_title="",
-                            margin=dict(l=0, r=40, t=10, b=10),
-                        )
-                        st.plotly_chart(_fig_cv, use_container_width=True)
 
-                    with _col_cv_t:
-                        _df_cv_disp = df_canal.copy()
-                        _df_cv_disp["Receita (R$)"] = _df_cv_disp["Receita (R$)"].apply(brl)
-                        _df_cv_disp["% Receita"]    = _df_cv_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
-                        st.dataframe(_df_cv_disp, use_container_width=True, hide_index=True,
-                                     height=max(200, len(df_canal) * 52))
-
-                    _top_canal = df_canal.iloc[0]
-                    _pct_top_c = f"{_top_canal['% Receita']:.1f}".replace(".", ",") + "%"
-                    _n_top_c   = fmt_num(int(_top_canal["Transações"]))
-                    st.info(
-                        f"**{_top_canal['Canal de Venda']}** lidera com **{_pct_top_c}** "
-                        f"da receita em {_n_top_c} transações."
-                    )
-                    _df_online = df_canal[df_canal["Canal de Venda"].str.contains("Internet|iFood", case=False, na=False)]
-                    if not _df_online.empty:
-                        _pct_online = _df_online["% Receita"].sum()
-                        if _pct_online >= 5:
-                            st.success(
-                                f"📱 Vendas online (iFood / site) representam **"
-                                f"{f'{_pct_online:.1f}'.replace('.', ',')}%** da receita — "
-                                "monitore o custo de comissão versus a margem líquida nesse canal."
+                        _col_cv_g, _col_cv_t = st.columns([3, 2])
+                        with _col_cv_g:
+                            _CORES_CANAL = {
+                                "Presencial (balcão)":  "#2563EB",
+                                "Internet (iFood / site)": "#F59E0B",
+                                "Delivery próprio":     "#059669",
+                                "Teleatendimento":      "#7C3AED",
+                                "NF-e B2B":             "#9CA3AF",
+                                "Outros":               "#6B7280",
+                            }
+                            _cores_cv = [_CORES_CANAL.get(c, "#2563EB")
+                                         for c in df_canal.sort_values("% Receita")["Canal de Venda"]]
+                            _fig_cv = px.bar(
+                                df_canal.sort_values("% Receita"),
+                                x="% Receita", y="Canal de Venda",
+                                orientation="h",
+                                text=df_canal.sort_values("% Receita")["% Receita"].apply(
+                                    lambda v: f"{v:.1f}%"
+                                ),
+                                color="Canal de Venda",
+                                color_discrete_sequence=_cores_cv,
                             )
-                    with st.expander("ℹ️ Como interpretar — códigos indPres"):
-                        st.markdown(
-                            "| Código | Canal de Venda |\n"
-                            "|--------|----------------|\n"
-                            "| 0 | **NF-e B2B** — nota emitida para outra empresa (CNPJ) |\n"
-                            "| 1 | Presencial — balcão / PDV |\n"
-                            "| 2 | Internet — iFood, site próprio |\n"
-                            "| 3 | Teleatendimento — pedido por telefone |\n"
-                            "| 4 | Delivery próprio (entregador da empresa) |\n"
-                            "| 9 | Outros |\n\n"
-                            "Fonte: Campo indPres da NF-e/NFC-e (SEFAZ). "
-                            "O valor é definido no momento da emissão da nota pelo sistema do emissor.\n\n"
-                            "ℹ️ **NF-e B2B (código 0)**: o campo *indPres = 0* (\"não se aplica\") é o padrão "
-                            "para NF-e emitidas a outras empresas. Essas notas não têm canal de venda ao "
-                            "consumidor e costumam ter ticket médio mais alto por serem vendas em atacado "
-                            "ou fornecimento a CNPJs."
+                            _fig_cv.update_traces(textposition="outside")
+                            _fig_cv.update_layout(
+                                height=max(200, len(df_canal) * 52),
+                                showlegend=False,
+                                xaxis_title="% da Receita",
+                                xaxis=dict(range=[0, 100]),
+                                yaxis_title="",
+                                margin=dict(l=0, r=40, t=10, b=10),
+                            )
+                            st.plotly_chart(_fig_cv, use_container_width=True)
+
+                        with _col_cv_t:
+                            _df_cv_disp = df_canal.copy()
+                            _df_cv_disp["Receita (R$)"] = _df_cv_disp["Receita (R$)"].apply(brl)
+                            _df_cv_disp["% Receita"]    = _df_cv_disp["% Receita"].apply(lambda x: f"{x:.1f}%")
+                            st.dataframe(_df_cv_disp, use_container_width=True, hide_index=True,
+                                         height=max(200, len(df_canal) * 52))
+
+                        _top_canal = df_canal.iloc[0]
+                        _pct_top_c = f"{_top_canal['% Receita']:.1f}".replace(".", ",") + "%"
+                        _n_top_c   = fmt_num(int(_top_canal["Transações"]))
+                        st.info(
+                            f"**{_top_canal['Canal de Venda']}** lidera com **{_pct_top_c}** "
+                            f"da receita em {_n_top_c} transações."
                         )
+                        _df_online = df_canal[df_canal["Canal de Venda"].str.contains("Internet|iFood", case=False, na=False)]
+                        if not _df_online.empty:
+                            _pct_online = _df_online["% Receita"].sum()
+                            if _pct_online >= 5:
+                                st.success(
+                                    f"📱 Vendas online (iFood / site) representam **"
+                                    f"{f'{_pct_online:.1f}'.replace('.', ',')}%** da receita — "
+                                    "monitore o custo de comissão versus a margem líquida nesse canal."
+                                )
+                        with st.expander("ℹ️ Como interpretar — códigos indPres"):
+                            st.markdown(
+                                "| Código | Canal de Venda |\n"
+                                "|--------|----------------|\n"
+                                "| 0 | **NF-e B2B** — nota emitida para outra empresa (CNPJ) |\n"
+                                "| 1 | Presencial — balcão / PDV |\n"
+                                "| 2 | Internet — iFood, site próprio |\n"
+                                "| 3 | Teleatendimento — pedido por telefone |\n"
+                                "| 4 | Delivery próprio (entregador da empresa) |\n"
+                                "| 9 | Outros |\n\n"
+                                "Fonte: Campo indPres da NF-e/NFC-e (SEFAZ). "
+                                "O valor é definido no momento da emissão da nota pelo sistema do emissor.\n\n"
+                                "ℹ️ **NF-e B2B (código 0)**: o campo *indPres = 0* (\"não se aplica\") é o padrão "
+                                "para NF-e emitidas a outras empresas. Essas notas não têm canal de venda ao "
+                                "consumidor e costumam ter ticket médio mais alto por serem vendas em atacado "
+                                "ou fornecimento a CNPJs."
+                            )
 
 
     #  SIMULAÇÕES
-    with tabs[tab_idx["Simulações"]]:
-        st.subheader("Precificação de Combos")
-        if df_combos.empty:
-            st.info("Sem dados suficientes de preço para calcular combos.")
-        else:
-            tbl_c = df_combos.copy()
-            for col in ["Preço A", "Preço B", "Total Individual", "Combo c/ 5% desc.", "Combo c/ 10% desc."]:
-                tbl_c[col] = tbl_c[col].apply(brl)
-            st.dataframe(tbl_c, use_container_width=True, hide_index=True)
-            st.info("O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor.")
+    if "Simulações" in tab_idx:
+        with tabs[tab_idx["Simulações"]]:
+            st.subheader("Precificação de Combos")
+            if df_combos.empty:
+                st.info("Sem dados suficientes de preço para calcular combos.")
+            else:
+                tbl_c = df_combos.copy()
+                for col in ["Preço A", "Preço B", "Total Individual", "Combo c/ 5% desc.", "Combo c/ 10% desc."]:
+                    tbl_c[col] = tbl_c[col].apply(brl)
+                st.dataframe(tbl_c, use_container_width=True, hide_index=True)
+                st.info("O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor.")
 
     #  METAS 
-    with tabs[tab_idx["Metas"]]:
-        st.subheader("Plano de Metas Mensais por Produto")
-        st.caption("Baseado nos top produtos por receita — metas de +10% e +20%")
+    if "Metas" in tab_idx:
+        with tabs[tab_idx["Metas"]]:
+            st.subheader("Plano de Metas Mensais por Produto")
+            st.caption("Baseado nos top produtos por receita — metas de +10% e +20%")
 
-        tbl_m = df_metas.copy()
-        for col in ["receita", "Meta +10%", "Meta +20%"]:
-            tbl_m[col] = tbl_m[col].apply(brl)
-        tbl_m["volume"] = tbl_m["volume"].apply(lambda v: f"{v:.1f}")
+            tbl_m = df_metas.copy()
+            for col in ["receita", "Meta +10%", "Meta +20%"]:
+                tbl_m[col] = tbl_m[col].apply(brl)
+            tbl_m["volume"] = tbl_m["volume"].apply(lambda v: f"{v:.1f}")
 
-        st.dataframe(
-            tbl_m.rename(columns={
-                "xProd": "Produto",
-                "volume": "Volume Atual", "receita": "Receita Atual",
-                "frequencia": "Freq. Pedidos",
-            }),
-            use_container_width=True, hide_index=True, height=450,
-        )
+            st.dataframe(
+                tbl_m.rename(columns={
+                    "xProd": "Produto",
+                    "volume": "Volume Atual", "receita": "Receita Atual",
+                    "frequencia": "Freq. Pedidos",
+                }),
+                use_container_width=True, hide_index=True, height=450,
+            )
 
-        # fat_top10: usa df_metas que já calculou receita=sum(vProd) por produto top-10
-        fat_top10 = df_metas["receita"].sum() if not df_metas.empty and "receita" in df_metas.columns else 0
-        st.metric("Receita atual (Top 10 produtos)", brl(fat_top10))
-        c1, c2 = st.columns(2)
-        c1.metric("Meta +10%", brl(fat_top10 * 1.10), f"+{brl(fat_top10 * 0.10)}")
-        c2.metric("Meta +20%", brl(fat_top10 * 1.20), f"+{brl(fat_top10 * 0.20)}")
+            # fat_top10: usa df_metas que já calculou receita=sum(vProd) por produto top-10
+            fat_top10 = df_metas["receita"].sum() if not df_metas.empty and "receita" in df_metas.columns else 0
+            st.metric("Receita atual (Top 10 produtos)", brl(fat_top10))
+            c1, c2 = st.columns(2)
+            c1.metric("Meta +10%", brl(fat_top10 * 1.10), f"+{brl(fat_top10 * 0.10)}")
+            c2.metric("Meta +20%", brl(fat_top10 * 1.20), f"+{brl(fat_top10 * 0.20)}")
 
     #  CESTA — adiciona solo produtos 
     # (já existe a aba Cesta, vamos adicionar solo dentro dela via subtab)
@@ -8889,8 +9158,17 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v18"   # bumpar aqui a cada mudança nas funções de export
-    _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER
+    _EXPORT_CODE_VER = "v21"   # bumpar aqui a cada mudança nas funções de export
+    # Fingerprint inclui visibilidade: alteração no painel invalida cache
+    _vis_keys_cache = [
+        "show_pares", "show_combos", "show_cesta_dist", "show_cesta_solo",
+        "show_candidatos", "show_abc", "show_elev", "show_redu",
+        "show_simulacoes", "show_metas", "show_temp_horario", "show_temp_turno",
+        "show_temp_dow", "show_temp_potencial", "show_temp_pagamento",
+        "show_temp_canal", "show_nfe_b2b", "show_canceladas", "show_simples",
+    ]
+    _vis_fp = "".join("1" if st.session_state.get(k, True) else "0" for k in _vis_keys_cache)
+    _fp_atual = str(st.session_state.get("_analise_fp", "")) + _EXPORT_CODE_VER + _vis_fp
 
     if st.session_state.get("_export_fp") != _fp_atual:
         # Dados novos — gera os arquivos e guarda no cache
@@ -8898,21 +9176,36 @@ Diferenças maiores devem ser investigadas com o contador.
         try:
             from pptx import Presentation  # noqa: F401
             import matplotlib  # noqa: F401
+            # Captura preferências de visibilidade para o PDF
+            _vis_pdf = {k: st.session_state.get(k, True) for k in [
+                "show_pares", "show_combos",
+                "show_cesta_dist", "show_cesta_solo",
+                "show_candidatos", "show_abc",
+                "show_elev", "show_redu",
+                "show_simulacoes", "show_metas",
+                "show_temp_horario", "show_temp_turno",
+                "show_temp_dow", "show_temp_potencial",
+                "show_temp_pagamento", "show_temp_canal",
+                "show_nfe_b2b", "show_canceladas", "show_simples",
+            ]}
             _pptx_bytes = exportar_pptx(
                 kpis, df_pares, df_trios,
                 df_cesta, df_turno, df_bcg,
                 df_elev, df_redu, df_sim_rec, df_sim_preco,
                 df_combos, df_metas, df_horas,
-                df_solo, df_remocao, df_dia_tipo,
-                df_nfe, kpis_nfce,
+                df_solo, df_remocao,
+                df_dia_tipo if _vis_pdf["show_temp_dow"] else None,
+                df_nfe if _vis_pdf["show_nfe_b2b"] else pd.DataFrame(),
+                kpis_nfce,
                 fonte_label, cli_label, per_label,
-                df_abc=df_abc,
-                df_por_hora=df_por_hora,
-                df_por_turno=df_por_turno,
-                sn_result=sn_result,
+                df_abc=df_abc if _vis_pdf["show_abc"] else None,
+                df_por_hora=df_por_hora if _vis_pdf["show_temp_horario"] else None,
+                df_por_turno=df_por_turno if _vis_pdf["show_temp_turno"] else None,
+                sn_result=sn_result if _vis_pdf["show_simples"] else None,
                 df_nfe_outros=df_nfe_outros,
-                df_meios_pag=df_meios_pag,
-                df_canal=df_canal,
+                df_meios_pag=df_meios_pag if _vis_pdf["show_temp_pagamento"] else pd.DataFrame(),
+                df_canal=df_canal if _vis_pdf["show_temp_canal"] else pd.DataFrame(),
+                vis_flags=_vis_pdf,
             )
         except ImportError:
             pass
@@ -8932,15 +9225,16 @@ Diferenças maiores devem ser investigadas com o contador.
                                      df_por_hora=df_por_hora,
                                      df_por_turno=df_por_turno,
                                      df_meios_pag=df_meios_pag,
-                                     df_canal=df_canal)
+                                     df_canal=df_canal,
+                                     vis_flags=_vis_pdf)
 
         st.session_state["_export_pptx"]  = _pptx_bytes
         st.session_state["_export_xlsx"]  = _xlsx_bytes
         st.session_state["_export_fp"]    = _fp_atual
     else:
         # Mesmos dados — reutiliza cache (clique no botão não regenera nada)
-        _pptx_bytes = st.session_state.get("_export_pptx")
-        _xlsx_bytes = st.session_state.get("_export_xlsx")
+        _pptx_bytes  = st.session_state.get("_export_pptx")
+        _xlsx_bytes  = st.session_state.get("_export_xlsx")
 
     col_xl, col_pp, col_pdf = st.columns(3)
 
@@ -8992,6 +9286,7 @@ Diferenças maiores devem ser investigadas com o contador.
                 )
         else:
             st.info("Gere o PPTX primeiro para habilitar o PDF.")
+
 
 
 if __name__ == "__main__":
