@@ -171,11 +171,35 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
             return 0.0
 
     rows = []
+    chaves_canceladas: set = set()
 
     def _process_xml_bytes(xml_data: bytes, source_name: str = ""):
         try:
             root = ET.fromstring(xml_data)
             root_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+
+            # Evento de cancelamento — registra chave e ignora o resto
+            if root_local in ("procEventoNFe", "retEnvEvento"):
+                chave_canc = None
+                for el in root.iter():
+                    local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+                    if local == "tpEvento" and el.text == "110111":
+                        for candidate in root.iter():
+                            c_local = candidate.tag.split("}")[-1] if "}" in candidate.tag else candidate.tag
+                            if c_local == "chNFe" and candidate.text and len(candidate.text) == 44:
+                                chave_canc = candidate.text.strip()
+                                break
+                        break
+                if chave_canc:
+                    cstat_aceito = any(
+                        (el.tag.split("}")[-1] if "}" in el.tag else el.tag) == "cStat"
+                        and el.text in ("135", "155", "101")
+                        for el in root.iter()
+                    )
+                    if cstat_aceito:
+                        chaves_canceladas.add(chave_canc)
+                return
+
             if root_local not in ("nfeProc", "NFe"):
                 return
             nfe_el = root.find(t("NFe")) if root_local == "nfeProc" else root
@@ -293,6 +317,9 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                 _process_xml_bytes(raw, name)
         except Exception:
             continue
+
+    if chaves_canceladas:
+        rows = [r for r in rows if r["chave"] not in chaves_canceladas]
 
     if not rows:
         return pd.DataFrame()
