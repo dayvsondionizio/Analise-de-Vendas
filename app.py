@@ -238,18 +238,18 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
             emitente  = gettxt(emit_el, "xNome") if emit_el is not None else ""
             cnpj_emit = gettxt(emit_el, "CNPJ")  if emit_el is not None else ""
 
-            vNF = vST = vIPI = 0.0
+            vNF = vST = vIPI = vProdNF = 0.0
             total_el = infNFe.find(t("total"))
             if total_el is not None:
                 icms = total_el.find(t("ICMSTot"))
                 if icms is not None:
-                    vNF  = getfloat(icms, "vNF")
-                    vST  = getfloat(icms, "vST")
-                    vIPI = getfloat(icms, "vIPI")
-            # Valor Contábil = vNF (total da NF, igual ao Questor/SPED registro C100).
-            # O vST não é deduzido: o Questor registra o vNF integral como Valor Contábil
-            # e lança o ST em conta de imposto separada.
-            vContabil = vNF
+                    vNF    = getfloat(icms, "vNF")
+                    vST    = getfloat(icms, "vST")
+                    vIPI   = getfloat(icms, "vIPI")
+                    vProdNF = getfloat(icms, "vProd")
+            # Valor Contábil = vProd do ICMSTot (soma dos itens antes do desconto),
+            # igual ao Questor/SPED que registra o valor bruto e lança desconto em conta separada.
+            vContabil = vProdNF if vProdNF else vNF
 
             for det in infNFe.findall(t("det")):
                 prod = det.find(t("prod"))
@@ -296,7 +296,7 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "vNF":       vNF,
                     "vST":       vST,
                     "vIPI":      vIPI,
-                    "vContabil": vContabil,   # = vNF (igual ao Valor Contábil do Questor/SPED — registro C100)
+                    "vContabil": vContabil,   # = vProd ICMSTot (bruto antes do desconto, igual ao Questor/SPED)
                     "finNFe":    finNFe,
                     "fonte":     source_name,
                 })
@@ -8961,7 +8961,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             elif _sn_fonte == "ambos":
                 st.info("📊 **Fontes: Planilha SPED + XMLs de entrada** — cálculo pela planilha SPED (comercialização). XMLs usados para conferência do total de notas.")
             else:
-                st.info("📋 **Fonte: XMLs de entrada** — considera **todas as notas de entrada** (todos os CFOPs), sem exceção. Valor = vNF de cada NF-e válida, excluindo apenas notas de devolução.")
+                st.info("📋 **Fonte: XMLs de entrada** — considera **todas as notas de entrada** (todos os CFOPs), sem exceção. Valor = vProd (valor bruto dos itens) de cada NF-e válida, excluindo apenas notas de devolução.")
 
             st.caption(
                 "A legislação do Simples Nacional limita as compras a **80% do faturamento total**. "
@@ -8977,7 +8977,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             c1, c2, c3, c4 = st.columns(4)
             _lbl_compras = (
                 "Compras de Comercialização" if _sn_fonte in ("sped_xlsx", "ambos")
-                else "Total de Entradas (vNF)"
+                else "Total de Entradas (vProd)"
             )
             c1.metric("Faturamento Total",  brl(_sn_fat))
             c2.metric(_lbl_compras,         brl(_sn_total))
