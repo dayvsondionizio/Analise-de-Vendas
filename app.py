@@ -246,11 +246,10 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     vNF  = getfloat(icms, "vNF")
                     vST  = getfloat(icms, "vST")
                     vIPI = getfloat(icms, "vIPI")
-            # Valor Contábil = vNF - vST
-            # O IPI compõe o Valor Contábil conforme lançamento no Questor/SPED (planilha M & A ATUALIZADO.xlsx).
-            # Testado contra 122 notas de março/2026: resultado exato R$ 99.377,61.
-            # Nota: vST (ICMS-ST) é excluído pois é recolhido em separado pelo substituto tributário.
-            vContabil = vNF - vST
+            # Valor Contábil = vNF (total da NF, igual ao Questor/SPED registro C100).
+            # O vST não é deduzido: o Questor registra o vNF integral como Valor Contábil
+            # e lança o ST em conta de imposto separada.
+            vContabil = vNF
 
             for det in infNFe.findall(t("det")):
                 prod = det.find(t("prod"))
@@ -297,7 +296,7 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
                     "vNF":       vNF,
                     "vST":       vST,
                     "vIPI":      vIPI,
-                    "vContabil": vContabil,   # vNF - vST - vIPI (igual ao Valor Contábil do Questor/SPED)
+                    "vContabil": vContabil,   # = vNF (igual ao Valor Contábil do Questor/SPED — registro C100)
                     "finNFe":    finNFe,
                     "fonte":     source_name,
                 })
