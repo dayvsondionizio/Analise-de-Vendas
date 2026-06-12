@@ -843,7 +843,7 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
     else:
         # ── Somente XMLs ─────────────────────────────────────────────────────────
         # Notas de devolução (finNFe=4) já foram excluídas em parse_entradas_xml.
-        # Deduplica por chave de nota e usa vContabil (= vNF − vST),
+        # Deduplica por chave de nota e usa vContabil (= vNF),
         # que é o que o Questor/SPED registra como Valor Contábil de entrada.
         _val_col = "vContabil" if "vContabil" in df_entradas.columns else "vNF"
         _notas_unicas = df_entradas.drop_duplicates("chave")
@@ -851,7 +851,7 @@ def calc_simples_nacional(df_entradas: pd.DataFrame, faturamento_total: float,
         fonte = "xml"
 
         # Breakdown por CFOP usando vContabil proporcional ao vProd de cada item
-        # Garante que sum(CFOP) == total (vNF-vST), sem divergência no dashboard.
+        # Garante que sum(CFOP) == total (vNF), sem divergência no dashboard.
         df_com_sped = df_entradas.copy()
         _nota_vcontabil = _notas_unicas.set_index("chave")[_val_col].rename("_vContabil_nota")
         _nota_vprod     = df_entradas.groupby("chave")["vProd"].sum().rename("_vProd_nota")
@@ -8961,7 +8961,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             elif _sn_fonte == "ambos":
                 st.info("📊 **Fontes: Planilha SPED + XMLs de entrada** — cálculo pela planilha SPED (comercialização). XMLs usados para conferência do total de notas.")
             else:
-                st.info("📋 **Fonte: XMLs de entrada** — considera **todas as notas de entrada** (todos os CFOPs), sem exceção. Valor = vNF − vST de cada NF-e válida, excluindo apenas notas de devolução.")
+                st.info("📋 **Fonte: XMLs de entrada** — considera **todas as notas de entrada** (todos os CFOPs), sem exceção. Valor = vNF de cada NF-e válida, excluindo apenas notas de devolução.")
 
             st.caption(
                 "A legislação do Simples Nacional limita as compras a **80% do faturamento total**. "
@@ -8977,7 +8977,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             c1, c2, c3, c4 = st.columns(4)
             _lbl_compras = (
                 "Compras de Comercialização" if _sn_fonte in ("sped_xlsx", "ambos")
-                else "Total de Entradas (vNF − vST)"
+                else "Total de Entradas (vNF)"
             )
             c1.metric("Faturamento Total",  brl(_sn_fat))
             c2.metric(_lbl_compras,         brl(_sn_total))
