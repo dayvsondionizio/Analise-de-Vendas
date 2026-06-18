@@ -3016,7 +3016,11 @@ def calc_cross_fornecedor_item_compras(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     _df = df.copy()
-    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+    _has_chave = "chave" in _df.columns and _df["chave"].str.strip().ne("").any()
+    _has_num   = "num_nota" in _df.columns and _df["num_nota"].notna().any()
+    if _has_num and _has_chave and _df["num_nota"].nunique() > _df["chave"].nunique():
+        _nota_col = "num_nota"
+    elif _has_chave:
         _nota_col = "chave"
     else:
         _nota_col = "num_nota"
