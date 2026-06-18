@@ -7352,7 +7352,19 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             f"</div>",
             unsafe_allow_html=True,
         )
-        _cc2.metric("Notas Fiscais",    fmt_num(_kpis_c["n_notas"]))
+        _n_outras_nf = _kpis_todos["n_notas"] - _kpis_c["n_notas"]
+        _cc2.metric(
+            "Notas Fiscais",
+            fmt_num(_kpis_c["n_notas"]),
+            delta=f"+{fmt_num(_n_outras_nf)} outras entradas = {fmt_num(_kpis_todos['n_notas'])} total" if _n_outras_nf > 0 else None,
+            delta_color="off",
+            help=(
+                f"{fmt_num(_kpis_c['n_notas'])} NFs de comercialização (exibidas no ranking de fornecedores)"
+                + (f" + {fmt_num(_n_outras_nf)} NFs de outras entradas (equipamentos, uso/consumo etc.)"
+                   f" = {fmt_num(_kpis_todos['n_notas'])} total"
+                   if _n_outras_nf > 0 else "")
+            ),
+        )
         _cc3.metric("Fornecedores",     fmt_num(_kpis_c["n_fornecedores"]))
         _cc4.metric("Produtos Únicos",  fmt_num(_kpis_c["n_produtos"]))
         _cc5.metric("Ticket Médio/NF",  brl(_kpis_c["ticket_medio_nota"]))
