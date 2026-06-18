@@ -2778,10 +2778,15 @@ def parse_planilha_compras(arquivo) -> pd.DataFrame:
 def calc_kpis_compras(df: pd.DataFrame) -> dict:
     """KPIs principais da análise de compras."""
     total_compras = df["valor"].sum() if "valor" in df.columns else 0.0
-    # Conta notas únicas: prefere chave, usa num_nota como fallback
-    if "chave" in df.columns and df["chave"].str.strip().ne("").any():
+    # Conta notas únicas: usa num_nota quando tiver mais valores únicos que chave
+    # (chave truncada pelo Excel perde precisão nos 44 dígitos → menos únicos)
+    _has_chave = "chave" in df.columns and df["chave"].str.strip().ne("").any()
+    _has_num   = "num_nota" in df.columns and df["num_nota"].notna().any()
+    if _has_num and _has_chave and df["num_nota"].nunique() > df["chave"].nunique():
+        n_notas = df["num_nota"].nunique()
+    elif _has_chave:
         n_notas = df["chave"].nunique()
-    elif "num_nota" in df.columns:
+    elif _has_num:
         n_notas = df["num_nota"].nunique()
     else:
         n_notas = 0
@@ -2803,8 +2808,11 @@ def calc_evolucao_mensal_compras(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     _df = df.copy()
-    # Identifica nota única por chave ou num_nota
-    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+    _has_chave = "chave" in _df.columns and _df["chave"].str.strip().ne("").any()
+    _has_num   = "num_nota" in _df.columns and _df["num_nota"].notna().any()
+    if _has_num and _has_chave and _df["num_nota"].nunique() > _df["chave"].nunique():
+        _nota_col = "num_nota"
+    elif _has_chave:
         _nota_col = "chave"
     else:
         _nota_col = "num_nota"
@@ -2835,7 +2843,11 @@ def calc_ranking_fornecedores_compras(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     _df = df.copy()
-    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+    _has_chave = "chave" in _df.columns and _df["chave"].str.strip().ne("").any()
+    _has_num   = "num_nota" in _df.columns and _df["num_nota"].notna().any()
+    if _has_num and _has_chave and _df["num_nota"].nunique() > _df["chave"].nunique():
+        _nota_col = "num_nota"
+    elif _has_chave:
         _nota_col = "chave"
     else:
         _nota_col = "num_nota"
@@ -2923,7 +2935,11 @@ def calc_ranking_produtos_compras(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     _df = df.copy()
-    if "chave" in _df.columns and _df["chave"].str.strip().ne("").any():
+    _has_chave = "chave" in _df.columns and _df["chave"].str.strip().ne("").any()
+    _has_num   = "num_nota" in _df.columns and _df["num_nota"].notna().any()
+    if _has_num and _has_chave and _df["num_nota"].nunique() > _df["chave"].nunique():
+        _nota_col = "num_nota"
+    elif _has_chave:
         _nota_col = "chave"
     else:
         _nota_col = "num_nota"
