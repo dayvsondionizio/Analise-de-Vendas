@@ -4450,9 +4450,12 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                 if len(_mes_cols_p) >= 2:
                     _fm = _mes_cols_p[0]
                     _lm = _mes_cols_p[-1]
-                    _chg_xl = _preco_c[["Produto", "Un."] + _mes_cols_p].dropna(
-                        subset=[_fm, _lm]
-                    ).copy()
+                    # Exclui produtos com mais de uma unidade no período (comparação inválida)
+                    _un_por_prod = _preco_c.groupby("Produto")["Un."].nunique()
+                    _prods_un_unica = _un_por_prod[_un_por_prod == 1].index
+                    _chg_xl = _preco_c[_preco_c["Produto"].isin(_prods_un_unica)][
+                        ["Produto", "Un."] + _mes_cols_p
+                    ].dropna(subset=[_fm, _lm]).copy()
                     _chg_xl["Variação (%)"] = (
                         (_chg_xl[_lm] - _chg_xl[_fm]) / _chg_xl[_fm].replace(0, float("nan")) * 100
                     ).round(2)
@@ -7652,9 +7655,12 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
                     if len(_mes_cols_p) >= 2:
                         _first_m = _mes_cols_p[0]
                         _last_m  = _mes_cols_p[-1]
-                        _chg = _ev_preco[["Produto", "Un."] + _mes_cols_p].dropna(
-                            subset=[_first_m, _last_m]
-                        ).copy()
+                        # Exclui produtos com mais de uma unidade no período (comparação inválida)
+                        _un_por_prod_d = _ev_preco.groupby("Produto")["Un."].nunique()
+                        _prods_un_unica_d = _un_por_prod_d[_un_por_prod_d == 1].index
+                        _chg = _ev_preco[_ev_preco["Produto"].isin(_prods_un_unica_d)][
+                            ["Produto", "Un."] + _mes_cols_p
+                        ].dropna(subset=[_first_m, _last_m]).copy()
                         _chg["Variação (%)"] = (
                             (_chg[_last_m] - _chg[_first_m]) / _chg[_first_m].replace(0, float("nan")) * 100
                         ).round(2)
