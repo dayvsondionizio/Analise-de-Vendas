@@ -4463,9 +4463,9 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                     _altas_xl  = _chg_xl[_chg_xl["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20).copy()
                     _quedas_xl = _chg_xl[_chg_xl["Variação (%)"] < 0].sort_values("Variação (%)").head(20).copy()
 
-                    # Coluna de alerta para variações muito altas (possível erro de unidade no sistema)
-                    _altas_xl["⚠️ Verificar"] = _altas_xl["Variação (%)"].apply(
-                        lambda v: "⚠️ Verificar no sistema" if v > 200 else ""
+                    # Coluna de alerta para variações muito altas (possível erro de lançamento na NF)
+                    _altas_xl["⚠️ Atenção"] = _altas_xl["Variação (%)"].apply(
+                        lambda v: "⚠️ Verificar" if v > 200 else ""
                     )
 
                     _obs_calculo = (
@@ -4476,9 +4476,8 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                         "aparece como item diferente e não entra nesta análise."
                     )
                     _obs_alerta = (
-                        "⚠️ Atenção: variações acima de 200% geralmente indicam erro de unidade de medida "
-                        "no sistema (ex: lançamento em caixas quando deveria ser em kg). Verifique esses "
-                        "itens no sistema antes de apresentar ao cliente."
+                        "⚠️ Atenção: variações acima de 200% geralmente foram registradas de forma incorreta "
+                        "na nota fiscal."
                     )
                     if not _altas_xl.empty:
                         _altas_xl.to_excel(writer, sheet_name="Maiores Aumentos", index=False)
