@@ -4460,8 +4460,13 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                         (_chg_xl[_lm] - _chg_xl[_fm]) / _chg_xl[_fm].replace(0, float("nan")) * 100
                     ).round(2)
 
-                    _altas_xl  = _chg_xl[_chg_xl["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20)
-                    _quedas_xl = _chg_xl[_chg_xl["Variação (%)"] < 0].sort_values("Variação (%)").head(20)
+                    _altas_xl  = _chg_xl[_chg_xl["Variação (%)"] > 0].sort_values("Variação (%)", ascending=False).head(20).copy()
+                    _quedas_xl = _chg_xl[_chg_xl["Variação (%)"] < 0].sort_values("Variação (%)").head(20).copy()
+
+                    # Coluna de alerta para variações muito altas (possível erro de unidade no sistema)
+                    _altas_xl["⚠️ Verificar"] = _altas_xl["Variação (%)"].apply(
+                        lambda v: "⚠️ Verificar no sistema" if v > 200 else ""
+                    )
 
                     _obs_calculo = (
                         "Como o cálculo funciona: o preço de cada mês é calculado como valor total ÷ "
@@ -4470,17 +4475,25 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
                         "dos dois meses — se o fornecedor alterar qualquer detalhe do nome na NF, o produto "
                         "aparece como item diferente e não entra nesta análise."
                     )
+                    _obs_alerta = (
+                        "⚠️ Atenção: variações acima de 200% geralmente indicam erro de unidade de medida "
+                        "no sistema (ex: lançamento em caixas quando deveria ser em kg). Verifique esses "
+                        "itens no sistema antes de apresentar ao cliente."
+                    )
                     if not _altas_xl.empty:
                         _altas_xl.to_excel(writer, sheet_name="Maiores Aumentos", index=False)
                         _fmt(writer, "Maiores Aumentos",
                              {c: _FMT_BRL for c in _mes_cols_p} | {"Variação (%)": _FMT_PCT})
+                        _obs_linhas = [
+                            "Top 20 produtos com maior variação positiva de preço entre o primeiro e o "
+                            "último mês do período. Use para renegociar com fornecedores, revisar preço "
+                            "de venda e proteger margem.",
+                            _obs_calculo,
+                        ]
+                        if (_altas_xl["Variação (%)"] > 200).any():
+                            _obs_linhas.append(_obs_alerta)
                         _inserir_cabecalho_aba(writer, "Maiores Aumentos",
-                            "MAIORES AUMENTOS DE PREÇO NO PERÍODO", [
-                                "Top 20 produtos com maior variação positiva de preço entre o primeiro e o "
-                                "último mês do período. Use para renegociar com fornecedores, revisar preço "
-                                "de venda e proteger margem.",
-                                _obs_calculo,
-                            ])
+                            "MAIORES AUMENTOS DE PREÇO NO PERÍODO", _obs_linhas)
 
                     if not _quedas_xl.empty:
                         _quedas_xl.to_excel(writer, sheet_name="Maiores Quedas", index=False)
