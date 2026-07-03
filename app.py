@@ -9308,7 +9308,7 @@ Diferenças maiores devem ser investigadas com o contador.
                 "show_temp_horario", "show_temp_turno",
                 "show_temp_dow", "show_temp_potencial",
                 "show_temp_pagamento", "show_temp_canal",
-                "show_nfe_b2b", "show_canceladas", "show_simples",
+                "show_nfe_b2b", "show_nfe_rejeitadas", "show_canceladas", "show_simples",
             ]}
             _pptx_bytes = exportar_pptx(
                 kpis, df_pares, df_trios,
