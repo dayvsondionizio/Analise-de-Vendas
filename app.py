@@ -6391,7 +6391,7 @@ def main():
         "show_temp_horario": True, "show_temp_turno": True,
         "show_temp_dow": True, "show_temp_potencial": True,
         "show_temp_pagamento": True, "show_temp_canal": True,
-        "show_nfe_b2b": True, "show_canceladas": True, "show_simples": True,
+        "show_nfe_b2b": True, "show_nfe_rejeitadas": True, "show_canceladas": True, "show_simples": True,
         "show_c_evolucao": True, "show_c_fornecedores": True, "show_c_abc": True,
         "show_c_forn_prod": True, "show_c_regime": True,
         "show_c_preco": True, "show_c_outras": True,
@@ -7332,6 +7332,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
 
             st.markdown("**🏢 B2B / Operacional**")
             st.checkbox("NF-e (B2B)",       value=True, key="show_nfe_b2b")
+            st.checkbox("NF-e Rejeitadas", value=st.session_state["show_nfe_rejeitadas"], key="show_nfe_rejeitadas")
             st.checkbox("Canceladas", value=st.session_state["show_canceladas"], key="show_canceladas")
             st.checkbox("Simples Nacional", value=st.session_state["show_simples"], key="show_simples")
 
@@ -7974,7 +7975,7 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
         abas.append("NF-e (B2B)")
     if not df_nfe_outros.empty:
         abas.append("Outras Saídas NF-e")
-    if not df_nfe_rejeitadas.empty:
+    if not df_nfe_rejeitadas.empty and _vis("show_nfe_rejeitadas"):
         abas.append("NF-e Rejeitadas")
     if not df_canceladas.empty and _vis("show_canceladas"):
         abas.append("Canceladas")
@@ -9284,7 +9285,7 @@ Diferenças maiores devem ser investigadas com o contador.
         "show_candidatos", "show_abc", "show_elev", "show_redu",
         "show_simulacoes", "show_metas", "show_temp_horario", "show_temp_turno",
         "show_temp_dow", "show_temp_potencial", "show_temp_pagamento",
-        "show_temp_canal", "show_nfe_b2b", "show_canceladas", "show_simples",
+        "show_temp_canal", "show_nfe_b2b", "show_nfe_rejeitadas", "show_canceladas", "show_simples",
         "show_c_evolucao", "show_c_fornecedores", "show_c_abc",
         "show_c_forn_prod", "show_c_regime", "show_c_preco", "show_c_outras",
     ]
