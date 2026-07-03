@@ -4099,7 +4099,7 @@ def exportar_excel(kpis, df_pares, df_trios,
                 ])
 
         # ── Notas Rejeitadas ──────────────────────────────────────────────
-        if df_nfe_rejeitadas is not None and not (hasattr(df_nfe_rejeitadas, "empty") and df_nfe_rejeitadas.empty):
+        if df_nfe_rejeitadas is not None and not (hasattr(df_nfe_rejeitadas, "empty") and df_nfe_rejeitadas.empty) and _show("show_nfe_rejeitadas"):
             _rej_xl = df_nfe_rejeitadas.copy()
             if "chave" in _rej_xl.columns:
                 _rej_xl = _rej_xl.drop_duplicates("chave")
