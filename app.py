@@ -6815,21 +6815,23 @@ def main():
             # Compras-only: não há XMLs, segue com dataframes de vendas vazios
 
         # ── Validação: apenas uma empresa por análise ─────────
-        if not _only_compras:
-         _df_check_emp = df_nfce if not df_nfce.empty else df_nfe
-         if "emitente" in _df_check_emp.columns:
-            _em_check = _df_check_emp["emitente"].dropna()
-            _em_check = _em_check[_em_check != ""]
-            _em_unicas = sorted(_em_check.unique())
-            if len(_em_unicas) > 1:
-                st.error(
-                    f"⚠️ **{len(_em_unicas)} empresas diferentes** foram detectadas nos arquivos enviados. "
-                    "Cada análise deve conter notas fiscais de **uma única empresa**. "
-                    "Remova os arquivos da empresa incorreta e tente novamente.\n\n"
-                    "**Empresas encontradas:**\n" +
-                    "\n".join(f"- {_e}" for _e in _em_unicas)
-                )
-                return
+        # NFC-e são sempre emitidas pela própria empresa → múltiplos emitentes = erro real.
+        # NF-e podem conter notas de fornecedores (compras recebidas) junto com as de venda;
+        # nesses casos o filtro de NF-e Rejeitadas separa automaticamente — não bloquear.
+        if not _only_compras and not df_nfce.empty:
+            if "emitente" in df_nfce.columns:
+                _em_check = df_nfce["emitente"].dropna()
+                _em_check = _em_check[_em_check != ""]
+                _em_unicas = sorted(_em_check.unique())
+                if len(_em_unicas) > 1:
+                    st.error(
+                        f"⚠️ **{len(_em_unicas)} empresas diferentes** foram detectadas nos arquivos enviados. "
+                        "Cada análise deve conter notas fiscais de **uma única empresa**. "
+                        "Remova os arquivos da empresa incorreta e tente novamente.\n\n"
+                        "**Empresas encontradas:**\n" +
+                        "\n".join(f"- {_e}" for _e in _em_unicas)
+                    )
+                    return
 
         _MESES_PT = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
                      7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
@@ -6841,13 +6843,21 @@ def main():
             # (compras/entradas do fornecedor), não emitidas pela empresa.
             _n_nfe_fornecedor_rej = 0
             df_nfe_rejeitadas = pd.DataFrame()
-            if (not df_nfe.empty and not df_nfce.empty
-                    and "cnpj_emit" in df_nfce.columns
-                    and "cnpj_emit" in df_nfe.columns):
-                _cnpj_nfce = df_nfce["cnpj_emit"].dropna()
-                _cnpj_nfce = _cnpj_nfce[_cnpj_nfce != ""]
-                if not _cnpj_nfce.empty:
-                    _cnpj_proprio = _cnpj_nfce.mode()[0]
+            if not df_nfe.empty and "cnpj_emit" in df_nfe.columns:
+                # Determina CNPJ da empresa: via NFC-e (preferido) ou modo das NF-e
+                _cnpj_proprio = None
+                if not df_nfce.empty and "cnpj_emit" in df_nfce.columns:
+                    _cnpj_src = df_nfce["cnpj_emit"].dropna()
+                    _cnpj_src = _cnpj_src[_cnpj_src != ""]
+                    if not _cnpj_src.empty:
+                        _cnpj_proprio = _cnpj_src.mode()[0]
+                else:
+                    # Sem NFC-e: usa o CNPJ mais frequente nas NF-e como empresa principal
+                    _cnpj_src = df_nfe["cnpj_emit"].dropna()
+                    _cnpj_src = _cnpj_src[_cnpj_src != ""]
+                    if not _cnpj_src.empty:
+                        _cnpj_proprio = _cnpj_src.mode()[0]
+                if _cnpj_proprio:
                     _mask_proprio = df_nfe["cnpj_emit"] == _cnpj_proprio
                     df_nfe_rejeitadas = df_nfe[~_mask_proprio].copy()
                     if not df_nfe_rejeitadas.empty:
