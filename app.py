@@ -3278,7 +3278,8 @@ def calc_combo_pricing(df_pares: pd.DataFrame, df: pd.DataFrame, top_n: int = 10
     if df_pares.empty:
         return pd.DataFrame()
 
-    preco_medio = df.groupby("xProd")["vUnCom"].mean()
+    _agg = df.groupby("xProd")[["vProd", "qCom"]].sum()
+    preco_medio = (_agg["vProd"] / _agg["qCom"]).replace([float("inf"), float("nan")], 0)
     rows = []
     for _, row in df_pares.head(top_n).iterrows():
         a, b = row["Produto A"], row["Produto B"]
@@ -3766,6 +3767,8 @@ def exportar_excel(kpis, df_pares, df_trios,
                 "COMBOS PRECIFICADOS — SUGESTÃO DE PREÇOS", [
                     "Sugestão de preço para os combos naturais encontrados na análise, com simulação de "
                     "desconto de 5% e 10%. Use como base para criar promoções formais sem perder margem.",
+                    "⚠️ Preços baseados na média ponderada do período analisado (receita total ÷ quantidade "
+                    "total, conforme registrado nas notas fiscais). Podem diferir do preço atual de tabela.",
                 ])
 
         if not df_metas.empty and _show("show_metas"):
@@ -5760,6 +5763,9 @@ def exportar_pptx(kpis, df_pares, df_trios,
         add_text(sl, "O combo com 5% de desconto mantém margem saudável e aumenta percepção de valor para o cliente",
                  Inches(0.5), Inches(6.45), Inches(12.3), Inches(0.55),
                  font_size=15, color=RGBColor(0x06, 0x5F, 0x46))
+        add_text(sl, "⚠️ Preços baseados na média ponderada do período (receita ÷ quantidade nas notas fiscais). Podem diferir do preço atual de tabela.",
+                 Inches(0.3), Inches(7.15), Inches(12.7), Inches(0.35),
+                 font_size=11, color=RGBColor(0x6B, 0x72, 0x80))
 
     #  SLIDE 14: METAS
     if not df_metas.empty:
