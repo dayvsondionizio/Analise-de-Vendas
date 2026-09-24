@@ -7484,12 +7484,11 @@ def gerar_pdf_narrativo(
                  r["Nº Pedidos"], r["% do Total"]) for _, r in linhas.iterrows()]
         if not mais.empty:
             rows.append(("10 ou mais", mais["Nº Pedidos"].sum(), mais["% do Total"].sum()))
-        pmax = max((r[2] for r in rows), default=1) or 1
         dados = [[_PDFLabel("Itens por pedido"), _PDFLabel("Nº de pedidos", align="right"),
                   _PDFLabel("% do total", align="right"), _PDFLabel("")]]
         for rot, n, p in rows:
             dados.append([_RLParagraph(rot, S["td"]), _RLParagraph(fmt_num(n), S["td_r"]),
-                          _RLParagraph(fmt_pct(p), S["td_r"]), _PDFMiniBar(p / pmax)])
+                          _RLParagraph(fmt_pct(p), S["td_r"]), _PDFMiniBar(p / 100)])
         t_cz = _RLTable(dados, colWidths=[_PDF_CONTENT_W * w for w in (0.24, 0.18, 0.14, 0.44)])
         t_cz.setStyle(_RLTableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
@@ -7601,7 +7600,6 @@ def gerar_pdf_narrativo(
     if _show("show_temp_horario") and df_all_dedup is not None and not df_all_dedup.empty:
         _por_hora, _por_turno = calc_vendas_horario(df_all_dedup)
         if _por_turno is not None and not _por_turno.empty:
-            tmax = _por_turno["pct"].max() or 1
             dados = [[_PDFLabel("Turno"), _PDFLabel("Transações", align="right"),
                       _PDFLabel("Receita (R$)", align="right"), _PDFLabel("% do total", align="right"),
                       _PDFLabel("Ticket médio", align="right"), _PDFLabel("")]]
@@ -7611,7 +7609,7 @@ def gerar_pdf_narrativo(
                               _RLParagraph(brl(r["receita"]), S["td_r"]),
                               _RLParagraph(fmt_pct(r["pct"]), S["td_r"]),
                               _RLParagraph(brl(r["ticket_medio"]), S["td_r"]),
-                              _PDFMiniBar(r["pct"] / tmax)])
+                              _PDFMiniBar(r["pct"] / 100)])
             t_t = _RLTable(dados, colWidths=[_PDF_CONTENT_W * w for w in (0.14, 0.14, 0.18, 0.12, 0.14, 0.28)])
             t_t.setStyle(_RLTableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
