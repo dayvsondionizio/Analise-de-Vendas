@@ -3396,7 +3396,18 @@ def fmt_num(v: float) -> str:
     return s
 
 
-# 
+def fmt_pct(v: float, casas: int = 1) -> str:
+    """Formato brasileiro de percentual: 28,7%"""
+    try:
+        v = float(v)
+    except Exception:
+        v = 0.0
+    s = f"{v:,.{casas}f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{s}%"
+
+
+#
 # GRÁFICOS
 # 
 def fig_categorias(df_cat: pd.DataFrame):
@@ -6381,6 +6392,1414 @@ def exportar_pptx(kpis, df_pares, df_trios,
 
     buf = io.BytesIO()
     prs.save(buf)
+    return buf.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  RELATÓRIO ESTRATÉGICO EM PDF — narrativo, estilo consultoria
+#  (substitui a antiga rasterização do PPTX em "Baixar PDF")
+#
+#  Estrutura do bloco:
+#    1) TEXTOS  — funções template-based (f-strings, sem IA) que devolvem
+#                  str/list[str] a partir de números já calculados.
+#    2) LAYOUT  — paleta, estilos, Flowables utilitários (reportlab).
+#    3) BUILD   — gerar_pdf_narrativo(): monta o documento completo.
+#
+#  Mantidas separadas de propósito: texto e layout mudam por razões
+#  diferentes e cada um pode ser revisado isoladamente.
+# ══════════════════════════════════════════════════════════════════════
+
+from reportlab.lib import colors as _rl_colors
+from reportlab.lib.pagesizes import letter as _RL_LETTER
+from reportlab.lib.units import inch as _rl_inch
+from reportlab.lib.enums import TA_RIGHT as _RL_TA_RIGHT, TA_JUSTIFY as _RL_TA_JUSTIFY
+from reportlab.lib.styles import ParagraphStyle as _RLParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate as _RLSimpleDocTemplate, Paragraph as _RLParagraph,
+    Table as _RLTable, TableStyle as _RLTableStyle, Spacer as _RLSpacer,
+    PageBreak as _RLPageBreak, HRFlowable as _RLHRFlowable, Flowable as _RLFlowable,
+)
+
+_MESES_PT_PDF = {1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio",
+                  6: "Junho", 7: "Julho", 8: "Agosto", 9: "Setembro",
+                  10: "Outubro", 11: "Novembro", 12: "Dezembro"}
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  1) TEXTOS — TEMPLATE-BASED (f-strings com números reais, sem IA)
+# ══════════════════════════════════════════════════════════════════════
+
+def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.DataFrame,
+                              n_meses: int) -> list:
+    """Bullets do Sumário Executivo — um por condição que se aplica aos dados reais."""
+    bullets = []
+    if df_abc is None or df_abc.empty:
+        return bullets
+
+    n_total = len(df_abc)
+    df_a = df_abc[df_abc["Curva"] == "A"]
+    n_a = len(df_a)
+    pct_portfolio_a = (n_a / n_total * 100) if n_total else 0.0
+    bullets.append(
+        f"<b>Forte concentração da receita.</b> Apenas {n_a} produtos "
+        f"({fmt_pct(pct_portfolio_a)} do portfólio) respondem por 80% do faturamento. "
+        f"Esses itens são o núcleo do negócio — ruptura neles derruba o caixa do mês."
+    )
+
+    top1 = df_abc.iloc[0]
+    bullets.append(
+        f"<b>Produto líder isolado.</b> {top1['Produto']} sozinho representa "
+        f"{fmt_pct(top1['% Receita'])} da receita do período ({brl(top1['Receita (R$)'])}). "
+        f"Qualquer alteração de preço, ficha técnica ou disponibilidade deste item tem "
+        f"impacto imediato no resultado."
+    )
+
+    df_c = df_abc[df_abc["Curva"] == "C"]
+    n_c = len(df_c)
+    pct_c = df_c["% Receita"].sum() if not df_c.empty else 0.0
+    bullets.append(
+        f"<b>Cauda longa para revisar.</b> {n_c} produtos de Curva C juntos somam apenas "
+        f"{fmt_pct(pct_c)} da receita. Há espaço para reduzir SKUs, liberar capital de giro "
+        f"e simplificar a operação."
+    )
+
+    if df_pares is not None and not df_pares.empty:
+        par = df_pares.iloc[0]
+        bullets.append(
+            f"<b>Padrões de compra claros.</b> Existem combinações de produtos que se repetem "
+            f"em centenas de pedidos (ex.: {par['Produto A']} + {par['Produto B']} — "
+            f"{fmt_num(par['Frequência'])} pedidos). Isso permite ações simples de cross-sell "
+            f"e combos, com ganho rápido de ticket médio."
+        )
+
+    if n_meses >= 2:
+        bullets.append(
+            "<b>Mês a mês há movimentação.</b> Comparando os dois meses do período, há produtos "
+            "subindo e descendo de curva. Acompanhar essa migração é o que separa decisão "
+            "baseada em dado de decisão baseada em achismo."
+        )
+
+    return bullets
+
+
+def _pdf_txt_curva_disclaimer() -> str:
+    return (
+        "<i>Atenção sobre os números: o ranking foi montado com base na receita bruta, sem "
+        "abater devoluções de clientes. Um produto com muitas devoluções pode aparecer com "
+        "receita maior do que a real — para receita líquida, consulte a aba ‘Outras Saídas "
+        "NF-e’ da planilha.</i>"
+    )
+
+
+def _pdf_txt_comparativo_explicacao() -> str:
+    return (
+        "A migração de curva mês a mês é um termômetro rápido de tendência: um produto que sobe "
+        "de C para B (ou de B para A) está ganhando espaço na preferência do cliente — vale "
+        "reforçar estoque e destaque. Um produto que cai de curva pode indicar concorrência nova, "
+        "sazonalidade ou perda de qualidade percebida — vale investigar antes de cortar."
+    )
+
+
+def _pdf_txt_plano_acao_a(top3_a: str, top5_a: str) -> list:
+    return [
+        f"<b>Estoque mínimo blindado.</b> Defina ponto de pedido para cada item da Curva A "
+        f"(ex.: {top3_a}). Acompanhe diariamente — ruptura nesses itens custa caro.",
+        "<b>Ficha técnica revisada.</b> Reavalie custo e margem dos itens de maior receita a "
+        "cada 60–90 dias — pequenas variações de insumo têm grande impacto no resultado desses "
+        "produtos.",
+        f"<b>Plano B se faltar.</b> Tenha rota alternativa de fornecedor ou produção emergencial "
+        f"para os 5 itens de maior receita ({top5_a}).",
+        "<b>Vitrine e destaque físico.</b> Os produtos da Curva A devem estar sempre visíveis e "
+        "de fácil acesso — são eles que sustentam o caixa do mês.",
+        "<b>Meta de disponibilidade.</b> Trate ruptura de Curva A como incidente crítico: "
+        "registre, meça a frequência e corrija a causa raiz (previsão, fornecedor, produção).",
+        "<b>Acompanhamento semanal.</b> Revise a Curva A semanalmente nas primeiras semanas de "
+        "implantação do processo; depois, mensalmente.",
+    ]
+
+
+def _pdf_txt_plano_acao_b(par1: str, freq1, par2: str, freq2) -> list:
+    return [
+        f"<b>Cross-sell usando os pares reais.</b> A planilha mostra combinações naturais — por "
+        f"exemplo {par1} ({fmt_num(freq1)} pedidos juntos), {par2} ({fmt_num(freq2)} pedidos). "
+        f"Treine o caixa para oferecer o complementar.",
+        "<b>Candidatos a subir de curva.</b> Produtos B com tendência de crescimento merecem "
+        "investimento em destaque e divulgação para virarem Curva A.",
+        "<b>Padronize combos.</b> Transforme os pares mais frequentes em combos formais com "
+        "preço fechado — facilita a decisão do cliente e eleva o ticket médio.",
+        "<b>Revisão trimestral.</b> A Curva B muda mais que a A — revise o comportamento desses "
+        "produtos a cada 3 meses.",
+        "<b>Evite excesso de estoque.</b> Produtos B não exigem o mesmo rigor de reposição da "
+        "Curva A, mas o excesso empata capital de giro.",
+    ]
+
+
+def _pdf_txt_plano_acao_c() -> list:
+    return [
+        "<b>Liste candidatos a descontinuar.</b> Produtos C com baixíssima frequência e sem "
+        "função estratégica (ex.: item de vitrine, encomenda) são candidatos naturais a sair do "
+        "cardápio.",
+        "<b>Reduza variedade sem perder o cliente.</b> Antes de cortar, confirme que o produto "
+        "não é a única razão de compra de algum cliente fiel.",
+        "<b>Libere capital de giro.</b> Cada SKU de Curva C mantido em estoque tem custo de "
+        "armazenagem e capital parado — meça esse custo.",
+        "<b>Simplifique a operação.</b> Menos itens de baixo giro significa cardápio mais "
+        "enxuto, produção mais previsível e menos desperdício.",
+        "<b>Reavalie a cada 6 meses.</b> Um produto C hoje pode virar tendência amanhã — não "
+        "corte permanentemente sem reavaliação periódica.",
+    ]
+
+
+def _pdf_txt_recomendacoes_cruzadas(ticket_medio: float, itens_por_pedido: float, n_pedidos: int) -> list:
+    return [
+        f"<b>Ticket médio × Cross-sell.</b> Com ticket médio em {brl(ticket_medio)} e "
+        f"{f'{itens_por_pedido:.2f}'.replace('.', ',')} itens por pedido, cada item adicional oferecido com sucesso "
+        f"eleva o ticket em aproximadamente R$ 8 a R$ 10. Em {fmt_num(n_pedidos)} pedidos/mês, "
+        f"o impacto é muito relevante.",
+        "<b>Curva ABC × Plano de compras.</b> Os produtos de Curva A de vendas normalmente "
+        "exigem atenção redobrada na compra — negocie volume e prazo com o fornecedor desses "
+        "insumos para evitar ruptura.",
+        "<b>Combos × Ticket médio.</b> Os combos precificados nesta análise usam os pares mais "
+        "frequentes da cesta de compras — ativar 2 a 3 combos fixos costuma elevar o ticket "
+        "médio em poucas semanas.",
+        "<b>Curva C × Fluxo de caixa.</b> Reduzir a cauda longa libera capital de giro que pode "
+        "financiar melhores prazos de pagamento com os fornecedores da Curva A de compras.",
+    ]
+
+
+def _pdf_txt_proximos_passos(n_produtos_a: int) -> list:
+    return [
+        f"Listar os {n_produtos_a} produtos da Curva A e definir ponto de pedido para cada um.",
+        "Refazer a ficha técnica e o custo dos 10 produtos de maior receita.",
+        "Criar 2 combos formais a partir dos pares de produtos mais frequentes.",
+        "Selecionar candidatos a descontinuar entre os produtos de Curva C.",
+        "Implantar rotina mensal de 30 minutos para revisão da Curva ABC.",
+        "Agendar reunião com o escritório no fechamento do próximo mês para discutir os "
+        "resultados deste relatório.",
+        "Consultar a aba ‘Outras Saídas NF-e’ antes da próxima Curva ABC, para "
+        "trabalhar com receita líquida (descontando devoluções).",
+    ]
+
+
+def _pdf_txt_cesta_callout(pct_1item: float, pct_10mais: float) -> str:
+    return (
+        f"{fmt_pct(pct_1item)} dos pedidos têm apenas 1 item — cada sugestão de complemento "
+        f"aceita vira ticket adicional. Já {fmt_pct(pct_10mais)} dos pedidos têm 10+ itens "
+        f"(cliente que enche a sacola sozinho)."
+    )
+
+
+def _pdf_txt_ticket_drivers_caption(tipo: str) -> str:
+    if tipo == "elevam":
+        return (
+            "<b>Como usar:</b> estes produtos aparecem em pedidos completos. Deixe-os visíveis, "
+            "sugira em combos e treine o atendimento para oferecê-los."
+        )
+    return (
+        "<b>Como usar:</b> são compras avulsas. Posicione produtos complementares por perto e "
+        "crie ofertas do tipo ‘leve junto’ para aumentar o valor do pedido."
+    )
+
+
+def _pdf_txt_combos_intro() -> str:
+    return (
+        "Combinações que os clientes já compram juntos com maior frequência, com sugestão de "
+        "preço com 5% e 10% de desconto sobre a soma dos individuais. Base pronta para virar "
+        "promoção formal sem improviso."
+    )
+
+
+def _pdf_txt_compras_panorama_intro(pct_comerc: float, outras: float) -> str:
+    return (
+        f"Outras Entradas: {brl(outras)} · Comercialização representa {fmt_pct(pct_comerc)} do "
+        f"total de entradas."
+    )
+
+
+def _pdf_txt_plano_acao_compras(top_produto: str, top_valor: float,
+                                 fornecedor_top: str, pct_forn: float,
+                                 produto_alta: str = "", pct_alta: float = 0.0) -> list:
+    bullets = [
+        f"<b>Negocie a Curva A de compras.</b> Os produtos de maior gasto (ex.: {top_produto} — "
+        f"{brl(top_valor)}) são onde 1% de desconto vira dinheiro de verdade. Priorize esses "
+        f"itens em qualquer negociação de preço ou prazo.",
+        f"<b>Reduza dependência de fornecedor único.</b> {fornecedor_top} concentra "
+        f"{fmt_pct(pct_forn)} das compras do período. Mantenha pelo menos um fornecedor "
+        f"alternativo cadastrado para os itens críticos.",
+        "<b>Padronize o pedido de compra.</b> Itens de Curva A e B de compras devem ter "
+        "quantidade e periodicidade de pedido definidas — evita compra emergencial (mais cara).",
+        "<b>Revise a Curva C de compras.</b> Insumos de baixo volume e muitos fornecedores "
+        "distintos indicam oportunidade de consolidação — menos fornecedores, mais poder de "
+        "negociação.",
+    ]
+    if produto_alta:
+        bullets.append(
+            f"<b>Reaja aos aumentos rapidamente.</b> Itens como {produto_alta} subiram "
+            f"{fmt_pct(pct_alta)} no período. Repasse ao preço de venda ou negocie volume antes "
+            f"que o aumento corroa a margem."
+        )
+    bullets.append(
+        "<b>Cruze com a Curva A de vendas.</b> Garanta que os insumos por trás dos produtos "
+        "mais vendidos tenham a maior prioridade de negociação e de estoque de segurança "
+        "nesta lista."
+    )
+    return bullets
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  2) LAYOUT — identidade "Contador de Padarias" (reportlab/Platypus)
+#     Newsreader (serifa, títulos e números) + IBM Plex Sans (texto e
+#     tabelas), dourado sobre off-white, fios finos. Fontes em ./fonts
+#     (licença OFL); sem elas, cai para Times/Helvetica.
+# ══════════════════════════════════════════════════════════════════════
+import re as _re_pdf
+from reportlab.pdfbase import pdfmetrics as _rl_pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont as _RLTTFont
+from reportlab.lib.enums import TA_CENTER as _RL_TA_CENTER
+from reportlab.platypus import (
+    CondPageBreak as _RLCondPageBreak, KeepTogether as _RLKeepTogether,
+)
+
+_PDF_APP_DIR = Path(__file__).resolve().parent
+_PDF_LOGO_ESCURO = _PDF_APP_DIR / "LOGO S FUNDO 2.png"
+
+
+def _pdf_register_fonts() -> dict:
+    arquivos = {
+        "CP-Serif":     "NewsreaderDisplay-Regular.ttf",
+        "CP-Serif-I":   "NewsreaderDisplay-Italic.ttf",
+        "CP-SerifMd":   "Newsreader-Medium.ttf",
+        "CP-SerifMd-I": "Newsreader-MediumItalic.ttf",
+        "CP-Sans":      "IBMPlexSans-Regular.ttf",
+        "CP-Sans-Md":   "IBMPlexSans-Medium.ttf",
+        "CP-Sans-B":    "IBMPlexSans-SemiBold.ttf",
+        "CP-Sans-I":    "IBMPlexSans-Italic.ttf",
+    }
+    try:
+        ja = set(_rl_pdfmetrics.getRegisteredFontNames())
+        for nome, arq in arquivos.items():
+            if nome not in ja:
+                _rl_pdfmetrics.registerFont(_RLTTFont(nome, str(_PDF_APP_DIR / "fonts" / arq)))
+        _rl_pdfmetrics.registerFontFamily("CP-Sans", normal="CP-Sans", bold="CP-Sans-B",
+                                          italic="CP-Sans-I", boldItalic="CP-Sans-B")
+        _rl_pdfmetrics.registerFontFamily("CP-Serif", normal="CP-Serif", bold="CP-SerifMd",
+                                          italic="CP-Serif-I", boldItalic="CP-SerifMd-I")
+        return {"serif": "CP-Serif", "serif_i": "CP-Serif-I", "serif_md": "CP-SerifMd",
+                "serif_md_i": "CP-SerifMd-I", "sans": "CP-Sans", "sans_md": "CP-Sans-Md",
+                "sans_b": "CP-Sans-B", "sans_i": "CP-Sans-I"}
+    except Exception:
+        return {"serif": "Times-Roman", "serif_i": "Times-Italic", "serif_md": "Times-Bold",
+                "serif_md_i": "Times-BoldItalic", "sans": "Helvetica", "sans_md": "Helvetica",
+                "sans_b": "Helvetica-Bold", "sans_i": "Helvetica-Oblique"}
+
+
+_PDF_F = _pdf_register_fonts()
+
+_PDF_HEX = {
+    "dark": "#17150F", "ink": "#2B2822", "text2": "#5B574E", "muted": "#7A7468",
+    "faint": "#A29C92", "gold": "#C9A227", "gold_txt": "#A8861A", "gold_b": "#E3D6A6",
+    "gold_c": "#F0EBE0", "div": "#E5E0D6", "div2": "#EFEBE3", "border": "#DDD6C6",
+    "beige": "#F5F1E7", "white": "#FFFFFF", "paper": "#FCFBF8",
+}
+_PDF_C = {k: _rl_colors.HexColor(v) for k, v in _PDF_HEX.items()}
+
+_PDF_PAGE_W, _PDF_PAGE_H = _RL_LETTER
+_PDF_MARGIN = 0.8 * _rl_inch
+_PDF_CONTENT_W = _PDF_PAGE_W - 2 * _PDF_MARGIN - 12  # frame do Platypus tem 6pt de padding por lado
+_PDF_BAND_H = 1.25 * _rl_inch
+
+
+def _pdf_styles():
+    F, H = _PDF_F, _PDF_HEX
+    C = _PDF_C
+    S = {}
+    S["cover_title"] = _RLParagraphStyle(
+        "cp_cover_title", fontName=F["serif"], fontSize=42, leading=44, textColor=C["dark"])
+    S["cover_desc"] = _RLParagraphStyle(
+        "cp_cover_desc", fontName=F["sans"], fontSize=10.2, leading=16, textColor=C["text2"],
+        rightIndent=1.4 * _rl_inch)
+    S["meta_label"] = _RLParagraphStyle(
+        "cp_meta_label", fontName=F["sans"], fontSize=8.8, leading=12, textColor=C["muted"])
+    S["meta_value"] = _RLParagraphStyle(
+        "cp_meta_value", fontName=F["sans_b"], fontSize=8.9, leading=12, textColor=C["dark"])
+    S["intro"] = _RLParagraphStyle(
+        "cp_intro", fontName=F["sans"], fontSize=9.4, leading=15, textColor=C["text2"],
+        spaceAfter=8)
+    S["body"] = _RLParagraphStyle(
+        "cp_body", fontName=F["sans"], fontSize=9.1, leading=14.2, textColor=C["ink"],
+        spaceAfter=6)
+    S["bullet"] = _RLParagraphStyle(
+        "cp_bullet", fontName=F["sans"], fontSize=9.0, leading=14.2, textColor=C["ink"],
+        leftIndent=14, bulletIndent=0, bulletFontName=F["sans_b"], bulletFontSize=10,
+        bulletColor=C["gold"], spaceAfter=9)
+    S["h2"] = _RLParagraphStyle(
+        "cp_h2", fontName=F["serif_md"], fontSize=12.6, leading=16, textColor=C["dark"],
+        spaceBefore=12, spaceAfter=7)
+    S["h3"] = _RLParagraphStyle(
+        "cp_h3", fontName=F["serif_md"], fontSize=11.4, leading=14.5, textColor=C["dark"])
+    S["col_text"] = _RLParagraphStyle(
+        "cp_col_text", fontName=F["sans"], fontSize=8.5, leading=13, textColor=C["text2"])
+    S["caption"] = _RLParagraphStyle(
+        "cp_caption", fontName=F["sans"], fontSize=8.1, leading=12.4, textColor=C["muted"],
+        spaceBefore=6)
+    S["small_i"] = _RLParagraphStyle(
+        "cp_small_i", fontName=F["sans_i"], fontSize=7.8, leading=12, textColor=C["faint"],
+        spaceBefore=4)
+    S["td"] = _RLParagraphStyle(
+        "cp_td", fontName=F["sans"], fontSize=8.1, leading=10.6, textColor=C["ink"])
+    S["td_r"] = _RLParagraphStyle(
+        "cp_td_r", parent=S["td"], alignment=_RL_TA_RIGHT)
+    S["td_c"] = _RLParagraphStyle(
+        "cp_td_c", parent=S["td"], alignment=_RL_TA_CENTER)
+    S["callout_body"] = _RLParagraphStyle(
+        "cp_callout_body", fontName=F["sans"], fontSize=9.4, leading=14.6,
+        textColor=_rl_colors.HexColor("#F3EFE6"))
+    S["step_num"] = _RLParagraphStyle(
+        "cp_step_num", fontName=F["serif_md_i"], fontSize=15, leading=16, textColor=C["gold_txt"])
+    S["step_txt"] = _RLParagraphStyle(
+        "cp_step_txt", fontName=F["sans"], fontSize=9.1, leading=13.8, textColor=C["ink"])
+    return S
+
+
+def _pdf_font(txt: str, name: str = None, color: str = None) -> str:
+    attrs = []
+    if name:
+        attrs.append(f'name="{name}"')
+    if color:
+        attrs.append(f'color="{color}"')
+    return f"<font {' '.join(attrs)}>{txt}</font>"
+
+
+class _PDFLabel(_RLFlowable):
+    """Rótulo curto em caixa-alta com espaçamento entre letras (kicker, cabeçalho)."""
+
+    def __init__(self, text, size=6.9, color=None, font=None, char_space=0.9,
+                 align="left", space_after=0):
+        super().__init__()
+        self.text = str(text).upper()
+        self.size = size
+        self.color = color or _PDF_C["muted"]
+        self.font = font or _PDF_F["sans_md"]
+        self.cs = char_space
+        self.align = align
+        self.space_after = space_after
+        self._w = 0
+
+    def _text_w(self):
+        return (_rl_pdfmetrics.stringWidth(self.text, self.font, self.size)
+                + self.cs * max(len(self.text) - 1, 0))
+
+    def wrap(self, availWidth, availHeight):
+        self._w = availWidth
+        return availWidth, self.size * 1.3 + self.space_after
+
+    def draw(self):
+        c = self.canv
+        c.setFillColor(self.color)
+        c.setFont(self.font, self.size)
+        tw = self._text_w()
+        x = 0 if self.align == "left" else (self._w - tw if self.align == "right" else (self._w - tw) / 2)
+        c.drawString(x, self.space_after + self.size * 0.3, self.text, charSpace=self.cs)
+
+
+class _PDFGoldTick(_RLFlowable):
+    def __init__(self, width=0.55 * _rl_inch, thickness=2.4):
+        super().__init__()
+        self.w, self.t = width, thickness
+
+    def wrap(self, aw, ah):
+        return self.w, self.t
+
+    def draw(self):
+        self.canv.setFillColor(_PDF_C["gold"])
+        self.canv.rect(0, 0, self.w, self.t, stroke=0, fill=1)
+
+
+class _PDFKPIRow(_RLFlowable):
+    """Faixa de KPIs: caixas brancas com borda fina, rótulo espaçado, número dourado itálico."""
+
+    def __init__(self, items, width=None, height=0.86 * _rl_inch, value_size=19):
+        super().__init__()
+        self.items = items
+        self.width = width or _PDF_CONTENT_W
+        self.height = height
+        self.value_size = value_size
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        c = self.canv
+        n = max(len(self.items), 1)
+        cw = self.width / n
+        c.setStrokeColor(_PDF_C["border"])
+        c.setLineWidth(0.7)
+        c.setFillColor(_PDF_C["white"])
+        c.rect(0, 0, self.width, self.height, stroke=1, fill=1)
+        for i in range(1, n):
+            c.line(i * cw, 0, i * cw, self.height)
+        for i, (label, value) in enumerate(self.items):
+            x = i * cw + 14
+            lbl = str(label).upper()
+            c.setFillColor(_PDF_C["muted"])
+            c.setFont(_PDF_F["sans_md"], 6.5)
+            c.drawString(x, self.height - 21, lbl, charSpace=1.0)
+            size = self.value_size
+            val = str(value)
+            while size > 11 and _rl_pdfmetrics.stringWidth(val, _PDF_F["serif_md_i"], size) > cw - 26:
+                size -= 0.5
+            c.setFillColor(_PDF_C["gold_txt"])
+            c.setFont(_PDF_F["serif_md_i"], size)
+            c.drawString(x, 17, val)
+
+
+class _PDFCallout(_RLFlowable):
+    """Caixa escura de destaque (título espaçado opcional + parágrafo claro)."""
+
+    def __init__(self, title, body_text, width=None):
+        super().__init__()
+        self.width = width or _PDF_CONTENT_W
+        self.title = str(title or "").upper()
+        self.p_body = _RLParagraph(body_text, _pdf_styles()["callout_body"])
+        self.pad_x, self.pad_y = 20, 18
+        self.height = 0
+
+    def wrap(self, aw, ah):
+        _, hb = self.p_body.wrap(self.width - 2 * self.pad_x, ah)
+        self.height = 2 * self.pad_y + hb + (16 if self.title else 0)
+        return self.width, self.height
+
+    def draw(self):
+        c = self.canv
+        c.setFillColor(_PDF_C["dark"])
+        c.rect(0, 0, self.width, self.height, stroke=0, fill=1)
+        y = self.height - self.pad_y
+        if self.title:
+            c.setFillColor(_PDF_C["faint"])
+            c.setFont(_PDF_F["sans_md"], 6.8)
+            c.drawString(self.pad_x, y - 7, self.title, charSpace=1.2)
+            y -= 16
+        _, hb = self.p_body.wrap(self.width - 2 * self.pad_x, self.height)
+        self.p_body.drawOn(c, self.pad_x, y - hb)
+
+
+class _PDFSectionHeader(_RLFlowable):
+    """Numeral dourado em itálico + título serifado na mesma linha de base."""
+
+    def __init__(self, num, title):
+        super().__init__()
+        self.num, self.title = str(num), title
+        self.height = 34
+
+    def wrap(self, aw, ah):
+        self._w = aw
+        return aw, self.height
+
+    def draw(self):
+        c = self.canv
+        c.setFillColor(_PDF_C["gold"])
+        c.setFont(_PDF_F["serif_i"], 31)
+        c.drawString(0, 6, self.num)
+        nw = _rl_pdfmetrics.stringWidth(self.num, _PDF_F["serif_i"], 31)
+        size = 18.5
+        while size > 12 and _rl_pdfmetrics.stringWidth(self.title, _PDF_F["serif_md"], size) > self._w - nw - 14:
+            size -= 0.5
+        c.setFillColor(_PDF_C["dark"])
+        c.setFont(_PDF_F["serif_md"], size)
+        c.drawString(nw + 13, 8, self.title)
+
+
+class _PDFBadge(_RLFlowable):
+    """Selo circular com a letra da curva (A dourado, B dourado claro, C cinza)."""
+
+    _CORES = {"A": ("gold", "gold_txt"), "B": ("gold_b", "gold_txt"), "C": ("border", "faint")}
+
+    def __init__(self, letra, r=11):
+        super().__init__()
+        self.letra, self.r = letra, r
+
+    def wrap(self, aw, ah):
+        return 2 * self.r + 2, 2 * self.r + 2
+
+    def draw(self):
+        c = self.canv
+        borda, txt = self._CORES.get(self.letra, ("border", "faint"))
+        c.setStrokeColor(_PDF_C[borda])
+        c.setLineWidth(0.9)
+        c.setFillColor(_PDF_C["white"])
+        c.circle(self.r + 1, self.r + 1, self.r, stroke=1, fill=1)
+        c.setFillColor(_PDF_C[txt])
+        c.setFont(_PDF_F["serif_i"], self.r * 1.25)
+        c.drawCentredString(self.r + 1, self.r + 1 - self.r * 0.42, self.letra)
+
+
+class _PDFDistBars(_RLFlowable):
+    """Duas barras empilhadas A/B/C: por nº de produtos e por receita."""
+
+    def __init__(self, pct_prod, pct_rec, rotulo_rec="Distribuição por receita (R$)",
+                 width=None):
+        super().__init__()
+        self.pp, self.pr = pct_prod, pct_rec
+        self.rotulo_rec = rotulo_rec
+        self.width = width or _PDF_CONTENT_W
+        self.height = 34
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def _bar(self, x, w, pcts, rotulo):
+        c = self.canv
+        c.setFillColor(_PDF_C["muted"])
+        c.setFont(_PDF_F["sans_md"], 6.3)
+        c.drawString(x, 24, rotulo.upper(), charSpace=1.0)
+        cores = [_PDF_C["gold"], _PDF_C["gold_b"], _PDF_C["gold_c"]]
+        total = sum(pcts) or 1
+        cx = x
+        for p, cor in zip(pcts, cores):
+            seg = w * p / total
+            c.setFillColor(cor)
+            c.rect(cx, 0, seg, 13, stroke=0, fill=1)
+            cx += seg
+
+    def draw(self):
+        gap = 0.35 * _rl_inch
+        bw = (self.width - gap) / 2
+        self._bar(0, bw, self.pp, "Distribuição por nº de produtos")
+        self._bar(bw + gap, bw, self.pr, self.rotulo_rec)
+
+
+class _PDFMiniBar(_RLFlowable):
+    def __init__(self, frac):
+        super().__init__()
+        self.frac = max(0.0, min(1.0, float(frac or 0)))
+
+    def wrap(self, aw, ah):
+        self._w = aw
+        return aw, 8
+
+    def draw(self):
+        c = self.canv
+        c.setFillColor(_PDF_C["gold_c"])
+        c.rect(0, 1.5, self._w, 5, stroke=0, fill=1)
+        c.setFillColor(_PDF_C["gold"])
+        c.rect(0, 1.5, self._w * self.frac, 5, stroke=0, fill=1)
+
+
+def _pdf_section(num, title, intro=None, first=False):
+    """Abertura de seção: fio cinza, numeral + título e parágrafo de abertura."""
+    S = _pdf_styles()
+    out = []
+    if not first:
+        out.append(_RLHRFlowable(width="100%", thickness=0.6, color=_PDF_C["div"],
+                                 spaceBefore=4, spaceAfter=22))
+    out.append(_PDFSectionHeader(num, title))
+    out.append(_RLSpacer(1, 8))
+    if intro:
+        out.append(_RLParagraph(intro, S["intro"]))
+    out.append(_RLSpacer(1, 4))
+    return out
+
+
+def _pdf_bullets(items):
+    S = _pdf_styles()
+    return [_RLParagraph(it.replace("R$ ", "R$&nbsp;"), S["bullet"], bulletText="›") for it in items]
+
+
+def _pdf_table(df, col_widths, right=(), center=(), total_row=False, head_lines=None, pad=5.0):
+    """DataFrame -> tabela no padrão do relatório (sem fundo no cabeçalho, fios finos).
+
+    Valores já chegam formatados (str; podem conter marcação <font>/<b>)."""
+    S = _pdf_styles()
+    if df is None or len(df) == 0:
+        return _RLParagraph("Sem dados suficientes para esta tabela no período.", S["small_i"])
+    cols = list(df.columns)
+    head_lines = head_lines or {}
+
+    def _al(c):
+        return "right" if c in right else ("center" if c in center else "left")
+
+    header = [_PDFLabel(head_lines.get(c, c), align=_al(c)) for c in cols]
+    data = [header]
+    for _, row in df.iterrows():
+        linha = []
+        for c in cols:
+            v = row[c]
+            st_ = S["td_r"] if c in right else (S["td_c"] if c in center else S["td"])
+            linha.append(_RLParagraph("" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v), st_))
+        data.append(linha)
+    widths = [_PDF_CONTENT_W * w for w in col_widths]
+    tbl = _RLTable(data, colWidths=widths, repeatRows=1)
+    estilo = [
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.0, _PDF_C["dark"]),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.45, _PDF_C["div2"]),
+    ]
+    if total_row:
+        estilo += [("BACKGROUND", (0, -1), (-1, -1), _PDF_C["beige"]),
+                   ("LINEBELOW", (0, -1), (-1, -1), 0, _PDF_C["beige"])]
+    tbl.setStyle(_RLTableStyle(estilo))
+    return tbl
+
+
+def _pdf_curva_tag(c) -> str:
+    c = str(c or "").strip().upper()
+    if c == "A":
+        return _pdf_font("A", _PDF_F["sans_b"], _PDF_HEX["gold_txt"])
+    if c == "B":
+        return _pdf_font("B", _PDF_F["sans_b"], _PDF_HEX["text2"])
+    if c == "C":
+        return _pdf_font("C", color=_PDF_HEX["faint"])
+    return _pdf_font("—", color=_PDF_HEX["faint"])
+
+
+def _pdf_muted(txt) -> str:
+    return _pdf_font(txt, color=_PDF_HEX["muted"])
+
+
+def _pdf_gold(txt, bold=False) -> str:
+    return _pdf_font(txt, _PDF_F["sans_b"] if bold else None, _PDF_HEX["gold_txt"])
+
+
+def _pdf_bold(txt) -> str:
+    return _pdf_font(txt, _PDF_F["sans_b"], _PDF_HEX["dark"])
+
+
+def _pdf_var_preco(v) -> str:
+    """'▲ +2.5%' / '▼ -26.5%' / '—'  ->  '+2,5%' dourado · '−26,5%' cinza · '—'."""
+    m = _re_pdf.search(r"(-?\+?\d+(?:[.,]\d+)?)", str(v or ""))
+    if not m:
+        return _pdf_font("—", color=_PDF_HEX["faint"])
+    try:
+        n = float(m.group(1).replace("+", "").replace(",", "."))
+    except ValueError:
+        return _pdf_font("—", color=_PDF_HEX["faint"])
+    if "▼" in str(v) and n > 0:
+        n = -n
+    if abs(n) < 0.05:
+        return _pdf_font("—", color=_PDF_HEX["faint"])
+    s = fmt_pct(abs(n))
+    return _pdf_gold(f"+{s}") if n > 0 else _pdf_muted(f"−{s}")
+
+
+def _pdf_num_br(v, casas=2) -> str:
+    s = f"{float(v or 0):,.{casas}f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  3) BUILD — montagem do documento
+# ══════════════════════════════════════════════════════════════════════
+def _pdf_abc_por_mes(df_all: pd.DataFrame) -> dict:
+    """Curva ABC separada por mês — mesmo padrão usado no export Excel."""
+    if df_all is None or df_all.empty or "dhEmi" not in df_all.columns:
+        return {}
+    if not df_all["dhEmi"].notna().any():
+        return {}
+    periodos = sorted(df_all["dhEmi"].dropna().dt.to_period("M").unique())
+    out = {}
+    for p in periodos:
+        sub = df_all[df_all["dhEmi"].dt.to_period("M") == p]
+        if not sub.empty:
+            out[p] = calc_curva_abc(sub)
+    return out
+
+
+def _pdf_diff_curvas(abc_m1: pd.DataFrame, abc_m2: pd.DataFrame, top_n: int = 6):
+    """Compara Curva ABC de dois meses. Retorna (sobem, caem, novos, sumidos)."""
+    vazio = pd.DataFrame(columns=["Curva", "Receita (R$)"])
+    m1 = abc_m1.set_index("Produto")[["Curva", "Receita (R$)"]] if not abc_m1.empty else vazio
+    m2 = abc_m2.set_index("Produto")[["Curva", "Receita (R$)"]] if not abc_m2.empty else vazio
+    m1 = m1[~m1.index.duplicated()]
+    m2 = m2[~m2.index.duplicated()]
+    ordem = {"A": 0, "B": 1, "C": 2}
+    sobem, caem = [], []
+    for prod in m1.index.intersection(m2.index):
+        c1, c2 = m1.loc[prod, "Curva"], m2.loc[prod, "Curva"]
+        r1, r2 = m1.loc[prod, "Receita (R$)"], m2.loc[prod, "Receita (R$)"]
+        if ordem.get(c2, 9) < ordem.get(c1, 9):
+            sobem.append((prod, c1, r1, c2, r2))
+        elif ordem.get(c2, 9) > ordem.get(c1, 9):
+            caem.append((prod, c1, r1, c2, r2))
+    novos = [(p, None, 0.0, m2.loc[p, "Curva"], m2.loc[p, "Receita (R$)"])
+             for p in m2.index.difference(m1.index)]
+    sumidos = [(p, m1.loc[p, "Curva"], m1.loc[p, "Receita (R$)"], None, 0.0)
+               for p in m1.index.difference(m2.index)]
+    sobem = sorted(sobem, key=lambda x: x[4], reverse=True)[:top_n]
+    caem = sorted(caem, key=lambda x: x[2], reverse=True)[:top_n]
+    novos = sorted(novos, key=lambda x: x[4], reverse=True)[:top_n]
+    sumidos = sorted(sumidos, key=lambda x: x[2], reverse=True)[:top_n]
+    return sobem, caem, novos, sumidos
+
+
+def _pdf_abc_resumo(df, col_curva, col_valor, col_pct):
+    """Agrega A/B/C -> (linhas formatadas, % produtos, % valor)."""
+    n_total = len(df)
+    linhas, pp, pv = [], [], []
+    for curva in ["A", "B", "C"]:
+        sub = df[df[col_curva] == curva]
+        n = len(sub)
+        p_prod = n / n_total * 100 if n_total else 0
+        p_val = sub[col_pct].sum()
+        pp.append(p_prod)
+        pv.append(p_val)
+        linhas.append({"Curva": _pdf_curva_tag(curva), "Nº de produtos": fmt_num(n),
+                       "% do portfólio": fmt_pct(p_prod), "Valor": brl(sub[col_valor].sum()),
+                       "% do valor": fmt_pct(p_val)})
+    return linhas, pp, pv
+
+
+def gerar_pdf_narrativo(
+    kpis: dict,
+    df_abc: pd.DataFrame,
+    df_pares: pd.DataFrame,
+    df_trios: pd.DataFrame,
+    df_cesta: pd.DataFrame,
+    df_elev: pd.DataFrame,
+    df_redu: pd.DataFrame,
+    df_combos: pd.DataFrame,
+    df_all: pd.DataFrame,
+    df_all_dedup: pd.DataFrame,
+    df_meios_pag: pd.DataFrame,
+    df_canal: pd.DataFrame,
+    cliente_nome: str,
+    periodo_label: str,
+    fonte_label: str = "",
+    df_compras: pd.DataFrame = None,
+    df_compras_outros: pd.DataFrame = None,
+    vis_flags: dict = None,
+) -> bytes:
+    """
+    Relatório Estratégico em PDF (narrativo, estilo consultoria): Vendas (Curva ABC,
+    cesta, ticket, combos, pagamento, horários) + Compras quando houver planilha.
+    Texto template-based (sem IA). Funções de horário recebem df_all_dedup (NFC-e + NF-e).
+    """
+    vis_flags = vis_flags or {}
+
+    def _show(key):
+        return vis_flags.get(key, True)
+
+    S = _pdf_styles()
+    buf = io.BytesIO()
+    doc = _RLSimpleDocTemplate(
+        buf, pagesize=_RL_LETTER,
+        topMargin=0.78 * _rl_inch, bottomMargin=0.85 * _rl_inch,
+        leftMargin=_PDF_MARGIN, rightMargin=_PDF_MARGIN,
+        title=f"Relatório Estratégico — {cliente_nome}",
+        author="Contador de Padarias — Núcleo de Inteligência",
+    )
+
+    def _capa(canv, _doc):
+        canv.saveState()
+        canv.setFillColor(_PDF_C["dark"])
+        canv.rect(0, _PDF_PAGE_H - _PDF_BAND_H, _PDF_PAGE_W, _PDF_BAND_H, stroke=0, fill=1)
+        logo_h = 0.64 * _rl_inch
+        if _PDF_LOGO_ESCURO.exists():
+            try:
+                canv.drawImage(str(_PDF_LOGO_ESCURO), _PDF_MARGIN + 6,
+                               _PDF_PAGE_H - _PDF_BAND_H / 2 - logo_h / 2,
+                               width=logo_h * 1729 / 638, height=logo_h, mask="auto")
+            except Exception:
+                pass
+        txt = "RELATÓRIO ESTRATÉGICO DE CURVA ABC"
+        canv.setFont(_PDF_F["sans"], 6.9)
+        canv.setFillColor(_rl_colors.HexColor("#CFC8B8"))
+        tw = _rl_pdfmetrics.stringWidth(txt, _PDF_F["sans"], 6.9) + 1.7 * (len(txt) - 1)
+        canv.drawString(_PDF_PAGE_W - _PDF_MARGIN - 6 - tw, _PDF_PAGE_H - _PDF_BAND_H / 2 - 2.5,
+                        txt, charSpace=1.7)
+        canv.restoreState()
+
+    def _demais(canv, _doc):
+        canv.saveState()
+        y = 0.5 * _rl_inch
+        canv.setStrokeColor(_PDF_C["div"])
+        canv.setLineWidth(0.5)
+        canv.line(_PDF_MARGIN + 6, y + 12, _PDF_PAGE_W - _PDF_MARGIN - 6, y + 12)
+        canv.setFont(_PDF_F["sans"], 6.2)
+        canv.setFillColor(_PDF_C["faint"])
+        canv.drawString(_PDF_MARGIN + 6, y, "CONTADOR DE PADARIAS  ·  RELATÓRIO ESTRATÉGICO",
+                        charSpace=1.1)
+        canv.setFont(_PDF_F["serif_i"], 10)
+        canv.setFillColor(_PDF_C["gold_txt"])
+        canv.drawRightString(_PDF_PAGE_W - _PDF_MARGIN - 6, y - 1, f"{_doc.page:02d}")
+        canv.restoreState()
+
+    story = []
+    secao = []
+
+    def _fecha():
+        """Fecha a seção corrente: tenta mantê-la inteira na página (quebra só se não couber)."""
+        nonlocal secao
+        if secao:
+            story.append(_RLCondPageBreak(2.6 * _rl_inch))
+            story.append(_RLKeepTogether(secao))
+        secao = []
+
+    n_meses = 0
+    if df_all is not None and not df_all.empty and "dhEmi" in df_all.columns and df_all["dhEmi"].notna().any():
+        n_meses = df_all["dhEmi"].dropna().dt.to_period("M").nunique()
+    tem_abc = df_abc is not None and not df_abc.empty
+    tem_compras = df_compras is not None and not df_compras.empty
+    n_a = int((df_abc["Curva"] == "A").sum()) if tem_abc else 0
+    n_total_abc = len(df_abc) if tem_abc else 0
+    pct_a_receita = df_abc.loc[df_abc["Curva"] == "A", "% Receita"].sum() if tem_abc else 0
+    ipc_txt = _pdf_num_br(kpis.get("ipc", 0), 2)
+
+    # ── CAPA ────────────────────────────────────────────────────
+    story.append(_RLSpacer(1, _PDF_BAND_H - 0.78 * _rl_inch + 0.62 * _rl_inch))
+    story.append(_PDFGoldTick())
+    story.append(_RLSpacer(1, 16))
+    story.append(_PDFLabel("Relatório estratégico", size=7.4, color=_PDF_C["gold_txt"],
+                           font=_PDF_F["sans_b"], char_space=1.8))
+    story.append(_RLSpacer(1, 8))
+    story.append(_RLParagraph(
+        "Curva ABC<br/>" + _pdf_font("de Produtos", _PDF_F["serif_i"], _PDF_HEX["gold_txt"]),
+        S["cover_title"]))
+    story.append(_RLSpacer(1, 18))
+    story.append(_RLParagraph(
+        "Análise de vendas por produto no período, com classificação em curvas A, B e C, "
+        + ("panorama de compras " if tem_compras else "")
+        + "e plano de ação objetivo para os próximos 30 dias.",
+        S["cover_desc"]))
+    story.append(_RLSpacer(1, 22))
+
+    base_txt = ("NFC-e e NF-e — vendas e compras por produto" if tem_compras
+                else "NFC-e e NF-e — vendas por produto")
+    meta = [[_RLParagraph(k, S["meta_label"]), _RLParagraph(v, S["meta_value"])] for k, v in [
+        ("Cliente", cliente_nome), ("Período analisado", periodo_label),
+        ("Base de dados", base_txt), ("Elaboração", "Contador de Padarias — Núcleo de Inteligência"),
+    ]]
+    t_meta = _RLTable(meta, colWidths=[_PDF_CONTENT_W * 0.28, _PDF_CONTENT_W * 0.72])
+    t_meta.setStyle(_RLTableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.5, _PDF_C["div"]),
+    ]))
+    story.append(t_meta)
+    story.append(_RLSpacer(1, 24))
+    story.append(_PDFKPIRow([
+        ("Faturamento total", brl(kpis.get("faturamento", 0))),
+        ("Concentração curva A", fmt_pct(pct_a_receita, 2)),
+        ("Ticket médio", brl(kpis.get("ticket_medio", 0))),
+    ], height=0.92 * _rl_inch, value_size=21))
+    story.append(_RLSpacer(1, 22))
+
+    # ── 1 · SUMÁRIO EXECUTIVO (flui a partir da capa) ───────────
+    story.extend(_pdf_section(
+        "1", "Sumário Executivo",
+        f"O período analisado reúne {fmt_num(kpis.get('n_pedidos', 0))} pedidos e "
+        f"{fmt_num(n_total_abc)} produtos distintos. Abaixo, os indicadores do período e as "
+        f"conclusões principais para decisão imediata.", first=True))
+    story.append(_PDFKPIRow([
+        ("Faturamento total", brl(kpis.get("faturamento", 0))),
+        ("Nº de pedidos", fmt_num(kpis.get("n_pedidos", 0))),
+        ("Ticket médio", brl(kpis.get("ticket_medio", 0))),
+        ("Itens por pedido", ipc_txt),
+    ], height=0.74 * _rl_inch, value_size=16))
+    story.append(_RLSpacer(1, 16))
+    story.extend(_pdf_bullets(_pdf_txt_sumario_bullets(kpis, df_abc, df_pares, n_meses)))
+
+    # ── 2 · CURVA ABC EM 1 MINUTO ───────────────────────────────
+    secao += _pdf_section(
+        "2", "Curva ABC em 1 minuto",
+        "A Curva ABC é uma forma de olhar todos os produtos que você vende e ordená-los por "
+        "quanto cada um traz de receita. Depois, agrupa em três faixas:")
+    colunas = []
+    for letra, titulo, texto in [
+        ("A", "Curva A — os essenciais",
+         "Poucos produtos, alta concentração. Respondem por 80% da receita. Se faltar, você "
+         "sente no caixa no mesmo dia."),
+        ("B", "Curva B — os relevantes",
+         "Volume intermediário. Somam 15% da receita. Boa parte tem potencial para virar A "
+         "com promoção, combo ou melhor exposição."),
+        ("C", "Curva C — a cauda longa",
+         "Muitos produtos com baixíssima saída individual. Somam apenas 5% da receita. "
+         "Candidatos a revisão de portfólio: descontinuar, reduzir lote ou repensar preço."),
+    ]:
+        colunas.append([_PDFBadge(letra, r=12), _RLSpacer(1, 10),
+                        _RLParagraph(titulo, S["h3"]), _RLSpacer(1, 5),
+                        _RLParagraph(texto, S["col_text"])])
+    t_cols = _RLTable([colunas], colWidths=[_PDF_CONTENT_W / 3] * 3)
+    t_cols.setStyle(_RLTableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 18),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    secao += [_RLSpacer(1, 6), t_cols, _RLSpacer(1, 22), _PDFCallout(
+        "Por que isso importa para a sua padaria",
+        "Em uma operação com centenas de SKUs, tratar tudo igual é caro e gera ruptura nos "
+        "itens que realmente sustentam o faturamento. A Curva ABC dá um filtro objetivo: onde "
+        "colocar atenção no dia a dia, onde investir em marketing/combo e onde cortar."),
+        _RLSpacer(1, 10), _RLParagraph(_pdf_txt_curva_disclaimer(), S["small_i"])]
+    _fecha()
+
+    # ── 3 · PANORAMA + TOP 20 ───────────────────────────────────
+    if _show("show_abc") and tem_abc:
+        secao += _pdf_section("3", "Panorama da Curva ABC no período")
+        linhas, pp, pv = _pdf_abc_resumo(df_abc, "Curva", "Receita (R$)", "% Receita")
+        df_res = pd.DataFrame(linhas).rename(columns={"Valor": "Receita (R$)", "% do valor": "% da receita"})
+        secao.append(_pdf_table(df_res, (0.16, 0.2, 0.2, 0.24, 0.2),
+                                right=("Nº de produtos", "% do portfólio", "Receita (R$)", "% da receita")))
+        secao += [_RLSpacer(1, 18), _PDFDistBars(pp, pv), _RLSpacer(1, 6)]
+
+        d = df_abc[df_abc["Curva"] == "A"].head(20)
+        if d.empty:
+            d = df_abc.head(20)
+        df_top = pd.DataFrame({
+            "#": d["Rank"].astype(str),
+            "Produto": d["Produto"],
+            "Origem": d["Origem"].apply(_pdf_muted),
+            "Var. preço": d["Var. Preço"].apply(_pdf_var_preco) if "Var. Preço" in d.columns else "—",
+            "Receita (R$)": d["Receita (R$)"].apply(brl),
+            "% Rec.": d["% Receita"].apply(lambda v: fmt_pct(v, 2)),
+            "% Acum.": d["% Acumulado"].apply(lambda v: fmt_pct(v, 2)),
+        })
+        secao += [_RLParagraph(f"Top {len(df_top)} produtos da Curva A", _RLParagraphStyle(
+                      "cp_h2_top", parent=S["h2"], spaceBefore=16)),
+                  _RLParagraph("A tabela abaixo lista os produtos com maior receita no período, "
+                               "exatamente como aparecem no sistema de notas fiscais.", S["intro"]),
+                  _pdf_table(df_top, (0.05, 0.38, 0.13, 0.1, 0.14, 0.1, 0.1), pad=3.6,
+                             right=("Var. preço", "Receita (R$)", "% Rec.", "% Acum."))]
+        story.append(_RLCondPageBreak(2.6 * _rl_inch))
+        story.extend(secao)
+        secao = []
+
+    # ── 4 · COMPARATIVO MÊS A MÊS ───────────────────────────────
+    if n_meses == 2 and _show("show_abc"):
+        abc_meses = _pdf_abc_por_mes(df_all)
+        periodos = sorted(abc_meses.keys())
+        if len(periodos) == 2:
+            m1 = f"{_MESES_PT_PDF[periodos[0].month]} {periodos[0].year}"
+            m2 = f"{_MESES_PT_PDF[periodos[1].month]} {periodos[1].year}"
+            a1 = _MESES_PT_PDF[periodos[0].month][:3]
+            a2 = _MESES_PT_PDF[periodos[1].month][:3]
+            sobem, caem, novos, sumidos = _pdf_diff_curvas(abc_meses[periodos[0]], abc_meses[periodos[1]])
+            secao += _pdf_section(
+                "4", f"Comparativo {m1} vs {m2}",
+                "Para identificar movimentação real (não sazonalidade falsa), comparamos a curva de "
+                "cada produto entre meses consecutivos. Abaixo, as migrações mais relevantes — cada "
+                "linha é um produto individual.")
+
+            def _mig(rows):
+                return pd.DataFrame([{
+                    "Produto": p, a1: _pdf_curva_tag(c1), a2: _pdf_curva_tag(c2),
+                    f"Receita {a1.lower()}": brl(r1), f"Receita {a2.lower()}": brl(r2),
+                } for p, c1, r1, c2, r2 in rows])
+
+            _w = (0.5, 0.08, 0.08, 0.17, 0.17)
+            _c = (a1, a2)
+            _r = (f"Receita {a1.lower()}", f"Receita {a2.lower()}")
+            for titulo, rows in [("Produtos que subiram de curva", sobem),
+                                 ("Produtos que caíram de curva", caem),
+                                 (f"Produtos novos (apareceram em {m2})", novos),
+                                 (f"Produtos que sumiram em {m2} (vendidos em {m1})", sumidos)]:
+                if rows:
+                    secao.append(_RLKeepTogether([_RLParagraph(titulo, S["h2"]),
+                                                  _pdf_table(_mig(rows), _w, right=_r, center=_c)]))
+            secao.append(_RLParagraph(
+                "<b>Como usar:</b> produtos que subiram merecem reforço de estoque e exposição — algo "
+                "neles passou a funcionar. Produtos que caíram precisam de diagnóstico (preço subiu? "
+                "concorrente novo? mudou a qualidade?). Itens que sumiram podem ter sido "
+                "descontinuados sem decisão formal — vale conferir.", S["caption"]))
+            story.append(_RLCondPageBreak(2.6 * _rl_inch))
+            story.extend(secao)
+            secao = []
+
+    # ── 5 · PLANO DE AÇÃO POR CURVA ─────────────────────────────
+    df_a_sorted = (df_abc[df_abc["Curva"] == "A"].sort_values("Receita (R$)", ascending=False)
+                   if tem_abc else pd.DataFrame())
+    top3_a = ", ".join(df_a_sorted["Produto"].head(3)) if not df_a_sorted.empty else "principais itens"
+    top5_a = ", ".join(df_a_sorted["Produto"].head(5)) if not df_a_sorted.empty else "principais itens"
+    par1 = par2 = "—"
+    freq1 = freq2 = 0
+    if df_pares is not None and len(df_pares) >= 1:
+        par1 = f"{df_pares.iloc[0]['Produto A']} + {df_pares.iloc[0]['Produto B']}"
+        freq1 = df_pares.iloc[0]["Frequência"]
+    if df_pares is not None and len(df_pares) >= 2:
+        par2 = f"{df_pares.iloc[1]['Produto A']} + {df_pares.iloc[1]['Produto B']}"
+        freq2 = df_pares.iloc[1]["Frequência"]
+
+    story.append(_RLCondPageBreak(4.5 * _rl_inch))
+    story.extend(_pdf_section(
+        "5", "Plano de Ação por Curva",
+        "Esta é a parte central do relatório. As recomendações abaixo são específicas por "
+        "classe — leia como um checklist de gestão para os próximos 30 dias."))
+    for letra, titulo, itens in [
+        ("A", "Curva A — não pode faltar nunca", _pdf_txt_plano_acao_a(top3_a, top5_a)),
+        ("B", "Curva B — potencial de crescer", _pdf_txt_plano_acao_b(par1, freq1, par2, freq2)),
+        ("C", "Curva C — cauda longa, hora de revisar", _pdf_txt_plano_acao_c()),
+    ]:
+        cab = _RLTable([[_PDFBadge(letra, r=11), _RLParagraph(titulo, _RLParagraphStyle(
+            "cp_plano_h", parent=S["h3"], fontSize=12.4, leading=15))]],
+            colWidths=[0.42 * _rl_inch, _PDF_CONTENT_W - 0.42 * _rl_inch])
+        cab.setStyle(_RLTableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        corpo = [_RLParagraph(it, _RLParagraphStyle(
+            "cp_plano_b", parent=S["bullet"], leftIndent=0.42 * _rl_inch + 12,
+            bulletIndent=0.42 * _rl_inch, spaceAfter=8), bulletText="›") for it in itens]
+        story.append(_RLKeepTogether([_RLSpacer(1, 10), cab, _RLSpacer(1, 10)] + corpo[:2]))
+        story.extend(corpo[2:])
+        story.append(_RLSpacer(1, 8))
+
+    # ── 6 · RECOMENDAÇÕES CRUZADAS ──────────────────────────────
+    secao += _pdf_section(
+        "6", "Recomendações cruzadas",
+        "A Curva ABC fica ainda mais poderosa quando cruzada com os outros dados da análise. "
+        "Algumas pontes diretas:")
+    secao += _pdf_bullets(_pdf_txt_recomendacoes_cruzadas(
+        kpis.get("ticket_medio", 0), kpis.get("ipc", 0), kpis.get("n_pedidos", 0)))
+    _fecha()
+
+    # ── 7 · PRÓXIMOS PASSOS ─────────────────────────────────────
+    secao += _pdf_section("7", "Próximos passos sugeridos — 30 dias",
+                          "Checklist objetivo. Cada item pode ser delegado e tem prazo curto.")
+    passos = [[_RLParagraph(str(i), S["step_num"]), _RLParagraph(p, S["step_txt"])]
+              for i, p in enumerate(_pdf_txt_proximos_passos(n_a), start=1)]
+    t_passos = _RLTable(passos, colWidths=[0.45 * _rl_inch, _PDF_CONTENT_W - 0.45 * _rl_inch])
+    t_passos.setStyle(_RLTableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 11),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, _PDF_C["div"]),
+    ]))
+    secao.append(t_passos)
+    _fecha()
+
+    # ── 8 · CESTA DE COMPRAS ────────────────────────────────────
+    if _show("show_cesta_dist") and df_cesta is not None and not df_cesta.empty:
+        cz = df_cesta.copy()
+        cz["_n"] = pd.to_numeric(cz["Itens/Pedido"], errors="coerce")
+        linhas = cz[cz["_n"] < 10].sort_values("_n")
+        mais = cz[cz["_n"] >= 10]
+        rows = [(f"{int(r['_n'])} {'item' if int(r['_n']) == 1 else 'itens'}",
+                 r["Nº Pedidos"], r["% do Total"]) for _, r in linhas.iterrows()]
+        if not mais.empty:
+            rows.append(("10 ou mais", mais["Nº Pedidos"].sum(), mais["% do Total"].sum()))
+        pmax = max((r[2] for r in rows), default=1) or 1
+        dados = [[_PDFLabel("Itens por pedido"), _PDFLabel("Nº de pedidos", align="right"),
+                  _PDFLabel("% do total", align="right"), _PDFLabel("")]]
+        for rot, n, p in rows:
+            dados.append([_RLParagraph(rot, S["td"]), _RLParagraph(fmt_num(n), S["td_r"]),
+                          _RLParagraph(fmt_pct(p), S["td_r"]), _PDFMiniBar(p / pmax)])
+        t_cz = _RLTable(dados, colWidths=[_PDF_CONTENT_W * w for w in (0.24, 0.18, 0.14, 0.44)])
+        t_cz.setStyle(_RLTableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+            ("TOPPADDING", (0, 0), (-1, -1), 5.4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5.4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (3, 0), (3, -1), 18),
+            ("LINEBELOW", (0, 0), (-1, 0), 1.0, _PDF_C["dark"]),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.45, _PDF_C["div2"]),
+        ]))
+        pct_1 = cz.loc[cz["_n"] == 1, "% do Total"].sum()
+        pct_10 = mais["% do Total"].sum() if not mais.empty else 0
+        secao += _pdf_section(
+            "8", "Distribuição da Cesta de Compras",
+            "Quantos itens diferentes o cliente costuma levar por pedido. Pedidos com um só item "
+            "indicam oportunidade clara de aumentar o ticket sugerindo um segundo produto no "
+            "momento da compra.")
+        secao += [t_cz, _RLSpacer(1, 20), _PDFCallout("", _pdf_txt_cesta_callout(pct_1, pct_10))]
+        _fecha()
+
+    # ── 9 · TICKET MÉDIO ────────────────────────────────────────
+    tem_elev = _show("show_elev") and df_elev is not None and not df_elev.empty
+    tem_redu = _show("show_redu") and df_redu is not None and not df_redu.empty
+    if tem_elev or tem_redu:
+        story.append(_RLCondPageBreak(4.5 * _rl_inch))
+        story.extend(_pdf_section(
+            "9", "Produtos que Elevam e Reduzem o Ticket Médio",
+            f"O ticket médio do período é {brl(kpis.get('ticket_medio', 0))}. Nas tabelas abaixo, "
+            f"quando o produto aparece no pedido, esse pedido costuma valer acima (elevam) ou "
+            f"abaixo (reduzem) da média."))
+        _wt = (0.39, 0.1, 0.18, 0.17, 0.16)
+        _rt = ("Pedidos", "Ticket c/ prod.", "Diferença R$", "Diferença %")
+        for ok, df_t, asc, titulo, tipo in [
+            (tem_elev, df_elev, False, "Elevam o ticket — reforce exposição e treine sugestão", "elevam"),
+            (tem_redu, df_redu, True, "Reduzem o ticket — oportunidade de cross-sell", "reduzem"),
+        ]:
+            if not ok:
+                continue
+            d = df_t.sort_values("Diferença %", ascending=asc).head(10)
+            sobe = tipo == "elevam"
+            tb = pd.DataFrame({
+                "Produto": d["Produto"],
+                "Pedidos": d["Nº Pedidos"].apply(fmt_num),
+                "Ticket c/ prod.": d["Ticket Médio c/ Produto"].apply(brl),
+                "Diferença R$": d["Diferença R$"].apply(
+                    lambda v: _pdf_gold("+" + brl(v)) if sobe else _pdf_muted(brl(v))),
+                "Diferença %": d["Diferença %"].apply(
+                    lambda v: _pdf_gold(("+" if sobe else "") + fmt_pct(v), bold=True) if sobe
+                    else _pdf_bold(fmt_pct(v))),
+            })
+            bloco = [_RLParagraph(titulo, S["h2"]), _pdf_table(tb, _wt, right=_rt),
+                     _RLParagraph(_pdf_txt_ticket_drivers_caption(tipo), S["caption"])]
+            if sobe and (d["Diferença %"] > 1000).any():
+                bloco.append(_RLParagraph(
+                    "Diferenças muito altas costumam vir de poucos pedidos grandes (ex.: vendas por "
+                    "NF-e para empresas) — leia junto com a coluna Pedidos.", S["small_i"]))
+            story.append(_RLKeepTogether(bloco))
+            story.append(_RLSpacer(1, 10))
+
+    # ── 10 · COMBOS ─────────────────────────────────────────────
+    if _show("show_simulacoes") and df_combos is not None and not df_combos.empty:
+        d = df_combos
+        tb = pd.DataFrame({
+            "Combo": d["Combo"],
+            "Individual": d["Total Individual"].apply(brl),
+            "Combo −5%": d["Combo c/ 5% desc."].apply(brl),
+            "Combo −10%": d["Combo c/ 10% desc."].apply(lambda v: _pdf_gold(brl(v), bold=True)),
+            "Freq.": d["Frequência"].apply(fmt_num),
+        })
+        secao += _pdf_section("10", "Combos Precificados — Sugestão para o Cardápio", _pdf_txt_combos_intro())
+        secao += [_pdf_table(tb, (0.5, 0.13, 0.13, 0.14, 0.1),
+                             right=("Individual", "Combo −5%", "Combo −10%", "Freq.")),
+                  _RLParagraph("Preços individuais pela média ponderada do período (receita ÷ quantidade "
+                               "nas notas fiscais) — podem diferir do preço atual de tabela.",
+                               S["small_i"])]
+        _fecha()
+
+    # ── 11 · PAGAMENTO E CANAL ──────────────────────────────────
+    def _agrupa(df, col):
+        g = df.groupby(col, as_index=False, sort=False)[["Transações", "Receita (R$)"]].sum()
+        tot = g["Receita (R$)"].sum() or 1
+        g["% Receita"] = g["Receita (R$)"] / tot * 100
+        return g.sort_values("Receita (R$)", ascending=False)
+
+    blocos = []
+    for flag, df_x, titulo in [("show_temp_pagamento", df_meios_pag, "Meios de pagamento"),
+                               ("show_temp_canal", df_canal, "Canal de venda")]:
+        if not _show(flag) or df_x is None or df_x.empty:
+            continue
+        col = [c for c in df_x.columns if c not in ("Rank", "Transações", "Receita (R$)", "% Receita")][0]
+        g = _agrupa(df_x, col)
+        tb = pd.DataFrame({
+            titulo: g[col], "Transações": g["Transações"].apply(fmt_num),
+            "Receita (R$)": g["Receita (R$)"].apply(brl),
+            "% da receita": g["% Receita"].apply(fmt_pct),
+        })
+        blocos.append(_RLKeepTogether([_RLParagraph(titulo, S["h2"]), _pdf_table(
+            tb, (0.46, 0.16, 0.22, 0.16), right=("Transações", "Receita (R$)", "% da receita"))]))
+    if blocos:
+        story.append(_RLCondPageBreak(4.2 * _rl_inch))
+        story.extend(_pdf_section(
+            "11", "Meios de Pagamento e Canal de Venda",
+            "Como o cliente paga e por onde a venda chega. Ajuda a negociar taxas de maquininha e "
+            "a decidir onde investir em atendimento."))
+        for b in blocos:
+            story.append(b)
+            story.append(_RLSpacer(1, 6))
+
+    # ── 12 · FLUXO POR TURNO ────────────────────────────────────
+    if _show("show_temp_horario") and df_all_dedup is not None and not df_all_dedup.empty:
+        _por_hora, _por_turno = calc_vendas_horario(df_all_dedup)
+        if _por_turno is not None and not _por_turno.empty:
+            tmax = _por_turno["pct"].max() or 1
+            dados = [[_PDFLabel("Turno"), _PDFLabel("Transações", align="right"),
+                      _PDFLabel("Receita (R$)", align="right"), _PDFLabel("% do total", align="right"),
+                      _PDFLabel("Ticket médio", align="right"), _PDFLabel("")]]
+            for _, r in _por_turno.iterrows():
+                dados.append([_RLParagraph(str(r["turno"]), S["td"]),
+                              _RLParagraph(fmt_num(r["transacoes"]), S["td_r"]),
+                              _RLParagraph(brl(r["receita"]), S["td_r"]),
+                              _RLParagraph(fmt_pct(r["pct"]), S["td_r"]),
+                              _RLParagraph(brl(r["ticket_medio"]), S["td_r"]),
+                              _PDFMiniBar(r["pct"] / tmax)])
+            t_t = _RLTable(dados, colWidths=[_PDF_CONTENT_W * w for w in (0.14, 0.14, 0.18, 0.12, 0.14, 0.28)])
+            t_t.setStyle(_RLTableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (5, 0), (5, -1), 16),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.0, _PDF_C["dark"]),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.45, _PDF_C["div2"]),
+            ]))
+            secao += _pdf_section(
+                "12", "Fluxo de Vendas por Turno",
+                "Distribuição das vendas ao longo do dia (NFC-e e NF-e). Manhã = 05h–11h · "
+                "Tarde = 12h–17h · Noite = 18h–23h.")
+            secao += [t_t, _RLParagraph(
+                "<b>Como usar:</b> reforce equipe e produção no turno de maior movimento; use o "
+                "turno mais fraco para testar promoções pontuais que tragam fluxo incremental.",
+                S["caption"])]
+            _fecha()
+
+    # ── 13 · HORÁRIOS COM POTENCIAL ─────────────────────────────
+    if df_all_dedup is not None and not df_all_dedup.empty:
+        _horas = calc_horas_oportunidade(df_all_dedup)
+        if _horas is not None and not _horas.empty:
+            _media_h = _horas["notas"].mean() or 1
+            _op = _horas[_horas["Status"] == "Potencial inexplorado"].sort_values("hora")
+            if not _op.empty:
+                tb = pd.DataFrame({
+                    "Horário": _op["hora"].apply(lambda h: f"{int(h):02d}h – {int(h):02d}h59"),
+                    "Notas": _op["notas"].apply(fmt_num),
+                    "Receita (R$)": _op["receita"].apply(brl),
+                    "% da média/hora": _op["notas"].apply(lambda n: _pdf_muted(fmt_pct(n / _media_h * 100, 0))),
+                }).head(12)
+                secao += _pdf_section(
+                    "13", "Horários com Potencial Inexplorado",
+                    "Horários que vendem menos da metade da média por hora do período.")
+                secao += [_pdf_table(tb, (0.3, 0.2, 0.25, 0.25), right=("Notas", "Receita (R$)", "% da média/hora")),
+                          _RLParagraph(
+                              "<b>Como usar:</b> avalie ações pontuais de divulgação, cardápio "
+                              "reduzido ou preço promocional para testar se há demanda represada.",
+                              S["caption"])]
+                _fecha()
+
+    # ── 14+ · COMPRAS ───────────────────────────────────────────
+    if tem_compras:
+        kpis_c = calc_kpis_compras(df_compras)
+        tem_out = df_compras_outros is not None and not df_compras_outros.empty
+        df_c_todos = pd.concat([df_compras, df_compras_outros] if tem_out else [df_compras],
+                               ignore_index=True)
+        total_geral_c = df_c_todos["valor"].sum() if "valor" in df_c_todos.columns else 0.0
+        total_comerc = kpis_c["total_compras"]
+        total_outros = total_geral_c - total_comerc
+        pct_comerc = (total_comerc / total_geral_c * 100) if total_geral_c else 0.0
+
+        secao += _pdf_section(
+            "14", "Análise de Compras — Panorama",
+            "Visão consolidada das entradas no período: total gasto, nº de notas e ticket médio por "
+            "nota de comercialização. Comercialização é o gasto direto com mercadoria para revenda; "
+            "Outras Entradas inclui uso/consumo, ativo imobilizado, bonificações e devoluções.")
+        secao += [_PDFKPIRow([
+            ("Total de entradas", brl(total_geral_c)),
+            ("Comercialização", brl(total_comerc)),
+            ("Nº de notas", fmt_num(kpis_c["n_notas"])),
+            ("Ticket médio/NF", brl(kpis_c["ticket_medio_nota"])),
+        ], height=0.78 * _rl_inch, value_size=16), _RLSpacer(1, 10),
+            _RLParagraph(f"Outras Entradas: {brl(total_outros)} · Comercialização representa "
+                         f"<b>{fmt_pct(pct_comerc)}</b> do total de entradas.", S["body"])]
+
+        df_rank_c = calc_ranking_produtos_compras(df_compras)
+        if df_rank_c is None:
+            df_rank_c = pd.DataFrame()
+        if not df_rank_c.empty and "ABC" in df_rank_c.columns:
+            linhas, pp, pv = _pdf_abc_resumo(df_rank_c, "ABC", "Total (R$)", "% do Total")
+            linhas.append({"Curva": _pdf_bold("Total"), "Nº de produtos": _pdf_bold(fmt_num(len(df_rank_c))),
+                           "% do portfólio": _pdf_bold("100,0%"),
+                           "Valor": _pdf_bold(brl(df_rank_c["Total (R$)"].sum())),
+                           "% do valor": _pdf_bold("100,0%")})
+            df_res = pd.DataFrame(linhas).rename(columns={"Curva": "Curva (compras)",
+                                                          "Valor": "Gasto (R$)", "% do valor": "% do gasto"})
+            secao += [_RLSpacer(1, 8),
+                      _pdf_table(df_res, (0.2, 0.18, 0.18, 0.24, 0.2), total_row=True,
+                                 right=("Nº de produtos", "% do portfólio", "Gasto (R$)", "% do gasto")),
+                      _RLSpacer(1, 16), _PDFDistBars(pp, pv, "Distribuição por gasto (R$)")]
+        _fecha()
+
+        if not df_rank_c.empty:
+            d = df_rank_c.head(20)
+            tb = pd.DataFrame({
+                "#": d["Rank"].astype(str) if "Rank" in d.columns else range(1, len(d) + 1),
+                "Produto": d["Produto"],
+                "Nº notas": d["Nº Notas"].apply(fmt_num) if "Nº Notas" in d.columns else "",
+                "Gasto (R$)": d["Total (R$)"].apply(brl),
+                "% gasto": d["% do Total"].apply(fmt_pct) if "% do Total" in d.columns else "",
+                "Curva": d["ABC"].apply(_pdf_curva_tag) if "ABC" in d.columns else "",
+            })
+            secao += _pdf_section(
+                "15", "Top Produtos de Compra",
+                "Os itens de maior gasto no período — é aqui que qualquer ponto percentual de "
+                "negociação vira dinheiro.")
+            secao.append(_pdf_table(tb, (0.05, 0.5, 0.1, 0.15, 0.11, 0.09),
+                                    right=("Nº notas", "Gasto (R$)", "% gasto"), center=("Curva",)))
+            _fecha()
+
+        df_forn_c = calc_ranking_fornecedores_compras(df_compras)
+        if df_forn_c is None:
+            df_forn_c = pd.DataFrame()
+        if not df_forn_c.empty and "Fornecedor" in df_forn_c.columns:
+            d = df_forn_c.head(15)
+            n_notas = d["Nº Notas"] if "Nº Notas" in d.columns else pd.Series([0] * len(d), index=d.index)
+            tb = pd.DataFrame({
+                "#": d["Rank"].astype(str) if "Rank" in d.columns else range(1, len(d) + 1),
+                "Fornecedor": d["Fornecedor"],
+                "Nº notas": n_notas.apply(fmt_num),
+                "Gasto (R$)": d["Total (R$)"].apply(brl),
+                "Ticket/NF": [brl(t / n) if n else "—" for t, n in zip(d["Total (R$)"], n_notas)],
+                "% gasto": d["% do Total"].apply(fmt_pct) if "% do Total" in d.columns else "",
+            })
+            secao += _pdf_section(
+                "16", "Ranking de Fornecedores",
+                "Quem concentra as compras do período. Dependência alta de um único fornecedor é "
+                "risco de ruptura e de perda de poder de negociação.")
+            secao.append(_pdf_table(tb, (0.05, 0.45, 0.1, 0.15, 0.15, 0.1),
+                                    right=("Nº notas", "Gasto (R$)", "Ticket/NF", "% gasto")))
+            _fecha()
+
+        df_preco_c = calc_evolucao_precos_compras(df_compras)
+        maior_alta_prod, maior_alta_pct = "", 0.0
+        if df_preco_c is not None and not df_preco_c.empty:
+            mes_cols = [c for c in df_preco_c.columns if c not in ("Produto", "Un.")]
+            if len(mes_cols) >= 2:
+                d = df_preco_c.copy()
+                if "Un." in d.columns:
+                    _un = d.groupby("Produto")["Un."].nunique()
+                    d = d[d["Produto"].isin(_un[_un == 1].index)]
+                d["Variação"] = (d[mes_cols[-1]] - d[mes_cols[0]]) / d[mes_cols[0]].replace(0, pd.NA) * 100
+                d = d.dropna(subset=["Variação"]).sort_values("Variação", ascending=False)
+                if not d.empty:
+                    maior_alta_prod = d.iloc[0]["Produto"]
+                    maior_alta_pct = float(d.iloc[0]["Variação"])
+                    top = d.head(15)
+                    tb = pd.DataFrame({"Produto": top["Produto"]})
+                    if "Un." in top.columns:
+                        tb["Un."] = top["Un."].apply(_pdf_muted)
+                    for c in (mes_cols[0], mes_cols[-1]):
+                        tb[c] = top[c].apply(lambda v: brl(v) if pd.notna(v) else "—")
+                    tb["Variação"] = top["Variação"].apply(
+                        lambda v: _pdf_gold("+" + fmt_pct(v), bold=True) if v > 0 else _pdf_muted(fmt_pct(v)))
+                    tem_alerta = (top["Variação"] > 200).any()
+                    if tem_alerta:
+                        tb["Atenção"] = top["Variação"].apply(
+                            lambda v: _pdf_muted("verificar") if v > 200 else "")
+                    secao += _pdf_section(
+                        "17", "Evolução de Preços — Compras",
+                        f"Preço médio ponderado pago em {mes_cols[0]} e em {mes_cols[-1]}, só para "
+                        f"produtos com a mesma unidade de medida nos dois meses. Maiores altas primeiro.")
+                    has_un = "Un." in tb.columns
+                    cols_w = [0.44, 0.07, 0.14, 0.14, 0.12, 0.09] if has_un else [0.51, 0.14, 0.14, 0.12, 0.09]
+                    if not tem_alerta:
+                        cols_w = cols_w[:-1]
+                        cols_w[0] += 0.09
+                    secao.append(_pdf_table(tb, cols_w, right=(mes_cols[0], mes_cols[-1], "Variação"),
+                                            center=("Un.",)))
+                    secao.append(_RLParagraph(
+                        "<b>Como usar:</b> altas relevantes merecem repasse no preço de venda ou "
+                        "renegociação de volume na mesma semana.", S["caption"]))
+                    if tem_alerta:
+                        secao.append(_RLParagraph(
+                            "Variações acima de 200% geralmente indicam registro incorreto na nota "
+                            "fiscal — confira antes de agir.", S["small_i"]))
+                    _fecha()
+
+        top_produto_c, top_valor_c = "—", 0.0
+        if not df_rank_c.empty:
+            top_produto_c = df_rank_c.iloc[0]["Produto"]
+            top_valor_c = df_rank_c.iloc[0]["Total (R$)"]
+        fornecedor_top, pct_forn = "—", 0.0
+        if not df_forn_c.empty and "Fornecedor" in df_forn_c.columns:
+            fornecedor_top = df_forn_c.iloc[0]["Fornecedor"]
+            _v = df_forn_c.iloc[0].get("% do Total", 0.0)
+            pct_forn = float(_v) if isinstance(_v, (int, float)) else 0.0
+        secao += _pdf_section(
+            "18", "Plano de Ação — Compras",
+            "Recomendações práticas a partir da análise de compras. Cada item é direto e pode ser "
+            "delegado ao responsável de compras.")
+        secao += _pdf_bullets(_pdf_txt_plano_acao_compras(
+            top_produto_c, top_valor_c, fornecedor_top, pct_forn, maior_alta_prod, maior_alta_pct))
+        _fecha()
+
+    doc.build(story, onFirstPage=_capa, onLaterPages=_demais)
     return buf.getvalue()
 
 
@@ -9398,32 +10817,39 @@ Diferenças maiores devem ser investigadas com o contador.
             st.warning("Instale: `pip install python-pptx matplotlib`")
 
     with col_pdf:
-        if _pptx_bytes:
-            _pdf_bytes = pptx_para_pdf(_pptx_bytes)
-            if _pdf_bytes:
-                st.download_button(
-                    label="Baixar PDF (.pdf)",
-                    data=_pdf_bytes,
-                    file_name=f"{_nome_base}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            else:
-                # LibreOffice não disponível — fallback: botão de impressão
-                import streamlit.components.v1 as _components
-                _components.html(
-                    """<style>
-  body{margin:0;padding:0}
-  .bp{display:block;width:100%;padding:5px 16px;background:white;color:#4f46e5;
-      border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-weight:500;
-      cursor:pointer;font-family:sans-serif;text-align:center;box-sizing:border-box}
-  .bp:hover{background:#f5f3ff;border-color:#4f46e5}
-</style>
-<button class="bp" onclick="window.parent.print()">🖨️ Imprimir / Salvar PDF</button>""",
-                    height=40,
-                )
-        else:
-            st.info("Gere o PPTX primeiro para habilitar o PDF.")
+        try:
+            _pdf_narrativo_bytes = gerar_pdf_narrativo(
+                kpis=kpis,
+                df_abc=df_abc,
+                df_pares=df_pares,
+                df_trios=df_trios,
+                df_cesta=df_cesta,
+                df_elev=df_elev,
+                df_redu=df_redu,
+                df_combos=df_combos,
+                df_all=df_all,
+                df_all_dedup=df_all_dedup,
+                df_meios_pag=df_meios_pag,
+                df_canal=df_canal,
+                cliente_nome=cli_label,
+                periodo_label=per_label,
+                fonte_label=fonte_label,
+                df_compras=df_compras if not df_compras.empty else None,
+                df_compras_outros=df_compras_outros if not df_compras_outros.empty else None,
+                vis_flags=_vis_pdf,
+            )
+        except Exception as _e_pdf_narr:
+            _pdf_narrativo_bytes = None
+            st.error(f"Não foi possível gerar o Relatório Estratégico em PDF: {_e_pdf_narr}")
+
+        if _pdf_narrativo_bytes:
+            st.download_button(
+                label="Baixar Relatório Estratégico (PDF)",
+                data=_pdf_narrativo_bytes,
+                file_name=f"{_nome_base}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
 
 
 
