@@ -7268,8 +7268,13 @@ def gerar_pdf_narrativo(
         S["cover_desc"]))
     story.append(_RLSpacer(1, 22))
 
-    base_txt = ("NFC-e e NF-e — vendas e compras por produto" if tem_compras
-                else "NFC-e e NF-e — vendas por produto")
+    _fontes = (fonte_label or "").strip()
+    if not _fontes and df_all is not None and "fonte" in df_all.columns:
+        _fontes = " + ".join(sorted(df_all["fonte"].dropna().unique(), reverse=True))
+    fontes_txt = _fontes.replace(" + ", " e ") or "NFC-e"
+    base_txt = f"{fontes_txt} — vendas por produto"
+    if tem_compras:
+        base_txt += " · planilha de entradas — compras"
     meta = [[_RLParagraph(k, S["meta_label"]), _RLParagraph(v, S["meta_value"])] for k, v in [
         ("Cliente", cliente_nome), ("Período analisado", periodo_label),
         ("Base de dados", base_txt), ("Elaboração", "Contador de Padarias — Núcleo de Inteligência"),
@@ -7621,7 +7626,7 @@ def gerar_pdf_narrativo(
             ]))
             secao += _pdf_section(
                 "12", "Fluxo de Vendas por Turno",
-                "Distribuição das vendas ao longo do dia (NFC-e e NF-e). Manhã = 05h–11h · "
+                f"Distribuição das vendas ao longo do dia ({fontes_txt}). Manhã = 05h–11h · "
                 "Tarde = 12h–17h · Noite = 18h–23h.")
             secao += [t_t, _RLParagraph(
                 "<b>Como usar:</b> reforce equipe e produção no turno de maior movimento; use o "
