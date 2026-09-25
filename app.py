@@ -8080,6 +8080,8 @@ def main():
         df_canceladas      = _R.get("df_canceladas", pd.DataFrame())
         df           = df_nfce
         df_all       = _R["df_all"]
+        _dedup_cols_all = [c for c in ["chave", "numItem"] if c in df_all.columns]
+        df_all_dedup = df_all.drop_duplicates(subset=_dedup_cols_all) if _dedup_cols_all else df_all
         cli_label    = _R["cli_label"]
         per_label    = _R["per_label"]
         cnpj_label   = _R.get("cnpj_label", "")
