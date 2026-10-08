@@ -7105,6 +7105,48 @@ class _PDFHourChart(_RLFlowable):
             x -= 16
 
 
+class _PDFProgressBar(_RLFlowable):
+    """Barra horizontal de 0 a 100% com marcador de limite (regra dos 80%)."""
+
+    def __init__(self, pct, limite=80, cor="gold", width=None):
+        super().__init__()
+        self.pct = max(0.0, float(pct or 0))
+        self.limite = limite
+        self.cor = cor
+        self.width = width or _PDF_CONTENT_W
+        self.height = 40
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        c = self.canv
+        y, h = 16, 16
+        c.setFillColor(_PDF_C["gold_c"])
+        c.rect(0, y, self.width, h, stroke=0, fill=1)
+        c.setFillColor(_rl_colors.HexColor(self.cor) if self.cor.startswith("#") else _PDF_C[self.cor])
+        c.rect(0, y, self.width * min(self.pct, 100) / 100, h, stroke=0, fill=1)
+        xl = self.width * self.limite / 100
+        c.setStrokeColor(_PDF_C["dark"])
+        c.setLineWidth(1.4)
+        c.line(xl, y - 4, xl, y + h + 4)
+        c.setFillColor(_PDF_C["dark"])
+        c.setFont(_PDF_F["sans_md"], 6.6)
+        c.drawCentredString(xl, y - 13, f"LIMITE {self.limite}%", charSpace=0.8)
+        c.setFont(_PDF_F["sans"], 6.4)
+        c.setFillColor(_PDF_C["faint"])
+        c.drawString(0, y - 13, "0%")
+        c.drawRightString(self.width, y - 13, "100%")
+
+
+def _pdf_data(v) -> str:
+    try:
+        d = pd.to_datetime(v, errors="coerce", dayfirst=True)
+        return d.strftime("%d/%m/%Y") if pd.notna(d) else str(v or "")
+    except Exception:
+        return str(v or "")
+
+
 def _pdf_section(num, title, intro=None, first=False):
     """Abertura de seção: fio cinza, numeral + título e parágrafo de abertura."""
     S = _pdf_styles()
@@ -7293,6 +7335,12 @@ def gerar_pdf_narrativo(
     df_compras: pd.DataFrame = None,
     df_compras_outros: pd.DataFrame = None,
     vis_flags: dict = None,
+    df_metas: pd.DataFrame = None,
+    sn_result: dict = None,
+    df_nfe_vendas: pd.DataFrame = None,
+    df_nfe_outros: pd.DataFrame = None,
+    df_nfe_rejeitadas: pd.DataFrame = None,
+    df_canceladas: pd.DataFrame = None,
 ) -> bytes:
     """
     Relatório Estratégico em PDF (narrativo, estilo consultoria): Vendas (Curva ABC,
@@ -7674,6 +7722,32 @@ def gerar_pdf_narrativo(
         secao += [t_cz, _RLSpacer(1, 20), _PDFCallout("", _pdf_txt_cesta_callout(pct_1, pct_10))]
         _fecha()
 
+    # ── PRODUTOS COMPRADOS JUNTOS (pares e combos de 3) ─────────
+    tem_pares = _show("show_pares") and df_pares is not None and not df_pares.empty
+    tem_trios = _show("show_combos") and df_trios is not None and not df_trios.empty
+    if tem_pares or tem_trios:
+        secao += _pdf_section_n(
+            "8b", "Produtos Comprados Juntos",
+            "Quais produtos aparecem no mesmo pedido com mais frequência. Quanto maior a frequência, "
+            "mais natural é a combinação para o cliente — base para promoções do tipo ‘leve junto’ e "
+            "para posicionar os produtos próximos no ponto de venda.")
+        if tem_pares:
+            tb = pd.DataFrame({"Produto A": df_pares["Produto A"], "Produto B": df_pares["Produto B"],
+                               "Pedidos juntos": df_pares["Frequência"].apply(fmt_num)})
+            secao.append(_RLKeepTogether([_RLParagraph("Pares de produtos", S["h2"]),
+                                          _pdf_table(tb, (0.43, 0.43, 0.14), right=("Pedidos juntos",))]))
+        if tem_trios:
+            cols = {"Produto A": df_trios.get("Produto A"), "Produto B": df_trios.get("Produto B"),
+                    "Produto C": df_trios.get("Produto C"),
+                    "Pedidos": df_trios["Frequência"].apply(fmt_num)}
+            if "Sugestão" in df_trios.columns:
+                cols["Sugestão"] = df_trios["Sugestão"].apply(_pdf_muted)
+            tb = pd.DataFrame(cols)
+            larg = (0.26, 0.26, 0.26, 0.09, 0.13) if "Sugestão" in tb.columns else (0.3, 0.3, 0.3, 0.1)
+            secao.append(_RLKeepTogether([_RLParagraph("Combos de 3 produtos", S["h2"]),
+                                          _pdf_table(tb, larg, right=("Pedidos",))]))
+        _fecha()
+
     # ── 9 · TICKET MÉDIO ────────────────────────────────────────
     tem_elev = _show("show_elev") and df_elev is not None and not df_elev.empty
     tem_redu = _show("show_redu") and df_redu is not None and not df_redu.empty
@@ -7729,6 +7803,87 @@ def gerar_pdf_narrativo(
                   _RLParagraph("Preços individuais pela média ponderada do período (receita ÷ quantidade "
                                "nas notas fiscais) — podem diferir do preço atual de tabela.",
                                S["small_i"])]
+        _fecha()
+
+    # ── METAS POR PRODUTO ───────────────────────────────────────
+    if _show("show_metas") and df_metas is not None and not df_metas.empty:
+        dm = df_metas
+        tb = pd.DataFrame({
+            "Produto": dm["xProd"],
+            "Volume": dm["volume"].apply(lambda v: _pdf_num_br(v, 2 if float(v) % 1 else 0)),
+            "Pedidos": dm["frequencia"].apply(fmt_num),
+            "Receita atual": dm["receita"].apply(brl),
+            "Meta +10%": dm["Meta +10%"].apply(brl),
+            "Meta +20%": dm["Meta +20%"].apply(lambda v: _pdf_gold(brl(v), bold=True)),
+        })
+        tb = pd.concat([tb, pd.DataFrame([{
+            "Produto": _pdf_bold("Total"), "Volume": "", "Pedidos": "",
+            "Receita atual": _pdf_bold(brl(dm["receita"].sum())),
+            "Meta +10%": _pdf_bold(brl(dm["Meta +10%"].sum())),
+            "Meta +20%": _pdf_bold(brl(dm["Meta +20%"].sum())),
+        }])], ignore_index=True)
+        secao += _pdf_section_n(
+            "10b", "Metas por Produto",
+            "Projeção de receita para os principais produtos com crescimento de +10% e +20% sobre o "
+            "período atual. Use para definir objetivos realistas por item e acompanhar a equipe.")
+        secao.append(_pdf_table(tb, (0.38, 0.1, 0.1, 0.14, 0.14, 0.14), total_row=True,
+                                right=("Volume", "Pedidos", "Receita atual", "Meta +10%", "Meta +20%")))
+        _fecha()
+
+    # ── SIMPLES NACIONAL — REGRA DOS 80% ────────────────────────
+    if (_show("show_simples") and sn_result is not None
+            and sn_result.get("status") not in (None, "SEM_DADOS")):
+        sn_pct = float(sn_result.get("pct_faturamento", 0) or 0)
+        sn_tot = float(sn_result.get("total_compras_comercializacao", 0) or 0)
+        sn_status = sn_result.get("status")
+        fonte_sn = {"sped_xlsx": "planilha do sistema fiscal", "ambos": "planilha do sistema + XMLs",
+                    "xml": "XMLs de entrada (NF-e dos fornecedores)"}.get(sn_result.get("fonte", "xml"), "XMLs")
+        cor_sn = {"OK": "gold", "ALERTA": "gold_txt", "EXCEDIDO": "#9C3B2E"}.get(sn_status, "gold")
+        msg_sn = {
+            "OK": f"Dentro do limite — as compras de comercialização representam {fmt_pct(sn_pct)} do "
+                  f"faturamento do período (limite de 80%).",
+            "ALERTA": f"Atenção — as compras de comercialização chegaram a {fmt_pct(sn_pct)} do "
+                      f"faturamento, próximo do limite de 80%.",
+            "EXCEDIDO": f"Limite excedido — as compras de comercialização representam {fmt_pct(sn_pct)} "
+                        f"do faturamento, acima do limite de 80%.",
+        }.get(sn_status, f"Compras de comercialização em {fmt_pct(sn_pct)} do faturamento.")
+        secao += _pdf_section_n(
+            "10c", "Simples Nacional — Regra dos 80%",
+            "Empresas optantes pelo Simples Nacional devem manter as compras de comercialização abaixo "
+            f"de 80% do faturamento do período. Fonte das compras: {fonte_sn}.")
+        secao += [
+            _PDFKPIRow([("Faturamento total", brl(kpis.get("faturamento", 0))),
+                        ("Compras p/ revenda", brl(sn_tot)),
+                        ("% do faturamento", fmt_pct(sn_pct)),
+                        ("Limite legal", "80,0%")], height=0.78 * _rl_inch, value_size=16),
+            _RLSpacer(1, 14), _PDFProgressBar(sn_pct, 80, cor_sn), _RLSpacer(1, 10),
+            _PDFCallout("", msg_sn),
+        ]
+        df_sn_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
+        if df_sn_cfop is not None and not df_sn_cfop.empty:
+            tb = pd.DataFrame({
+                "CFOP": df_sn_cfop["CFOP"].astype(str),
+                "Compras (R$)": df_sn_cfop["total_compras"].apply(brl),
+                "Notas": df_sn_cfop["notas"].apply(fmt_num) if "notas" in df_sn_cfop.columns else "",
+                "Itens": df_sn_cfop["itens"].apply(fmt_num) if "itens" in df_sn_cfop.columns else "",
+            })
+            tb = pd.concat([tb, pd.DataFrame([{"CFOP": _pdf_bold("Total"),
+                                               "Compras (R$)": _pdf_bold(brl(df_sn_cfop["total_compras"].sum())),
+                                               "Notas": "", "Itens": ""}])], ignore_index=True)
+            secao.append(_RLKeepTogether([_RLParagraph("Compras por CFOP", S["h2"]),
+                                          _pdf_table(tb, (0.3, 0.3, 0.2, 0.2), total_row=True,
+                                                     right=("Compras (R$)", "Notas", "Itens"))]))
+        df_sn_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
+        if df_sn_forn is not None and not df_sn_forn.empty:
+            col_f = "emitente" if "emitente" in df_sn_forn.columns else df_sn_forn.columns[0]
+            d = df_sn_forn.head(10)
+            tb = pd.DataFrame({
+                "Fornecedor": d[col_f].astype(str),
+                "Compras (R$)": d["total_compras"].apply(brl),
+                "Notas": d["notas"].apply(fmt_num) if "notas" in d.columns else "",
+            })
+            secao.append(_RLKeepTogether([_RLParagraph("Principais fornecedores", S["h2"]),
+                                          _pdf_table(tb, (0.6, 0.25, 0.15), right=("Compras (R$)", "Notas"))]))
         _fecha()
 
     # ── 11 · PAGAMENTO E CANAL ──────────────────────────────────
@@ -7791,10 +7946,11 @@ def gerar_pdf_narrativo(
                 "Manhã = 05h–11h · Tarde = 12h–17h · Noite = 18h–23h.")
             if _por_hora is not None and not _por_hora.empty:
                 secao += [_RLSpacer(1, 4), _PDFHourChart(_por_hora), _RLSpacer(1, 8)]
-            secao += [_RLParagraph("Resumo por turno", S["h2"]), t_t, _RLParagraph(
-                "<b>Como usar:</b> reforce equipe e produção no turno de maior movimento; use o "
-                "turno mais fraco para testar promoções pontuais que tragam fluxo incremental.",
-                S["caption"])]
+            if _show("show_temp_turno"):
+                secao += [_RLParagraph("Resumo por turno", S["h2"]), t_t, _RLParagraph(
+                    "<b>Como usar:</b> reforce equipe e produção no turno de maior movimento; use o "
+                    "turno mais fraco para testar promoções pontuais que tragam fluxo incremental.",
+                    S["caption"])]
             _fecha()
 
     # ── 13 · HORÁRIOS COM POTENCIAL ─────────────────────────────
@@ -7819,6 +7975,110 @@ def gerar_pdf_narrativo(
                               "reduzido ou preço promocional para testar se há demanda represada.",
                               S["caption"])]
                 _fecha()
+
+    def _lista_notas(df, colunas, n_max, ordenar="vNF"):
+        """Notas únicas (por chave), as de maior valor primeiro, limitadas a n_max."""
+        d = df.drop_duplicates("chave") if "chave" in df.columns else df
+        total_n, total_v = len(d), (d["vNF"].sum() if "vNF" in d.columns else 0)
+        if ordenar in d.columns:
+            d = d.sort_values(ordenar, ascending=False)
+        return d.head(n_max), total_n, total_v
+
+    def _aviso_lista(mostradas, total_n, total_v, oque="notas"):
+        txt = f"{fmt_num(total_n)} {oque} · total {brl(total_v)}."
+        if total_n > mostradas:
+            txt += (f" Mostrando as {fmt_num(mostradas)} de maior valor — a lista completa está "
+                    f"no Excel.")
+        return _RLParagraph(txt, S["caption"])
+
+    # ── NF-e DE VENDAS (B2B) ────────────────────────────────────
+    if (_show("show_nfe_b2b") and df_nfe_vendas is not None and not df_nfe_vendas.empty
+            and "chave" in df_nfe_vendas.columns):
+        d, tn, tv = _lista_notas(df_nfe_vendas, None, 20)
+        tb = pd.DataFrame({
+            "Nº NF": d["nNF"].astype(str) if "nNF" in d.columns else "",
+            "Data": d["dhEmi"].apply(_pdf_data) if "dhEmi" in d.columns else "",
+            "CFOP": d["CFOP"].astype(str) if "CFOP" in d.columns else "",
+            "Destinatário": d["destinatario"].astype(str) if "destinatario" in d.columns else "",
+            "Valor (R$)": d["vNF"].apply(brl),
+        })
+        secao += _pdf_section_n(
+            "13b", "NF-e de Vendas (B2B)",
+            "Notas fiscais eletrônicas de venda (modelo 55) emitidas pela empresa no período — vendas "
+            "para empresas e revendedores que exigem nota, complementando os cupons (NFC-e).")
+        secao += [_pdf_table(tb, (0.12, 0.13, 0.09, 0.48, 0.18), right=("Valor (R$)",)),
+                  _aviso_lista(len(d), tn, tv)]
+        _fecha()
+
+    # ── OUTRAS SAÍDAS NF-e (como no Excel, sempre que existirem) ─
+    if df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns:
+        dn = df_nfe_outros.drop_duplicates("chave")
+        secao += _pdf_section_n(
+            "13c", "Outras Saídas NF-e",
+            "NF-e emitidas com finalidade diferente de venda direta — transferências entre unidades, "
+            "devoluções, remessas. Ficam separadas para não distorcer o faturamento real.")
+        if "_tipo_op" in dn.columns:
+            g = dn.groupby("_tipo_op").agg(n=("chave", "nunique"), v=("vNF", "sum")).reset_index()
+            g = g.sort_values("v", ascending=False)
+            tb = pd.DataFrame({"Tipo": g["_tipo_op"].astype(str).str.capitalize(),
+                               "Notas": g["n"].apply(fmt_num), "Valor (R$)": g["v"].apply(brl)})
+            secao.append(_pdf_table(tb, (0.6, 0.15, 0.25), right=("Notas", "Valor (R$)")))
+        d, tn, tv = _lista_notas(dn, None, 15)
+        tb = pd.DataFrame({
+            "Tipo": d["_tipo_op"].astype(str).str.capitalize().apply(_pdf_muted) if "_tipo_op" in d.columns else "",
+            "Nº NF": d["nNF"].astype(str) if "nNF" in d.columns else "",
+            "Data": d["dhEmi"].apply(_pdf_data) if "dhEmi" in d.columns else "",
+            "Destinatário": d["destinatario"].astype(str) if "destinatario" in d.columns else "",
+            "Valor (R$)": d["vNF"].apply(brl),
+        })
+        secao += [_RLParagraph("Notas de maior valor", S["h2"]),
+                  _pdf_table(tb, (0.16, 0.11, 0.12, 0.43, 0.18), right=("Valor (R$)",)),
+                  _aviso_lista(len(d), tn, tv)]
+        _fecha()
+
+    # ── NOTAS REJEITADAS ────────────────────────────────────────
+    if (_show("show_nfe_rejeitadas") and df_nfe_rejeitadas is not None
+            and not df_nfe_rejeitadas.empty and "vNF" in df_nfe_rejeitadas.columns):
+        dr = df_nfe_rejeitadas.drop_duplicates("chave") if "chave" in df_nfe_rejeitadas.columns else df_nfe_rejeitadas
+        secao += _pdf_section_n(
+            "13d", "Notas Rejeitadas / Não Contabilizadas",
+            "NF-e encontradas nos arquivos, mas excluídas da análise de vendas — por exemplo, notas "
+            "emitidas por fornecedores (compras) ou com emitente diferente da empresa. Confira se "
+            "alguma foi excluída por engano.")
+        if "_motivo_rejeicao" in dr.columns:
+            g = dr.groupby("_motivo_rejeicao").agg(n=("vNF", "size"), v=("vNF", "sum")).reset_index()
+            tb = pd.DataFrame({"Motivo": g["_motivo_rejeicao"].astype(str),
+                               "Notas": g["n"].apply(fmt_num), "Valor (R$)": g["v"].apply(brl)})
+            secao.append(_pdf_table(tb, (0.6, 0.15, 0.25), right=("Notas", "Valor (R$)")))
+        d, tn, tv = _lista_notas(dr, None, 15)
+        tb = pd.DataFrame({
+            "Nº NF": d["nNF"].astype(str) if "nNF" in d.columns else "",
+            "Data": d["dhEmi"].apply(_pdf_data) if "dhEmi" in d.columns else "",
+            "Emitente": d["emitente"].astype(str) if "emitente" in d.columns else "",
+            "Valor (R$)": d["vNF"].apply(brl),
+        })
+        secao += [_RLParagraph("Notas de maior valor", S["h2"]),
+                  _pdf_table(tb, (0.12, 0.13, 0.55, 0.2), right=("Valor (R$)",)),
+                  _aviso_lista(len(d), tn, tv)]
+        _fecha()
+
+    # ── NOTAS CANCELADAS ────────────────────────────────────────
+    if (_show("show_canceladas") and df_canceladas is not None and not df_canceladas.empty
+            and "vNF" in df_canceladas.columns):
+        d, tn, tv = _lista_notas(df_canceladas, None, 20)
+        tb = pd.DataFrame({
+            "Nº NF": d["nNF"].astype(str) if "nNF" in d.columns else "",
+            "Data": d["dhEmi"].apply(_pdf_data) if "dhEmi" in d.columns else "",
+            "Chave de acesso": d["chave"].astype(str).apply(_pdf_muted) if "chave" in d.columns else "",
+            "Valor (R$)": d["vNF"].apply(brl),
+        })
+        secao += _pdf_section_n(
+            "13e", "Notas Canceladas",
+            "Notas canceladas no período (cancelamento homologado pela SEFAZ). Foram excluídas de "
+            "todas as análises de faturamento e produtos — listadas aqui para controle.")
+        secao += [_pdf_table(tb, (0.11, 0.13, 0.58, 0.18), right=("Valor (R$)",)),
+                  _aviso_lista(len(d), tn, tv)]
+        _fecha()
 
     # ── 14+ · COMPRAS ───────────────────────────────────────────
     if tem_compras:
@@ -7905,6 +8165,30 @@ def gerar_pdf_narrativo(
                                     right=("Nº notas", "Gasto (R$)", "Ticket/NF", "% gasto")))
             _fecha()
 
+        if _show("show_c_forn_prod"):
+            df_cross = calc_cross_fornecedor_item_compras(df_compras)
+            if df_cross is not None and not df_cross.empty:
+                total_linhas = len(df_cross)
+                d = df_cross.sort_values("Total (R$)", ascending=False).head(20)
+                tb = pd.DataFrame({"Fornecedor": d["Fornecedor"], "Produto": d["Produto"]})
+                if "Un." in d.columns:
+                    tb["Un."] = d["Un."].apply(_pdf_muted)
+                tb["Qtd."] = d["Qtd. Total"].apply(lambda v: _pdf_num_br(v, 2 if float(v) % 1 else 0))
+                tb["Notas"] = d["Nº Notas"].apply(fmt_num)
+                tb["Total (R$)"] = d["Total (R$)"].apply(brl)
+                larg = (0.3, 0.36, 0.06, 0.08, 0.06, 0.14) if "Un." in tb.columns else (0.32, 0.4, 0.08, 0.06, 0.14)
+                secao += _pdf_section_n(
+                    "16b", "Fornecedor × Produto",
+                    "Qual fornecedor vende cada produto, com valor e quantidade. Use para comparar se o "
+                    "mesmo produto é comprado de fornecedores diferentes a preços diferentes e para "
+                    "consolidar compras.")
+                secao.append(_pdf_table(tb, larg, right=("Qtd.", "Notas", "Total (R$)"), center=("Un.",)))
+                if total_linhas > len(d):
+                    secao.append(_RLParagraph(
+                        f"Mostrando as {len(d)} combinações de maior valor entre {fmt_num(total_linhas)} — "
+                        f"a lista completa está no Excel.", S["caption"]))
+                _fecha()
+
         df_preco_c = calc_evolucao_precos_compras(df_compras)
         maior_alta_prod, maior_alta_pct = "", 0.0
         if df_preco_c is not None and not df_preco_c.empty:
@@ -7963,6 +8247,46 @@ def gerar_pdf_narrativo(
                             "Variações acima de 200% geralmente indicam registro incorreto na nota "
                             "fiscal — confira antes de agir.", S["small_i"]))
                     _fecha()
+
+        if _show("show_c_outras"):
+            secao += _pdf_section_n(
+                "17b", "Outras Entradas",
+                "Entradas com finalidade diferente de compra para revenda — uso e consumo, ativo "
+                "imobilizado, bonificações, devoluções, transferências. Ficam separadas para não "
+                "distorcer o total de compras de comercialização.")
+            if df_compras_outros is not None and not df_compras_outros.empty and "valor" in df_compras_outros.columns:
+                do = df_compras_outros
+                col_tipo = "_tipo_op" if "_tipo_op" in do.columns else None
+                if col_tipo:
+                    g = do.groupby(col_tipo)["valor"].agg(["size", "sum"]).reset_index()
+                    g = g.sort_values("sum", ascending=False)
+                    tb = pd.DataFrame({"Tipo": g[col_tipo].astype(str).str.capitalize(),
+                                       "Lançamentos": g["size"].apply(fmt_num),
+                                       "Valor (R$)": g["sum"].apply(brl)})
+                    tb = pd.concat([tb, pd.DataFrame([{"Tipo": _pdf_bold("Total"),
+                                                       "Lançamentos": _pdf_bold(fmt_num(len(do))),
+                                                       "Valor (R$)": _pdf_bold(brl(do["valor"].sum()))}])],
+                                   ignore_index=True)
+                    secao.append(_pdf_table(tb, (0.6, 0.15, 0.25), total_row=True,
+                                            right=("Lançamentos", "Valor (R$)")))
+                d = do.sort_values("valor", ascending=False).head(15)
+                tb = pd.DataFrame({
+                    "Tipo": d[col_tipo].astype(str).str.capitalize().apply(_pdf_muted) if col_tipo else "",
+                    "CFOP": d["cfop"].astype(str) if "cfop" in d.columns else "",
+                    "Fornecedor": d["fornecedor"].astype(str) if "fornecedor" in d.columns else "",
+                    "Produto": d["produto"].astype(str) if "produto" in d.columns else "",
+                    "Valor (R$)": d["valor"].apply(brl),
+                })
+                secao += [_RLParagraph("Lançamentos de maior valor", S["h2"]),
+                          _pdf_table(tb, (0.15, 0.08, 0.3, 0.32, 0.15), right=("Valor (R$)",))]
+                if len(do) > len(d):
+                    secao.append(_RLParagraph(f"Mostrando os {len(d)} de maior valor entre "
+                                              f"{fmt_num(len(do))} lançamentos — a lista completa está no Excel.",
+                                              S["caption"]))
+            else:
+                secao.append(_RLParagraph("Todos os lançamentos da planilha são compra para "
+                                          "comercialização — não há outras entradas no período.", S["intro"]))
+            _fecha()
 
         top_produto_c, top_valor_c = "—", 0.0
         if not df_rank_c.empty:
@@ -11022,6 +11346,12 @@ Diferenças maiores devem ser investigadas com o contador.
                 df_compras=df_compras if not df_compras.empty else None,
                 df_compras_outros=df_compras_outros if not df_compras_outros.empty else None,
                 vis_flags={k: st.session_state.get(k, True) for k in _vis_keys_cache},
+                df_metas=df_metas,
+                sn_result=sn_result,
+                df_nfe_vendas=df_nfe,
+                df_nfe_outros=df_nfe_outros,
+                df_nfe_rejeitadas=df_nfe_rejeitadas,
+                df_canceladas=df_canceladas,
             )
         except Exception as _e_pdf_narr:
             _pdf_narrativo_bytes = None
