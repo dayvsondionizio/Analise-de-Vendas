@@ -6430,6 +6430,9 @@ _MESES_PT_PDF = {1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio
 #  1) TEXTOS — TEMPLATE-BASED (f-strings com números reais, sem IA)
 # ══════════════════════════════════════════════════════════════════════
 
+_PDF_COMBO_MIN_PEDIDOS = 5  # mínimo de pedidos juntos para sugerir um combo
+
+
 def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.DataFrame,
                               n_meses: int) -> list:
     """Bullets do Sumário Executivo — um por condição que se aplica aos dados reais."""
@@ -6441,19 +6444,35 @@ def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.Data
     df_a = df_abc[df_abc["Curva"] == "A"]
     n_a = len(df_a)
     pct_portfolio_a = (n_a / n_total * 100) if n_total else 0.0
-    bullets.append(
-        f"<b>Forte concentração da receita.</b> Apenas {n_a} produtos "
-        f"({fmt_pct(pct_portfolio_a)} do portfólio) respondem por 80% do faturamento. "
-        f"Esses itens são o núcleo do negócio — ruptura neles derruba o caixa do mês."
-    )
+    if pct_portfolio_a <= 20:
+        bullets.append(
+            f"<b>Forte concentração da receita.</b> Apenas {n_a} produtos "
+            f"({fmt_pct(pct_portfolio_a)} do portfólio) respondem por 80% do faturamento. "
+            f"Esses itens são o núcleo do negócio — ruptura neles derruba o caixa do mês."
+        )
+    else:
+        bullets.append(
+            f"<b>Receita distribuída.</b> São necessários {n_a} produtos "
+            f"({fmt_pct(pct_portfolio_a)} do portfólio) para chegar a 80% do faturamento — o "
+            f"resultado não depende de poucos itens, mas exige atenção a um grupo maior de produtos."
+        )
 
     top1 = df_abc.iloc[0]
-    bullets.append(
-        f"<b>Produto líder isolado.</b> {top1['Produto']} sozinho representa "
-        f"{fmt_pct(top1['% Receita'])} da receita do período ({brl(top1['Receita (R$)'])}). "
-        f"Qualquer alteração de preço, ficha técnica ou disponibilidade deste item tem "
-        f"impacto imediato no resultado."
-    )
+    pct_top2 = df_abc.iloc[1]["% Receita"] if len(df_abc) > 1 else 0
+    if top1["% Receita"] >= 10 or top1["% Receita"] >= 2 * pct_top2:
+        bullets.append(
+            f"<b>Produto líder isolado.</b> {top1['Produto']} sozinho representa "
+            f"{fmt_pct(top1['% Receita'])} da receita do período ({brl(top1['Receita (R$)'])}). "
+            f"Qualquer alteração de preço, ficha técnica ou disponibilidade deste item tem "
+            f"impacto imediato no resultado."
+        )
+    else:
+        top2 = df_abc.iloc[1]
+        bullets.append(
+            f"<b>Liderança dividida.</b> {top1['Produto']} lidera com {fmt_pct(top1['% Receita'])} "
+            f"da receita ({brl(top1['Receita (R$)'])}), seguido de {top2['Produto']} com "
+            f"{fmt_pct(top2['% Receita'])} — nenhum produto sozinho sustenta o resultado."
+        )
 
     df_c = df_abc[df_abc["Curva"] == "C"]
     n_c = len(df_c)
@@ -6466,12 +6485,21 @@ def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.Data
 
     if df_pares is not None and not df_pares.empty:
         par = df_pares.iloc[0]
-        bullets.append(
-            f"<b>Padrões de compra claros.</b> Existem combinações de produtos que se repetem "
-            f"em centenas de pedidos (ex.: {par['Produto A']} + {par['Produto B']} — "
-            f"{fmt_num(par['Frequência'])} pedidos). Isso permite ações simples de cross-sell "
-            f"e combos, com ganho rápido de ticket médio."
-        )
+        freq = int(par["Frequência"])
+        exemplo = f"{par['Produto A']} + {par['Produto B']} — {fmt_num(freq)} pedidos"
+        if freq >= _PDF_COMBO_MIN_PEDIDOS:
+            volume = "centenas de" if freq >= 100 else ("dezenas de" if freq >= 20 else "vários")
+            bullets.append(
+                f"<b>Padrões de compra claros.</b> Existem combinações de produtos que se repetem "
+                f"em {volume} pedidos (ex.: {exemplo}). Isso permite ações simples de cross-sell "
+                f"e combos, com ganho rápido de ticket médio."
+            )
+        else:
+            bullets.append(
+                f"<b>Combinações ainda raras.</b> A combinação mais frequente se repetiu em poucos "
+                f"pedidos (ex.: {exemplo}) — ainda não há base para montar combos; vale acompanhar "
+                f"nos próximos meses."
+            )
 
     if n_meses >= 2:
         bullets.append(
@@ -6483,7 +6511,10 @@ def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.Data
     return bullets
 
 
-def _pdf_txt_curva_disclaimer() -> str:
+def _pdf_txt_curva_disclaimer(tem_nfe: bool = True) -> str:
+    if not tem_nfe:
+        return ("<i>Atenção sobre os números: o ranking foi montado com base na receita das notas "
+                "fiscais de venda do período, sem abater eventuais devoluções de clientes.</i>")
     return (
         "<i>Atenção sobre os números: o ranking foi montado com base na receita bruta, sem "
         "abater devoluções de clientes. Um produto com muitas devoluções pode aparecer com "
@@ -6551,8 +6582,9 @@ def _pdf_txt_plano_acao_c() -> list:
     ]
 
 
-def _pdf_txt_recomendacoes_cruzadas(ticket_medio: float, itens_por_pedido: float, n_pedidos: int) -> list:
-    return [
+def _pdf_txt_recomendacoes_cruzadas(ticket_medio: float, itens_por_pedido: float, n_pedidos: int,
+                                    tem_combos: bool = True) -> list:
+    itens = [
         f"<b>Ticket médio × Cross-sell.</b> Com ticket médio em {brl(ticket_medio)} e "
         f"{f'{itens_por_pedido:.2f}'.replace('.', ',')} itens por pedido, cada item vale em média "
         f"{brl(ticket_medio / itens_por_pedido if itens_por_pedido else 0)}. Cada item adicional "
@@ -6567,13 +6599,18 @@ def _pdf_txt_recomendacoes_cruzadas(ticket_medio: float, itens_por_pedido: float
         "<b>Curva C × Fluxo de caixa.</b> Reduzir a cauda longa libera capital de giro que pode "
         "financiar melhores prazos de pagamento com os fornecedores da Curva A de compras.",
     ]
+    if not tem_combos:
+        itens = [i for i in itens if not i.startswith("<b>Combos × Ticket médio.")]
+    return itens
 
 
-def _pdf_txt_proximos_passos(n_produtos_a: int) -> list:
-    return [
+def _pdf_txt_proximos_passos(n_produtos_a: int, tem_nfe: bool = True, tem_combos: bool = True) -> list:
+    passos = [
         f"Listar os {n_produtos_a} produtos da Curva A e definir ponto de pedido para cada um.",
         "Refazer a ficha técnica e o custo dos 10 produtos de maior receita.",
-        "Criar 2 combos formais a partir dos pares de produtos mais frequentes.",
+        ("Criar 2 combos formais a partir dos pares de produtos mais frequentes." if tem_combos else
+         "Acompanhar os pares de produtos vendidos juntos — ainda não há combinação recorrente "
+         "para virar combo."),
         "Selecionar candidatos a descontinuar entre os produtos de Curva C.",
         "Implantar rotina mensal de 30 minutos para revisão da Curva ABC.",
         "Agendar reunião com o escritório no fechamento do próximo mês para discutir os "
@@ -6581,14 +6618,18 @@ def _pdf_txt_proximos_passos(n_produtos_a: int) -> list:
         "Consultar a aba ‘Outras Saídas NF-e’ antes da próxima Curva ABC, para "
         "trabalhar com receita líquida (descontando devoluções).",
     ]
+    if not tem_nfe:
+        passos = passos[:-1]
+    return passos
 
 
 def _pdf_txt_cesta_callout(pct_1item: float, pct_10mais: float) -> str:
-    return (
-        f"{fmt_pct(pct_1item)} dos pedidos têm apenas 1 item — cada sugestão de complemento "
-        f"aceita vira ticket adicional. Já {fmt_pct(pct_10mais)} dos pedidos têm 10+ itens "
-        f"(cliente que enche a sacola sozinho)."
-    )
+    txt = (f"{fmt_pct(pct_1item)} dos pedidos têm apenas 1 item — cada sugestão de complemento "
+           f"aceita vira ticket adicional.")
+    if round(pct_10mais, 1) > 0:
+        txt += (f" Já {fmt_pct(pct_10mais)} dos pedidos têm 10+ itens (cliente que enche a "
+                f"sacola sozinho).")
+    return txt
 
 
 def _pdf_txt_ticket_drivers_caption(tipo: str) -> str:
@@ -6620,7 +6661,8 @@ def _pdf_txt_compras_panorama_intro(pct_comerc: float, outras: float) -> str:
 
 def _pdf_txt_plano_acao_compras(top_produto: str, top_valor: float,
                                  fornecedor_top: str, pct_forn: float,
-                                 produto_alta: str = "", pct_alta: float = 0.0) -> list:
+                                 produto_alta: str = "", pct_alta: float = 0.0,
+                                 n_fornecedores: int = 0) -> list:
     bullets = [
         f"<b>Negocie a Curva A de compras.</b> Os produtos de maior gasto (ex.: {top_produto} — "
         f"{brl(top_valor)}) são onde 1% de desconto vira dinheiro de verdade. Priorize esses "
@@ -6630,9 +6672,11 @@ def _pdf_txt_plano_acao_compras(top_produto: str, top_valor: float,
         f"alternativo cadastrado para os itens críticos.",
         "<b>Padronize o pedido de compra.</b> Itens de Curva A e B de compras devem ter "
         "quantidade e periodicidade de pedido definidas — evita compra emergencial (mais cara).",
-        "<b>Revise a Curva C de compras.</b> Insumos de baixo volume e muitos fornecedores "
-        "distintos indicam oportunidade de consolidação — menos fornecedores, mais poder de "
-        "negociação.",
+        ("<b>Revise a Curva C de compras.</b> Insumos de baixo volume e muitos fornecedores "
+         "distintos indicam oportunidade de consolidação — menos fornecedores, mais poder de "
+         "negociação." if n_fornecedores >= 10 else
+         "<b>Revise a Curva C de compras.</b> Itens de baixo gasto ainda consomem tempo de "
+         "pedido e conferência — avalie concentrá-los nos fornecedores que já atendem a Curva A."),
     ]
     if produto_alta:
         bullets.append(
@@ -7307,6 +7351,12 @@ def gerar_pdf_narrativo(
 
     story = []
     secao = []
+    _n_secao = [0]
+
+    def _pdf_section_n(_num_fixo, title, intro=None, first=False):
+        """Numera as seções na ordem em que aparecem (seção oculta não deixa buraco)."""
+        _n_secao[0] += 1
+        return _pdf_section(str(_n_secao[0]), title, intro, first)
 
     def _fecha():
         """Fecha a seção corrente: tenta mantê-la inteira na página (quebra só se não couber)."""
@@ -7325,6 +7375,10 @@ def gerar_pdf_narrativo(
     n_total_abc = len(df_abc) if tem_abc else 0
     pct_a_receita = df_abc.loc[df_abc["Curva"] == "A", "% Receita"].sum() if tem_abc else 0
     ipc_txt = _pdf_num_br(kpis.get("ipc", 0), 2)
+    df_combos_ok = (df_combos[df_combos["Frequência"] >= _PDF_COMBO_MIN_PEDIDOS]
+                    if df_combos is not None and not df_combos.empty and "Frequência" in df_combos.columns
+                    else pd.DataFrame())
+    tem_combos = not df_combos_ok.empty
 
     # ── CAPA ────────────────────────────────────────────────────
     story.append(_RLSpacer(1, _PDF_BAND_H - 0.78 * _rl_inch + 0.62 * _rl_inch))
@@ -7348,6 +7402,7 @@ def gerar_pdf_narrativo(
     if not _fontes and df_all is not None and "fonte" in df_all.columns:
         _fontes = " + ".join(sorted(df_all["fonte"].dropna().unique(), reverse=True))
     fontes_txt = _fontes.replace(" + ", " e ") or "NFC-e"
+    tem_nfe = "NF-e" in fontes_txt.replace("NFC-e", "")
     base_txt = f"{fontes_txt} — vendas por produto"
     if tem_compras:
         base_txt += " · planilha de entradas — compras"
@@ -7372,7 +7427,7 @@ def gerar_pdf_narrativo(
     story.append(_RLSpacer(1, 22))
 
     # ── 1 · SUMÁRIO EXECUTIVO (flui a partir da capa) ───────────
-    story.extend(_pdf_section(
+    story.extend(_pdf_section_n(
         "1", "Sumário Executivo",
         f"O período analisado reúne {fmt_num(kpis.get('n_pedidos', 0))} pedidos e "
         f"{fmt_num(n_total_abc)} produtos distintos. Abaixo, os indicadores do período e as "
@@ -7387,7 +7442,7 @@ def gerar_pdf_narrativo(
     story.extend(_pdf_bullets(_pdf_txt_sumario_bullets(kpis, df_abc, df_pares, n_meses)))
 
     # ── 2 · CURVA ABC EM 1 MINUTO ───────────────────────────────
-    secao += _pdf_section(
+    secao += _pdf_section_n(
         "2", "Curva ABC em 1 minuto",
         "A Curva ABC é uma forma de olhar todos os produtos que você vende e ordená-los por "
         "quanto cada um traz de receita. Depois, agrupa em três faixas:")
@@ -7413,16 +7468,16 @@ def gerar_pdf_narrativo(
         ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     secao += [_RLSpacer(1, 6), t_cols, _RLSpacer(1, 22), _PDFCallout(
-        "Por que isso importa para a sua padaria",
+        "Por que isso importa para o seu negócio",
         "Em uma operação com centenas de SKUs, tratar tudo igual é caro e gera ruptura nos "
         "itens que realmente sustentam o faturamento. A Curva ABC dá um filtro objetivo: onde "
         "colocar atenção no dia a dia, onde investir em marketing/combo e onde cortar."),
-        _RLSpacer(1, 10), _RLParagraph(_pdf_txt_curva_disclaimer(), S["small_i"])]
+        _RLSpacer(1, 10), _RLParagraph(_pdf_txt_curva_disclaimer(tem_nfe), S["small_i"])]
     _fecha()
 
     # ── 3 · PANORAMA + TOP 20 ───────────────────────────────────
     if _show("show_abc") and tem_abc:
-        secao += _pdf_section("3", "Panorama da Curva ABC no período")
+        secao += _pdf_section_n("3", "Panorama da Curva ABC no período")
         linhas, pp, pv = _pdf_abc_resumo(df_abc, "Curva", "Receita (R$)", "% Receita")
         df_res = pd.DataFrame(linhas).rename(columns={"Valor": "Receita (R$)", "% do valor": "% da receita"})
         secao.append(_pdf_table(df_res, (0.16, 0.2, 0.2, 0.24, 0.2),
@@ -7461,7 +7516,7 @@ def gerar_pdf_narrativo(
             a1 = _MESES_PT_PDF[periodos[0].month][:3]
             a2 = _MESES_PT_PDF[periodos[1].month][:3]
             sobem, caem, novos, sumidos = _pdf_diff_curvas(abc_meses[periodos[0]], abc_meses[periodos[1]])
-            secao += _pdf_section(
+            secao += _pdf_section_n(
                 "4", f"Comparativo {m1} vs {m2}",
                 "Para identificar movimentação real (não sazonalidade falsa), comparamos a curva de "
                 "cada produto entre meses consecutivos. Abaixo, as migrações mais relevantes — cada "
@@ -7507,7 +7562,7 @@ def gerar_pdf_narrativo(
         freq2 = df_pares.iloc[1]["Frequência"]
 
     story.append(_RLCondPageBreak(4.5 * _rl_inch))
-    story.extend(_pdf_section(
+    story.extend(_pdf_section_n(
         "5", "Plano de Ação por Curva",
         "Esta é a parte central do relatório. As recomendações abaixo são específicas por "
         "classe — leia como um checklist de gestão para os próximos 30 dias."))
@@ -7532,19 +7587,19 @@ def gerar_pdf_narrativo(
         story.append(_RLSpacer(1, 8))
 
     # ── 6 · RECOMENDAÇÕES CRUZADAS ──────────────────────────────
-    secao += _pdf_section(
+    secao += _pdf_section_n(
         "6", "Recomendações cruzadas",
         "A Curva ABC fica ainda mais poderosa quando cruzada com os outros dados da análise. "
         "Algumas pontes diretas:")
     secao += _pdf_bullets(_pdf_txt_recomendacoes_cruzadas(
-        kpis.get("ticket_medio", 0), kpis.get("ipc", 0), kpis.get("n_pedidos", 0)))
+        kpis.get("ticket_medio", 0), kpis.get("ipc", 0), kpis.get("n_pedidos", 0), tem_combos))
     _fecha()
 
     # ── 7 · PRÓXIMOS PASSOS ─────────────────────────────────────
-    secao += _pdf_section("7", "Próximos passos sugeridos — 30 dias",
+    secao += _pdf_section_n("7", "Próximos passos sugeridos — 30 dias",
                           "Checklist objetivo. Cada item pode ser delegado e tem prazo curto.")
     passos = [[_RLParagraph(str(i), S["step_num"]), _RLParagraph(p, S["step_txt"])]
-              for i, p in enumerate(_pdf_txt_proximos_passos(n_a), start=1)]
+              for i, p in enumerate(_pdf_txt_proximos_passos(n_a, tem_nfe, tem_combos), start=1)]
     t_passos = _RLTable(passos, colWidths=[0.45 * _rl_inch, _PDF_CONTENT_W - 0.45 * _rl_inch])
     t_passos.setStyle(_RLTableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -7581,7 +7636,7 @@ def gerar_pdf_narrativo(
         ]))
         pct_1 = cz.loc[cz["_n"] == 1, "% do Total"].sum()
         pct_10 = mais["% do Total"].sum() if not mais.empty else 0
-        secao += _pdf_section(
+        secao += _pdf_section_n(
             "8", "Distribuição da Cesta de Compras",
             "Quantos itens diferentes o cliente costuma levar por pedido. Pedidos com um só item "
             "indicam oportunidade clara de aumentar o ticket sugerindo um segundo produto no "
@@ -7594,7 +7649,7 @@ def gerar_pdf_narrativo(
     tem_redu = _show("show_redu") and df_redu is not None and not df_redu.empty
     if tem_elev or tem_redu:
         story.append(_RLCondPageBreak(4.5 * _rl_inch))
-        story.extend(_pdf_section(
+        story.extend(_pdf_section_n(
             "9", "Produtos que Elevam e Reduzem o Ticket Médio",
             f"O ticket médio do período é {brl(kpis.get('ticket_medio', 0))}. Nas tabelas abaixo, "
             f"quando o produto aparece no pedido, esse pedido costuma valer acima (elevam) ou "
@@ -7629,8 +7684,15 @@ def gerar_pdf_narrativo(
             story.append(_RLSpacer(1, 10))
 
     # ── 10 · COMBOS ─────────────────────────────────────────────
-    if _show("show_simulacoes") and df_combos is not None and not df_combos.empty:
-        d = df_combos
+    if _show("show_simulacoes") and df_combos is not None and not df_combos.empty and not tem_combos:
+        secao += _pdf_section_n("10", "Combos Precificados — Sugestão para o Cardápio")
+        secao.append(_RLParagraph(
+            f"Nenhuma combinação de produtos se repetiu em {_PDF_COMBO_MIN_PEDIDOS} pedidos ou mais no "
+            f"período — ainda não há base segura para sugerir combos. A combinação mais frequente "
+            f"apareceu em {fmt_num(int(df_combos['Frequência'].max()))} pedidos.", S["intro"]))
+        _fecha()
+    if _show("show_simulacoes") and tem_combos:
+        d = df_combos_ok
         tb = pd.DataFrame({
             "Combo": d["Combo"],
             "Individual": d["Total Individual"].apply(brl),
@@ -7638,7 +7700,7 @@ def gerar_pdf_narrativo(
             "Combo −10%": d["Combo c/ 10% desc."].apply(lambda v: _pdf_gold(brl(v), bold=True)),
             "Freq.": d["Frequência"].apply(fmt_num),
         })
-        secao += _pdf_section("10", "Combos Precificados — Sugestão para o Cardápio", _pdf_txt_combos_intro())
+        secao += _pdf_section_n("10", "Combos Precificados — Sugestão para o Cardápio", _pdf_txt_combos_intro())
         secao += [_pdf_table(tb, (0.5, 0.13, 0.13, 0.14, 0.1),
                              right=("Individual", "Combo −5%", "Combo −10%", "Freq.")),
                   _RLParagraph("Preços individuais pela média ponderada do período (receita ÷ quantidade "
@@ -7669,7 +7731,7 @@ def gerar_pdf_narrativo(
             tb, (0.46, 0.16, 0.22, 0.16), right=("Transações", "Receita (R$)", "% da receita"))]))
     if blocos:
         story.append(_RLCondPageBreak(4.2 * _rl_inch))
-        story.extend(_pdf_section(
+        story.extend(_pdf_section_n(
             "11", "Meios de Pagamento e Canal de Venda",
             "Como o cliente paga e por onde a venda chega. Ajuda a negociar taxas de maquininha e "
             "a decidir onde investir em atendimento."))
@@ -7700,7 +7762,7 @@ def gerar_pdf_narrativo(
                 ("LINEBELOW", (0, 0), (-1, 0), 1.0, _PDF_C["dark"]),
                 ("LINEBELOW", (0, 1), (-1, -1), 0.45, _PDF_C["div2"]),
             ]))
-            secao += _pdf_section(
+            secao += _pdf_section_n(
                 "12", "Fluxo de Vendas por Horário",
                 f"Pedidos registrados em cada hora do dia, somando todo o período ({fontes_txt}). "
                 "Manhã = 05h–11h · Tarde = 12h–17h · Noite = 18h–23h.")
@@ -7725,7 +7787,7 @@ def gerar_pdf_narrativo(
                     "Receita (R$)": _op["receita"].apply(brl),
                     "% da média/hora": _op["notas"].apply(lambda n: _pdf_muted(fmt_pct(n / _media_h * 100, 0))),
                 }).head(12)
-                secao += _pdf_section(
+                secao += _pdf_section_n(
                     "13", "Horários com Potencial Inexplorado",
                     "Horários que vendem menos da metade da média por hora do período.")
                 secao += [_pdf_table(tb, (0.3, 0.2, 0.25, 0.25), right=("Notas", "Receita (R$)", "% da média/hora")),
@@ -7746,24 +7808,27 @@ def gerar_pdf_narrativo(
         total_outros = total_geral_c - total_comerc
         pct_comerc = (total_comerc / total_geral_c * 100) if total_geral_c else 0.0
 
-        secao += _pdf_section(
+        mostra_outras = _show("show_c_outras")
+        secao += _pdf_section_n(
             "14", "Análise de Compras — Panorama",
             "Visão consolidada das entradas no período: total gasto, nº de notas e ticket médio por "
-            "nota de comercialização. Comercialização é o gasto direto com mercadoria para revenda; "
-            "Outras Entradas inclui uso/consumo, ativo imobilizado, bonificações e devoluções.")
-        secao += [_PDFKPIRow([
-            ("Total de entradas", brl(total_geral_c)),
-            ("Comercialização", brl(total_comerc)),
-            ("Nº de notas", fmt_num(kpis_c["n_notas"])),
-            ("Ticket médio/NF", brl(kpis_c["ticket_medio_nota"])),
-        ], height=0.78 * _rl_inch, value_size=16), _RLSpacer(1, 10),
-            _RLParagraph(f"Outras Entradas: {brl(total_outros)} · Comercialização representa "
-                         f"<b>{fmt_pct(pct_comerc)}</b> do total de entradas.", S["body"])]
+            "nota de comercialização. Comercialização é o gasto direto com mercadoria para revenda"
+            + ("; Outras Entradas inclui uso/consumo, ativo imobilizado, bonificações e devoluções."
+               if mostra_outras else "."))
+        kpis_cards = [("Comercialização", brl(total_comerc)),
+                      ("Nº de notas", fmt_num(kpis_c["n_notas"])),
+                      ("Ticket médio/NF", brl(kpis_c["ticket_medio_nota"]))]
+        if mostra_outras:
+            kpis_cards.insert(0, ("Total de entradas", brl(total_geral_c)))
+        secao += [_PDFKPIRow(kpis_cards, height=0.78 * _rl_inch, value_size=16), _RLSpacer(1, 10)]
+        if mostra_outras:
+            secao.append(_RLParagraph(f"Outras Entradas: {brl(total_outros)} · Comercialização representa "
+                                      f"<b>{fmt_pct(pct_comerc)}</b> do total de entradas.", S["body"]))
 
         df_rank_c = calc_ranking_produtos_compras(df_compras)
         if df_rank_c is None:
             df_rank_c = pd.DataFrame()
-        if not df_rank_c.empty and "ABC" in df_rank_c.columns:
+        if _show("show_c_abc") and not df_rank_c.empty and "ABC" in df_rank_c.columns:
             linhas, pp, pv = _pdf_abc_resumo(df_rank_c, "ABC", "Total (R$)", "% do Total")
             linhas.append({"Curva": _pdf_bold("Total"), "Nº de produtos": _pdf_bold(fmt_num(len(df_rank_c))),
                            "% do portfólio": _pdf_bold("100,0%"),
@@ -7777,7 +7842,7 @@ def gerar_pdf_narrativo(
                       _RLSpacer(1, 16), _PDFDistBars(pp, pv, "Distribuição por gasto (R$)")]
         _fecha()
 
-        if not df_rank_c.empty:
+        if _show("show_c_abc") and not df_rank_c.empty:
             d = df_rank_c.head(20)
             tb = pd.DataFrame({
                 "#": d["Rank"].astype(str) if "Rank" in d.columns else range(1, len(d) + 1),
@@ -7787,7 +7852,7 @@ def gerar_pdf_narrativo(
                 "% gasto": d["% do Total"].apply(fmt_pct) if "% do Total" in d.columns else "",
                 "Curva": d["ABC"].apply(_pdf_curva_tag) if "ABC" in d.columns else "",
             })
-            secao += _pdf_section(
+            secao += _pdf_section_n(
                 "15", "Top Produtos de Compra",
                 "Os itens de maior gasto no período — é aqui que qualquer ponto percentual de "
                 "negociação vira dinheiro.")
@@ -7798,7 +7863,7 @@ def gerar_pdf_narrativo(
         df_forn_c = calc_ranking_fornecedores_compras(df_compras)
         if df_forn_c is None:
             df_forn_c = pd.DataFrame()
-        if not df_forn_c.empty and "Fornecedor" in df_forn_c.columns:
+        if _show("show_c_fornecedores") and not df_forn_c.empty and "Fornecedor" in df_forn_c.columns:
             d = df_forn_c.head(15)
             n_notas = d["Nº Notas"] if "Nº Notas" in d.columns else pd.Series([0] * len(d), index=d.index)
             tb = pd.DataFrame({
@@ -7809,7 +7874,7 @@ def gerar_pdf_narrativo(
                 "Ticket/NF": [brl(t / n) if n else "—" for t, n in zip(d["Total (R$)"], n_notas)],
                 "% gasto": d["% do Total"].apply(fmt_pct) if "% do Total" in d.columns else "",
             })
-            secao += _pdf_section(
+            secao += _pdf_section_n(
                 "16", "Ranking de Fornecedores",
                 "Quem concentra as compras do período. Dependência alta de um único fornecedor é "
                 "risco de ruptura e de perda de poder de negociação.")
@@ -7827,11 +7892,22 @@ def gerar_pdf_narrativo(
                     _un = d.groupby("Produto")["Un."].nunique()
                     d = d[d["Produto"].isin(_un[_un == 1].index)]
                 d["Variação"] = (d[mes_cols[-1]] - d[mes_cols[0]]) / d[mes_cols[0]].replace(0, pd.NA) * 100
-                d = d.dropna(subset=["Variação"]).sort_values("Variação", ascending=False)
-                if not d.empty:
+                d = d.dropna(subset=["Variação"])
+                d = d[d["Variação"].abs() >= 1].sort_values("Variação", ascending=False)
+                if not d.empty and d.iloc[0]["Variação"] > 0:
                     maior_alta_prod = d.iloc[0]["Produto"]
                     maior_alta_pct = float(d.iloc[0]["Variação"])
-                    top = d.head(15)
+                if d.empty and _show("show_c_preco"):
+                    secao += _pdf_section_n(
+                        "17", "Evolução de Preços — Compras",
+                        f"Nenhum produto teve variação de preço de 1% ou mais entre {mes_cols[0]} e "
+                        f"{mes_cols[-1]} (comparando só produtos com a mesma unidade de medida nos "
+                        f"dois meses).")
+                    _fecha()
+                if not d.empty and _show("show_c_preco"):
+                    altas = d[d["Variação"] > 0].head(10)
+                    quedas = d[d["Variação"] < 0].sort_values("Variação").head(5)
+                    top = pd.concat([altas, quedas])
                     tb = pd.DataFrame({"Produto": top["Produto"]})
                     if "Un." in top.columns:
                         tb["Un."] = top["Un."].apply(_pdf_muted)
@@ -7843,10 +7919,11 @@ def gerar_pdf_narrativo(
                     if tem_alerta:
                         tb["Atenção"] = top["Variação"].apply(
                             lambda v: _pdf_muted("verificar") if v > 200 else "")
-                    secao += _pdf_section(
+                    secao += _pdf_section_n(
                         "17", "Evolução de Preços — Compras",
                         f"Preço médio ponderado pago em {mes_cols[0]} e em {mes_cols[-1]}, só para "
-                        f"produtos com a mesma unidade de medida nos dois meses. Maiores altas primeiro.")
+                        f"produtos com a mesma unidade de medida nos dois meses e variação de 1% ou "
+                        f"mais. Altas primeiro, depois quedas.")
                     has_un = "Un." in tb.columns
                     cols_w = [0.44, 0.07, 0.14, 0.14, 0.12, 0.09] if has_un else [0.51, 0.14, 0.14, 0.12, 0.09]
                     if not tem_alerta:
@@ -7854,9 +7931,10 @@ def gerar_pdf_narrativo(
                         cols_w[0] += 0.09
                     secao.append(_pdf_table(tb, cols_w, right=(mes_cols[0], mes_cols[-1], "Variação"),
                                             center=("Un.",)))
-                    secao.append(_RLParagraph(
-                        "<b>Como usar:</b> altas relevantes merecem repasse no preço de venda ou "
-                        "renegociação de volume na mesma semana.", S["caption"]))
+                    _como_usar = ("<b>Como usar:</b> altas relevantes merecem repasse no preço de "
+                                  "venda ou renegociação de volume na mesma semana")
+                    _como_usar += ("; quedas são chance de recompor margem." if not quedas.empty else ".")
+                    secao.append(_RLParagraph(_como_usar, S["caption"]))
                     if tem_alerta:
                         secao.append(_RLParagraph(
                             "Variações acima de 200% geralmente indicam registro incorreto na nota "
@@ -7872,12 +7950,13 @@ def gerar_pdf_narrativo(
             fornecedor_top = df_forn_c.iloc[0]["Fornecedor"]
             _v = df_forn_c.iloc[0].get("% do Total", 0.0)
             pct_forn = float(_v) if isinstance(_v, (int, float)) else 0.0
-        secao += _pdf_section(
+        secao += _pdf_section_n(
             "18", "Plano de Ação — Compras",
             "Recomendações práticas a partir da análise de compras. Cada item é direto e pode ser "
             "delegado ao responsável de compras.")
         secao += _pdf_bullets(_pdf_txt_plano_acao_compras(
-            top_produto_c, top_valor_c, fornecedor_top, pct_forn, maior_alta_prod, maior_alta_pct))
+            top_produto_c, top_valor_c, fornecedor_top, pct_forn, maior_alta_prod, maior_alta_pct,
+            n_fornecedores=len(df_forn_c)))
         _fecha()
 
     doc.build(story, onFirstPage=_capa, onLaterPages=_demais)
@@ -10919,7 +10998,7 @@ Diferenças maiores devem ser investigadas com o contador.
                 fonte_label=fonte_label,
                 df_compras=df_compras if not df_compras.empty else None,
                 df_compras_outros=df_compras_outros if not df_compras_outros.empty else None,
-                vis_flags=_vis_pdf,
+                vis_flags={k: st.session_state.get(k, True) for k in _vis_keys_cache},
             )
         except Exception as _e_pdf_narr:
             _pdf_narrativo_bytes = None
