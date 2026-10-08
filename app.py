@@ -8204,13 +8204,32 @@ def gerar_pdf_narrativo(
                     "Receita (R$)": _op["receita"].apply(brl),
                     "% da média/hora": _op["notas"].apply(lambda n: _pdf_muted(fmt_pct(n / _media_h * 100, 0))),
                 }).head(12)
+                n_horas = len(_horas)
+                ex = _op.sort_values("notas").iloc[0]
+                ex_pct = ex["notas"] / _media_h * 100
+                fracao = ("menos de um décimo" if ex_pct < 10 else
+                          "cerca de um quinto" if ex_pct < 22 else
+                          "cerca de um quarto" if ex_pct < 29 else
+                          "cerca de um terço" if ex_pct < 40 else "menos da metade")
                 secao += _pdf_section_n(
                     "13", "Horários com Potencial Inexplorado",
-                    "Horários que vendem menos da metade da média por hora do período.")
+                    f"Comparamos cada horário com uma hora “normal” do período. Somando todos os dias "
+                    f"analisados, cada uma das {n_horas} horas com movimento teve em média "
+                    f"<b>{fmt_num(round(_media_h))} notas</b>. Abaixo, os horários que venderam menos da "
+                    f"metade disso.")
                 secao += [_pdf_table(tb, (0.3, 0.2, 0.25, 0.25), right=("Notas", "Receita (R$)", "% da média/hora")),
+                          _RLSpacer(1, 10),
+                          _PDFCallout(
+                              "Como ler a porcentagem",
+                              f"100% = o horário vendeu igual a uma hora normal. Quanto menor, mais fraco. "
+                              f"Exemplo: às {int(ex['hora']):02d}h saíram {fmt_num(ex['notas'])} notas no "
+                              f"período, contra {fmt_num(round(_media_h))} de uma hora normal — "
+                              f"{fmt_pct(ex_pct, 0)}, ou seja, vendeu {fracao} do normal."),
                           _RLParagraph(
-                              "<b>Como usar:</b> avalie ações pontuais de divulgação, cardápio "
-                              "reduzido ou preço promocional para testar se há demanda represada.",
+                              "<b>Como usar:</b> horário fraco nem sempre é problema — pode ser abertura, "
+                              "fechamento ou um intervalo natural do movimento. Use a lista como ponto de "
+                              "partida: se fizer sentido para o negócio, teste ações pontuais (divulgação, "
+                              "oferta do horário, cardápio reduzido) e acompanhe se o movimento sobe.",
                               S["caption"])]
                 _fecha()
 
