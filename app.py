@@ -7899,31 +7899,6 @@ def gerar_pdf_narrativo(
             _RLSpacer(1, 14), _PDFProgressBar(sn_pct, 80, cor_sn), _RLSpacer(1, 10),
             _PDFCallout("", msg_sn),
         ]
-        df_sn_cfop = sn_result.get("df_por_cfop", pd.DataFrame())
-        if df_sn_cfop is not None and not df_sn_cfop.empty:
-            tb = pd.DataFrame({
-                "CFOP": df_sn_cfop["CFOP"].astype(str),
-                "Compras (R$)": df_sn_cfop["total_compras"].apply(brl),
-                "Notas": df_sn_cfop["notas"].apply(fmt_num) if "notas" in df_sn_cfop.columns else "",
-                "Itens": df_sn_cfop["itens"].apply(fmt_num) if "itens" in df_sn_cfop.columns else "",
-            })
-            tb = pd.concat([tb, pd.DataFrame([{"CFOP": _pdf_bold("Total"),
-                                               "Compras (R$)": _pdf_bold(brl(df_sn_cfop["total_compras"].sum())),
-                                               "Notas": "", "Itens": ""}])], ignore_index=True)
-            secao.append(_RLKeepTogether([_RLParagraph("Compras por CFOP", S["h2"]),
-                                          _pdf_table(tb, (0.3, 0.3, 0.2, 0.2), total_row=True,
-                                                     right=("Compras (R$)", "Notas", "Itens"))]))
-        df_sn_forn = sn_result.get("df_por_fornecedor", pd.DataFrame())
-        if df_sn_forn is not None and not df_sn_forn.empty:
-            col_f = "emitente" if "emitente" in df_sn_forn.columns else df_sn_forn.columns[0]
-            d = df_sn_forn.head(10)
-            tb = pd.DataFrame({
-                "Fornecedor": d[col_f].astype(str),
-                "Compras (R$)": d["total_compras"].apply(brl),
-                "Notas": d["notas"].apply(fmt_num) if "notas" in d.columns else "",
-            })
-            secao.append(_RLKeepTogether([_RLParagraph("Principais fornecedores", S["h2"]),
-                                          _pdf_table(tb, (0.6, 0.25, 0.15), right=("Compras (R$)", "Notas"))]))
         _fecha()
 
     # ── 11 · PAGAMENTO E CANAL ──────────────────────────────────
