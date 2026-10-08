@@ -3540,6 +3540,204 @@ def _inserir_cabecalho_aba(writer, sheet_name: str, titulo: str, obs: list):
     ws.auto_filter.ref = f"A{hdr_row}:{get_column_letter(n_cols_data)}{last_row}"
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  ACABAMENTO DO EXCEL — identidade visual + aba "Sumário" com links
+#  Aplicado DEPOIS que a planilha está pronta: só formatação e navegação,
+#  nenhum valor é alterado. Se algo falhar, devolve a planilha original.
+# ══════════════════════════════════════════════════════════════════════
+_XL_GRUPOS = {
+    "VENDAS": [
+        ("Visão geral", "C9A227", lambda n: n == "Resumo Geral"),
+        ("Cesta e combinações", "E3D6A6", lambda n: n in ("Pares de Produtos", "Combos de 3", "Distribuição Cesta")),
+        ("Curva ABC", "17150F", lambda n: n == "Curva ABC" or n.startswith("ABC ")),
+        ("Ticket, combos e metas", "9A7B12", lambda n: n.startswith("Ticket") or n in ("Combos Precificados", "Metas por Produto")),
+        ("Simples Nacional", "8C5A3C", lambda n: n.startswith("SN ")),
+        ("Horários e pagamento", "78736A", lambda n: n.startswith("Fluxo") or n in ("Meios de Pagamento", "Canal de Venda")),
+        ("Notas fiscais", "A29C92", lambda n: n.startswith("NF-e") or n.startswith("Outras Saídas") or n.startswith("Notas ")),
+    ],
+    "COMPRAS": [
+        ("Visão geral", "C9A227", lambda n: n == "Resumo"),
+        ("Evolução e fornecedores", "E3D6A6", lambda n: n in ("Evolução Mensal", "Fornecedores", "Fornecedor x Produto", "Regime Fornecedores")),
+        ("Curva ABC", "17150F", lambda n: n.startswith("ABC") or n.startswith("Curva ABC")),
+        ("Preços", "9A7B12", lambda n: n in ("Evolução de Preços", "Maiores Aumentos", "Maiores Quedas")),
+        ("Outras entradas e dados", "A29C92", lambda n: n in ("Outras Entradas", "Dados Brutos")),
+    ],
+}
+
+
+def _excel_acabamento(xlsx_bytes: bytes, cliente: str, periodo: str, tipo: str = "VENDAS") -> bytes:
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.worksheet.hyperlink import Hyperlink
+
+        ESCURO, DOURADO, DOURADO_TXT = "17150F", "C9A227", "9A7B12"
+        BEGE, BEGE_CAB, FIO, TXT, TXT2, CINZA = "F5F1E7", "EFEBE3", "E5E0D6", "2B2822", "5B574E", "A29C92"
+        FONTE = "Calibri"
+        grupos = _XL_GRUPOS.get(tipo, _XL_GRUPOS["VENDAS"])
+
+        def grupo_de(nome):
+            for g, cor, f in grupos:
+                if f(nome):
+                    return g, cor
+            return "Outras", CINZA
+
+        def tem_fundo(c):
+            return c.fill is not None and c.fill.fill_type is not None
+
+        wb = load_workbook(io.BytesIO(xlsx_bytes))
+        abas = list(wb.sheetnames)
+        descricoes = {}
+        fio = Side(style="thin", color=FIO)
+        fio_forte = Side(style="medium", color=ESCURO)
+
+        for nome in abas:
+            ws = wb[nome]
+            ws.sheet_view.showGridLines = False
+            ws.sheet_properties.tabColor = grupo_de(nome)[1]
+
+            ult_nota = 1
+            for r in range(1, 12):
+                c = ws.cell(r, 1)
+                if r == 1:
+                    if not tem_fundo(c):
+                        break
+                    c.fill = PatternFill("solid", fgColor=ESCURO)
+                    c.font = Font(name=FONTE, size=13, bold=True, color=DOURADO)
+                    c.alignment = Alignment(vertical="center", indent=1)
+                    ws.row_dimensions[1].height = 30
+                elif tem_fundo(c):
+                    if r == 2 and c.value:
+                        descricoes[nome] = str(c.value).split(". ")[0].rstrip(".") + "."
+                    c.fill = PatternFill("solid", fgColor=BEGE)
+                    c.font = Font(name=FONTE, size=10, color=TXT2)
+                    c.alignment = Alignment(wrap_text=True, vertical="top", indent=1)
+                    ult_nota = r
+                elif c.value is not None:
+                    break
+
+            hdr = None
+            for r in range(ult_nota + 1, ult_nota + 6):
+                if any(ws.cell(r, cc).value is not None for cc in range(1, ws.max_column + 1)):
+                    hdr = r
+                    break
+            if hdr is None or hdr < 2:
+                continue
+
+            volta = ws.cell(hdr - 1, 1)
+            if volta.value is None:
+                volta.value = "← Voltar ao sumário"
+                volta.hyperlink = Hyperlink(ref=volta.coordinate, location="'Sumário'!A1")
+                volta.font = Font(name=FONTE, size=10, bold=True, color=DOURADO_TXT, underline="single")
+                volta.alignment = Alignment(vertical="center")
+                ws.row_dimensions[hdr - 1].height = 20
+
+            ncols = max((cc for cc in range(1, ws.max_column + 1) if ws.cell(hdr, cc).value is not None), default=0)
+            cabecalhos = {}
+            for cc in range(1, ncols + 1):
+                c = ws.cell(hdr, cc)
+                cabecalhos[cc] = str(c.value or "")
+                c.font = Font(name=FONTE, size=10, bold=True, color=ESCURO)
+                c.fill = PatternFill("solid", fgColor=BEGE_CAB)
+                c.border = Border(bottom=fio_forte)
+                c.alignment = Alignment(vertical="center", wrap_text=True)
+            ws.row_dimensions[hdr].height = 22
+
+            for r in range(hdr + 1, ws.max_row + 1):
+                total = str(ws.cell(r, 1).value or "").strip().upper() == "TOTAL"
+                for cc in range(1, ncols + 1):
+                    c = ws.cell(r, cc)
+                    cab = cabecalhos[cc]
+                    c.border = Border(bottom=fio)
+                    c.font = Font(name=FONTE, size=10, color=TXT, bold=total)
+                    if total:
+                        c.fill = PatternFill("solid", fgColor=BEGE)
+                    v = c.value
+                    if isinstance(v, (int, float)) and not isinstance(v, bool) and c.number_format == "General":
+                        if "%" in cab:
+                            c.number_format = '#,##0.0"%"'
+                        elif float(v).is_integer():
+                            c.number_format = "#,##0"
+                    if cab in ("Curva", "ABC") and v in ("A", "B", "C"):
+                        cor = {"A": DOURADO_TXT, "B": TXT, "C": CINZA}[v]
+                        c.font = Font(name=FONTE, size=10, bold=v != "C", color=cor)
+                        c.alignment = Alignment(horizontal="center")
+                    if "10%" in cab and "desc" in cab.lower():
+                        c.font = Font(name=FONTE, size=10, bold=True, color=DOURADO_TXT)
+
+        # ── Aba Sumário ──────────────────────────────────────────
+        sm = wb.create_sheet("Sumário", 0)
+        sm.sheet_view.showGridLines = False
+        sm.sheet_properties.tabColor = ESCURO
+        for col, larg in (("A", 3), ("B", 6), ("C", 32), ("D", 90)):
+            sm.column_dimensions[col].width = larg
+        for r in (1, 2, 3):
+            for cc in range(1, 5):
+                sm.cell(r, cc).fill = PatternFill("solid", fgColor=ESCURO)
+        sm.row_dimensions[1].height = 12
+        sm.row_dimensions[2].height = 48
+        sm.row_dimensions[3].height = 12
+        try:
+            from openpyxl.drawing.image import Image as XLImage
+            logo = Path(__file__).resolve().parent / "LOGO S FUNDO 2.png"
+            if logo.exists():
+                img = XLImage(str(logo))
+                img.height = 54
+                img.width = int(54 * 1729 / 638)
+                sm.add_image(img, "B2")
+        except Exception:
+            pass
+        sm["D2"] = "ANÁLISE DE COMPRAS" if tipo == "COMPRAS" else "ANÁLISE DE VENDAS"
+        sm["D2"].font = Font(name=FONTE, size=16, bold=True, color="E7C453")
+        sm["D2"].alignment = Alignment(horizontal="center", vertical="center")
+
+        sm["B5"] = "Sumário"
+        sm["B5"].font = Font(name="Georgia", size=22, color=ESCURO)
+        sm["B6"] = f"{cliente}  ·  {periodo}"
+        sm["B6"].font = Font(name=FONTE, size=11, bold=True, color=TXT)
+        sm["B7"] = "Clique no nome de uma aba para abrir. Em cada aba, use “← Voltar ao sumário” para retornar."
+        sm["B7"].font = Font(name=FONTE, size=10, color=TXT2)
+
+        ordem = []
+        for g, cor, _f in grupos + [("Outras", CINZA, None)]:
+            membros = [n for n in abas if grupo_de(n)[0] == g]
+            if membros:
+                ordem.append((g, cor, membros))
+
+        linha, num = 9, 1
+        for g, cor, membros in ordem:
+            linha += 1
+            sm.cell(linha, 2).fill = PatternFill("solid", fgColor=cor)
+            sm.cell(linha, 3, g.upper()).font = Font(name=FONTE, size=10, bold=True, color=ESCURO)
+            for cc in (2, 3, 4):
+                sm.cell(linha, cc).border = Border(bottom=fio_forte)
+            sm.row_dimensions[linha].height = 20
+            linha += 1
+            for nome in membros:
+                n = sm.cell(linha, 2, num)
+                n.font = Font(name="Georgia", size=11, italic=True, color=DOURADO_TXT)
+                n.alignment = Alignment(horizontal="center")
+                lk = sm.cell(linha, 3, nome)
+                lk.hyperlink = Hyperlink(ref=lk.coordinate, location=f"'{nome}'!A1")
+                lk.font = Font(name=FONTE, size=11, bold=True, color=ESCURO, underline="single")
+                d = sm.cell(linha, 4, descricoes.get(nome, ""))
+                d.font = Font(name=FONTE, size=10, color=TXT2)
+                d.alignment = Alignment(wrap_text=True, vertical="center")
+                for cc in (2, 3, 4):
+                    sm.cell(linha, cc).border = Border(bottom=fio)
+                sm.row_dimensions[linha].height = 30
+                linha += 1
+                num += 1
+            linha += 1
+
+        wb.active = 0
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+    except Exception:
+        return xlsx_bytes
+
+
 def exportar_excel(kpis, df_pares, df_trios,
                    df_cesta, df_bcg, df_abc, df_remocao,
                    df_elev, df_redu, df_sim_preco, df_sim_rec,
@@ -4177,7 +4375,7 @@ def exportar_excel(kpis, df_pares, df_trios,
         # Ajusta largura de todas as colunas em todas as abas
         _autofit(writer)
 
-    return buf.getvalue()
+    return _excel_acabamento(buf.getvalue(), cliente, periodo, "VENDAS")
 
 
 def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
@@ -4577,7 +4775,7 @@ def exportar_excel_compras(df_compras: pd.DataFrame, cliente: str, periodo: str,
 
         _autofit(writer)
 
-    return buf.getvalue()
+    return _excel_acabamento(buf.getvalue(), cliente, periodo, "COMPRAS")
 
 
 def pptx_para_pdf(pptx_bytes: bytes):
@@ -11229,7 +11427,7 @@ Diferenças maiores devem ser investigadas com o contador.
     # ── Cache PPTX e Excel no session_state para evitar re-geração a cada clique ──
     # Usa o fingerprint da análise + versão do código como chave: se o dado mudou
     # OU o código de export mudou, regenera; caso contrário reutiliza o cache.
-    _EXPORT_CODE_VER = "v22"   # bumpar aqui a cada mudança nas funções de export
+    _EXPORT_CODE_VER = "v23"   # bumpar aqui a cada mudança nas funções de export
     # Fingerprint inclui visibilidade: alteração no painel invalida cache
     _vis_keys_cache = [
         "show_pares", "show_combos", "show_cesta_dist", "show_cesta_solo",
