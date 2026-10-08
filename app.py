@@ -2233,7 +2233,8 @@ def calc_kpis(df: pd.DataFrame) -> dict:
     fat          = notas["vNF"].sum()
     n            = len(notas)
     tm           = fat / n if n else 0
-    total_itens  = len(df)
+    _cols_item   = [c for c in ("chave", "numItem") if c in df.columns]
+    total_itens  = len(df.drop_duplicates(_cols_item)) if _cols_item else len(df)
     ipc          = total_itens / n if n else 0   # total linhas ÷ total pedidos
     return {
         "faturamento":  fat,
@@ -6553,9 +6554,10 @@ def _pdf_txt_plano_acao_c() -> list:
 def _pdf_txt_recomendacoes_cruzadas(ticket_medio: float, itens_por_pedido: float, n_pedidos: int) -> list:
     return [
         f"<b>Ticket médio × Cross-sell.</b> Com ticket médio em {brl(ticket_medio)} e "
-        f"{f'{itens_por_pedido:.2f}'.replace('.', ',')} itens por pedido, cada item adicional oferecido com sucesso "
-        f"eleva o ticket em aproximadamente R$ 8 a R$ 10. Em {fmt_num(n_pedidos)} pedidos/mês, "
-        f"o impacto é muito relevante.",
+        f"{f'{itens_por_pedido:.2f}'.replace('.', ',')} itens por pedido, cada item vale em média "
+        f"{brl(ticket_medio / itens_por_pedido if itens_por_pedido else 0)}. Cada item adicional "
+        f"vendido com sucesso eleva o ticket nessa proporção — em {fmt_num(n_pedidos)} pedidos no "
+        f"período, o impacto é muito relevante.",
         "<b>Curva ABC × Plano de compras.</b> Os produtos de Curva A de vendas normalmente "
         "exigem atenção redobrada na compra — negocie volume e prazo com o fornecedor desses "
         "insumos para evitar ruptura.",
@@ -6969,9 +6971,10 @@ class _PDFDistBars(_RLFlowable):
 
 
 class _PDFMiniBar(_RLFlowable):
-    def __init__(self, frac):
+    def __init__(self, frac, cor="gold"):
         super().__init__()
         self.frac = max(0.0, min(1.0, float(frac or 0)))
+        self.cor = cor
 
     def wrap(self, aw, ah):
         self._w = aw
@@ -6981,8 +6984,81 @@ class _PDFMiniBar(_RLFlowable):
         c = self.canv
         c.setFillColor(_PDF_C["gold_c"])
         c.rect(0, 1.5, self._w, 5, stroke=0, fill=1)
-        c.setFillColor(_PDF_C["gold"])
+        c.setFillColor(_PDF_C[self.cor])
         c.rect(0, 1.5, self._w * self.frac, 5, stroke=0, fill=1)
+
+
+_PDF_COR_TURNO = {"Manhã": "gold_b", "Tarde": "gold", "Noite": "dark"}
+
+
+class _PDFHourChart(_RLFlowable):
+    """Barras de pedidos por hora do dia, coloridas por turno, valor em cima de cada barra."""
+
+    def __init__(self, por_hora, width=None, height=2.75 * _rl_inch):
+        super().__init__()
+        d = por_hora.sort_values("hora")
+        self.rows = [(int(h), int(n), str(t)) for h, n, t in zip(d["hora"], d["transacoes"], d["turno"])]
+        self.width = width or _PDF_CONTENT_W
+        self.height = height
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        import math
+        c = self.canv
+        if not self.rows:
+            return
+        horas = list(range(self.rows[0][0], self.rows[-1][0] + 1))
+        val = {h: (n, t) for h, n, t in self.rows}
+        vmax = max(n for _, n, _ in self.rows) or 1
+        raw = max(vmax / 4, 1)
+        mag = 10 ** int(math.floor(math.log10(raw)))
+        step = max(1, next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw))
+        topo = step * math.ceil(vmax / step)
+        left, bottom, top_pad = 30, 22, 30
+        pw, ph = self.width - left, self.height - bottom - top_pad
+
+        k = 0
+        while k * step <= topo + 1e-9:
+            y = bottom + ph * (k * step / topo)
+            c.setStrokeColor(_PDF_C["dark"] if k == 0 else _PDF_C["div2"])
+            c.setLineWidth(0.8 if k == 0 else 0.45)
+            c.line(left, y, self.width, y)
+            c.setFillColor(_PDF_C["faint"])
+            c.setFont(_PDF_F["sans"], 6.3)
+            c.drawRightString(left - 7, y - 2.2, fmt_num(k * step))
+            k += 1
+
+        slot = pw / len(horas)
+        bw = min(slot * 0.64, 26)
+        for i, h in enumerate(horas):
+            cx = left + i * slot + slot / 2
+            n, t = val.get(h, (0, ""))
+            if n > 0:
+                bh = ph * n / topo
+                c.setFillColor(_PDF_C[_PDF_COR_TURNO.get(t, "faint")])
+                c.rect(cx - bw / 2, bottom, bw, bh, stroke=0, fill=1)
+                c.setFillColor(_PDF_C["ink"])
+                c.setFont(_PDF_F["sans_md"], 6.5)
+                c.drawCentredString(cx, bottom + bh + 3.5, fmt_num(n))
+            c.setFillColor(_PDF_C["muted"])
+            c.setFont(_PDF_F["sans"], 6.4)
+            c.drawCentredString(cx, bottom - 11, f"{h:02d}h")
+
+        c.setFillColor(_PDF_C["muted"])
+        c.setFont(_PDF_F["sans_md"], 6.3)
+        c.drawString(0, self.height - 8, "PEDIDOS POR HORA DO DIA", charSpace=1.0)
+        x = self.width
+        for turno in ("Noite", "Tarde", "Manhã"):
+            x -= _rl_pdfmetrics.stringWidth(turno, _PDF_F["sans"], 7.2)
+            c.setFillColor(_PDF_C["text2"])
+            c.setFont(_PDF_F["sans"], 7.2)
+            c.drawString(x, self.height - 8, turno)
+            x -= 11
+            c.setFillColor(_PDF_C[_PDF_COR_TURNO[turno]])
+            c.rect(x, self.height - 8.5, 7, 7, stroke=0, fill=1)
+            x -= 16
 
 
 def _pdf_section(num, title, intro=None, first=False):
@@ -7601,7 +7677,7 @@ def gerar_pdf_narrativo(
             story.append(b)
             story.append(_RLSpacer(1, 6))
 
-    # ── 12 · FLUXO POR TURNO ────────────────────────────────────
+    # ── 12 · FLUXO POR HORÁRIO ──────────────────────────────────
     if _show("show_temp_horario") and df_all_dedup is not None and not df_all_dedup.empty:
         _por_hora, _por_turno = calc_vendas_horario(df_all_dedup)
         if _por_turno is not None and not _por_turno.empty:
@@ -7614,7 +7690,7 @@ def gerar_pdf_narrativo(
                               _RLParagraph(brl(r["receita"]), S["td_r"]),
                               _RLParagraph(fmt_pct(r["pct"]), S["td_r"]),
                               _RLParagraph(brl(r["ticket_medio"]), S["td_r"]),
-                              _PDFMiniBar(r["pct"] / 100)])
+                              _PDFMiniBar(r["pct"] / 100, _PDF_COR_TURNO.get(str(r["turno"]), "gold"))])
             t_t = _RLTable(dados, colWidths=[_PDF_CONTENT_W * w for w in (0.14, 0.14, 0.18, 0.12, 0.14, 0.28)])
             t_t.setStyle(_RLTableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("VALIGN", (0, 0), (-1, 0), "BOTTOM"),
@@ -7625,17 +7701,19 @@ def gerar_pdf_narrativo(
                 ("LINEBELOW", (0, 1), (-1, -1), 0.45, _PDF_C["div2"]),
             ]))
             secao += _pdf_section(
-                "12", "Fluxo de Vendas por Turno",
-                f"Distribuição das vendas ao longo do dia ({fontes_txt}). Manhã = 05h–11h · "
-                "Tarde = 12h–17h · Noite = 18h–23h.")
-            secao += [t_t, _RLParagraph(
+                "12", "Fluxo de Vendas por Horário",
+                f"Pedidos registrados em cada hora do dia, somando todo o período ({fontes_txt}). "
+                "Manhã = 05h–11h · Tarde = 12h–17h · Noite = 18h–23h.")
+            if _por_hora is not None and not _por_hora.empty:
+                secao += [_RLSpacer(1, 4), _PDFHourChart(_por_hora), _RLSpacer(1, 8)]
+            secao += [_RLParagraph("Resumo por turno", S["h2"]), t_t, _RLParagraph(
                 "<b>Como usar:</b> reforce equipe e produção no turno de maior movimento; use o "
                 "turno mais fraco para testar promoções pontuais que tragam fluxo incremental.",
                 S["caption"])]
             _fecha()
 
     # ── 13 · HORÁRIOS COM POTENCIAL ─────────────────────────────
-    if df_all_dedup is not None and not df_all_dedup.empty:
+    if _show("show_temp_potencial") and df_all_dedup is not None and not df_all_dedup.empty:
         _horas = calc_horas_oportunidade(df_all_dedup)
         if _horas is not None and not _horas.empty:
             _media_h = _horas["notas"].mean() or 1
