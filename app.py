@@ -7924,15 +7924,40 @@ def gerar_pdf_narrativo(
 
     # ── PRODUTOS COMPRADOS SOZINHOS ─────────────────────────────
     if _show("show_cesta_solo") and df_solo is not None and not df_solo.empty:
+        # quantidade vendida nesses pedidos (mesma base do cálculo do painel: NFC-e, notas com 1 só item)
+        qtd_solo = pd.Series(dtype=float)
+        if df_all_dedup is not None and not df_all_dedup.empty and "qCom" in df_all_dedup.columns:
+            _base = df_all_dedup
+            if "fonte" in _base.columns and (_base["fonte"] == "NFC-e").any():
+                _base = _base[_base["fonte"] == "NFC-e"]
+            _itens = _base.groupby("chave")["numItem"].nunique()
+            _sozinhos = _base[_base["chave"].isin(_itens[_itens == 1].index)]
+            qtd_solo = _sozinhos.groupby("xProd")["qCom"].sum()
+
+        def _qtd_fmt(v):
+            return _pdf_num_br(v, 0 if float(v).is_integer() else 2)
+
+        qtd = df_solo["xProd"].map(qtd_solo).fillna(0)
         tb = pd.DataFrame({"Produto": df_solo["xProd"],
                            "Pedidos só com ele": df_solo["frequencia"].apply(fmt_num),
+                           "Qtd. vendida": qtd.apply(_qtd_fmt),
+                           "Qtd./pedido": [_pdf_num_br(q / f, 2) if f else "—"
+                                                for q, f in zip(qtd, df_solo["frequencia"])],
                            "Receita (R$)": df_solo["receita"].apply(brl)})
         top_s = df_solo.iloc[0]
         secao += _pdf_section_n(
             "8a", "Produtos Comprados Sozinhos",
             "Produtos que mais saem como único item do pedido — o cliente vem só por eles. É a "
             "oportunidade mais direta de sugerir um complemento no momento da compra.")
-        secao += [_pdf_table(tb, (0.6, 0.18, 0.22), right=("Pedidos só com ele", "Receita (R$)")),
+        secao += [_pdf_table(tb, (0.34, 0.18, 0.15, 0.14, 0.19),
+                             right=("Pedidos só com ele", "Qtd. vendida", "Qtd./pedido", "Receita (R$)")),
+                  _RLParagraph(
+                      "<b>Atenção:</b> receita ÷ pedidos não é o preço unitário. Um pedido com um só "
+                      "produto pode ter mais de uma unidade (ex.: 2 cafés na mesma linha) — a coluna "
+                      "“Qtd./pedido” mostra quanto, em média, saiu em cada pedido (unidades ou kg, conforme "
+                      "o produto). Para "
+                      "o preço por unidade, use a Curva ABC. A receita aqui é o valor dos produtos antes "
+                      "de descontos da nota.", S["caption"]),
                   _RLSpacer(1, 14),
                   _PDFCallout("", f"{top_s['xProd']} é o produto mais comprado sozinho "
                                   f"({fmt_num(top_s['frequencia'])} pedidos). Sugira um complemento natural "
