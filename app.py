@@ -6430,7 +6430,7 @@ _MESES_PT_PDF = {1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio
 #  1) TEXTOS — TEMPLATE-BASED (f-strings com números reais, sem IA)
 # ══════════════════════════════════════════════════════════════════════
 
-_PDF_COMBO_MIN_PEDIDOS = 5  # mínimo de pedidos juntos para sugerir um combo
+_PDF_COMBO_MIN_PEDIDOS = 5  # abaixo disso o sumário não chama os pares de "padrão claro"
 
 
 def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.DataFrame,
@@ -6496,9 +6496,8 @@ def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.Data
             )
         else:
             bullets.append(
-                f"<b>Combinações ainda raras.</b> A combinação mais frequente se repetiu em poucos "
-                f"pedidos (ex.: {exemplo}) — ainda não há base para montar combos; vale acompanhar "
-                f"nos próximos meses."
+                f"<b>Combinações ainda pouco frequentes.</b> A combinação mais comum apareceu em "
+                f"poucos pedidos (ex.: {exemplo}) — vale acompanhar se ganha força nos próximos meses."
             )
 
     if n_meses >= 2:
@@ -7376,10 +7375,7 @@ def gerar_pdf_narrativo(
     n_total_abc = len(df_abc) if tem_abc else 0
     pct_a_receita = df_abc.loc[df_abc["Curva"] == "A", "% Receita"].sum() if tem_abc else 0
     ipc_txt = _pdf_num_br(kpis.get("ipc", 0), 2)
-    df_combos_ok = (df_combos[df_combos["Frequência"] >= _PDF_COMBO_MIN_PEDIDOS]
-                    if df_combos is not None and not df_combos.empty and "Frequência" in df_combos.columns
-                    else pd.DataFrame())
-    tem_combos = not df_combos_ok.empty
+    tem_combos = df_combos is not None and not df_combos.empty
 
     # ── CAPA ────────────────────────────────────────────────────
     story.append(_RLSpacer(1, _PDF_BAND_H - 0.78 * _rl_inch + 0.62 * _rl_inch))
@@ -7718,15 +7714,8 @@ def gerar_pdf_narrativo(
             story.append(_RLSpacer(1, 10))
 
     # ── 10 · COMBOS ─────────────────────────────────────────────
-    if _show("show_simulacoes") and df_combos is not None and not df_combos.empty and not tem_combos:
-        secao += _pdf_section_n("10", "Combos Precificados — Sugestão para o Cardápio")
-        secao.append(_RLParagraph(
-            f"Nenhuma combinação de produtos se repetiu em {_PDF_COMBO_MIN_PEDIDOS} pedidos ou mais no "
-            f"período — ainda não há base segura para sugerir combos. A combinação mais frequente "
-            f"apareceu em {fmt_num(int(df_combos['Frequência'].max()))} pedidos.", S["intro"]))
-        _fecha()
     if _show("show_simulacoes") and tem_combos:
-        d = df_combos_ok
+        d = df_combos
         tb = pd.DataFrame({
             "Combo": d["Combo"],
             "Individual": d["Total Individual"].apply(brl),
