@@ -6503,7 +6503,8 @@ def _pdf_txt_sumario_bullets(kpis: dict, df_abc: pd.DataFrame, df_pares: pd.Data
 
     if n_meses >= 2:
         bullets.append(
-            "<b>Mês a mês há movimentação.</b> Comparando os dois meses do período, há produtos "
+            f"<b>Mês a mês há movimentação.</b> Comparando "
+            f"{'os dois meses' if n_meses == 2 else 'cada mês com o anterior'} do período, há produtos "
             "subindo e descendo de curva. Acompanhar essa migração é o que separa decisão "
             "baseada em dado de decisão baseada em achismo."
         )
@@ -7506,37 +7507,70 @@ def gerar_pdf_narrativo(
         story.extend(secao)
         secao = []
 
-    # ── 4 · COMPARATIVO MÊS A MÊS ───────────────────────────────
-    if n_meses == 2 and _show("show_abc"):
+    # ── 4 · COMPARATIVO MÊS A MÊS (pares consecutivos: 1→2, 2→3...) ──
+    if n_meses >= 2 and _show("show_abc"):
         abc_meses = _pdf_abc_por_mes(df_all)
         periodos = sorted(abc_meses.keys())
-        if len(periodos) == 2:
-            m1 = f"{_MESES_PT_PDF[periodos[0].month]} {periodos[0].year}"
-            m2 = f"{_MESES_PT_PDF[periodos[1].month]} {periodos[1].year}"
-            a1 = _MESES_PT_PDF[periodos[0].month][:3]
-            a2 = _MESES_PT_PDF[periodos[1].month][:3]
-            sobem, caem, novos, sumidos = _pdf_diff_curvas(abc_meses[periodos[0]], abc_meses[periodos[1]])
+        if len(periodos) >= 2:
+            def _nome(per):
+                return f"{_MESES_PT_PDF[per.month]} {per.year}"
+
+            pares_meses = list(zip(periodos[:-1], periodos[1:]))
+            varios = len(pares_meses) > 1
+            if varios:
+                titulo_sec = f"Comparativo mês a mês — {_nome(periodos[0])} a {_nome(periodos[-1])}"
+            else:
+                titulo_sec = f"Comparativo {_nome(periodos[0])} vs {_nome(periodos[1])}"
             secao += _pdf_section_n(
-                "4", f"Comparativo {m1} vs {m2}",
+                "4", titulo_sec,
                 "Para identificar movimentação real (não sazonalidade falsa), comparamos a curva de "
-                "cada produto entre meses consecutivos. Abaixo, as migrações mais relevantes — cada "
-                "linha é um produto individual.")
+                "cada produto entre meses consecutivos"
+                + (" — cada mês contra o anterior" if varios else "")
+                + ". Abaixo, as migrações mais relevantes — cada linha é um produto individual.")
+            st_tab = (_RLParagraphStyle("cp_h3_comp", parent=S["h3"], spaceBefore=10, spaceAfter=6)
+                      if varios else S["h2"])
 
-            def _mig(rows):
-                return pd.DataFrame([{
-                    "Produto": p, a1: _pdf_curva_tag(c1), a2: _pdf_curva_tag(c2),
-                    f"Receita {a1.lower()}": brl(r1), f"Receita {a2.lower()}": brl(r2),
-                } for p, c1, r1, c2, r2 in rows])
+            for i_par, (p1, p2) in enumerate(pares_meses):
+                m1, m2 = _nome(p1), _nome(p2)
+                a1 = _MESES_PT_PDF[p1.month][:3]
+                a2 = _MESES_PT_PDF[p2.month][:3]
+                sobem, caem, novos, sumidos = _pdf_diff_curvas(abc_meses[p1], abc_meses[p2])
 
-            _w = (0.5, 0.08, 0.08, 0.17, 0.17)
-            _c = (a1, a2)
-            _r = (f"Receita {a1.lower()}", f"Receita {a2.lower()}")
-            for titulo, rows in [("Produtos que subiram de curva", sobem),
-                                 ("Produtos que caíram de curva", caem),
-                                 (f"Produtos novos (apareceram em {m2})", novos),
-                                 (f"Produtos que sumiram em {m2} (vendidos em {m1})", sumidos)]:
-                if rows:
-                    secao.append(_RLKeepTogether([_RLParagraph(titulo, S["h2"]),
+                def _mig(rows, a1=a1, a2=a2):
+                    return pd.DataFrame([{
+                        "Produto": p, a1: _pdf_curva_tag(c1), a2: _pdf_curva_tag(c2),
+                        f"Receita {a1.lower()}": brl(r1), f"Receita {a2.lower()}": brl(r2),
+                    } for p, c1, r1, c2, r2 in rows])
+
+                _w = (0.5, 0.08, 0.08, 0.17, 0.17)
+                _c = (a1, a2)
+                _r = (f"Receita {a1.lower()}", f"Receita {a2.lower()}")
+                blocos = [(titulo, rows) for titulo, rows in [
+                    ("Produtos que subiram de curva", sobem),
+                    ("Produtos que caíram de curva", caem),
+                    (f"Produtos novos (apareceram em {m2})", novos),
+                    (f"Produtos que sumiram em {m2} (vendidos em {m1})", sumidos)] if rows]
+                if varios:
+                    cab_par = [
+                        _RLHRFlowable(width="100%", thickness=0.5, color=_PDF_C["div"],
+                                      spaceBefore=14 if i_par else 4, spaceAfter=10),
+                        _RLParagraph(_pdf_font(f"{m1} " + _pdf_font("→", _PDF_F["sans"]) + f" {m2}",
+                                               _PDF_F["serif_md"], _PDF_HEX["gold_txt"]),
+                                     _RLParagraphStyle("cp_par_mes", parent=S["h2"], fontSize=13.5,
+                                                       spaceBefore=0, spaceAfter=2)),
+                    ]
+                    if not blocos:
+                        secao.append(_RLKeepTogether(cab_par + [_RLParagraph(
+                            "Nenhum produto mudou de curva, entrou ou saiu entre esses dois meses.",
+                            S["intro"])]))
+                        continue
+                    primeiro = blocos[0]
+                    secao.append(_RLKeepTogether(cab_par + [
+                        _RLParagraph(primeiro[0], st_tab),
+                        _pdf_table(_mig(primeiro[1]), _w, right=_r, center=_c)]))
+                    blocos = blocos[1:]
+                for titulo, rows in blocos:
+                    secao.append(_RLKeepTogether([_RLParagraph(titulo, st_tab),
                                                   _pdf_table(_mig(rows), _w, right=_r, center=_c)]))
             secao.append(_RLParagraph(
                 "<b>Como usar:</b> produtos que subiram merecem reforço de estoque e exposição — algo "
