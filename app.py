@@ -5476,7 +5476,7 @@ def exportar_pptx(kpis, df_pares, df_trios,
     dc = df_cesta.head(10)
     bars2 = ax2.bar(dc["Itens/Pedido"].astype(str), dc["Nº Pedidos"],
                     color="#2563EB", edgecolor="white", width=0.7)
-    max_n = max(dc["Nº Pedidos"])
+    max_n = max(dc["Nº Pedidos"], default=0)
     for bar, pct in zip(bars2, dc["% do Total"]):
         ax2.text(bar.get_x() + bar.get_width() / 2,
                  bar.get_height() + max_n * 0.015,
@@ -9103,12 +9103,27 @@ def main():
                         cnpj_label = f"{_d[:2]}.{_d[2:5]}.{_d[5:8]}/{_d[8:12]}-{_d[12:]}"
                     else:
                         cnpj_label = _raw_cnpj
+            if not _auto_cli and df_nfe_outros is not None and not df_nfe_outros.empty:
+                _em_o = df_nfe_outros["emitente"].dropna() if "emitente" in df_nfe_outros.columns else pd.Series(dtype=str)
+                _em_o = _em_o[_em_o != ""]
+                if not _em_o.empty:
+                    _auto_cli = _em_o.mode()[0]
+                if not cnpj_label and "cnpj_emit" in df_nfe_outros.columns:
+                    _cn_o = df_nfe_outros["cnpj_emit"].dropna()
+                    _cn_o = _cn_o[_cn_o != ""]
+                    if not _cn_o.empty:
+                        _d_o = "".join(c for c in str(_cn_o.mode()[0]) if c.isdigit())
+                        if len(_d_o) == 14:
+                            cnpj_label = f"{_d_o[:2]}.{_d_o[2:5]}.{_d_o[5:8]}/{_d_o[8:12]}-{_d_o[12:]}"
             cli_label = cliente or _auto_cli or "Cliente"
 
             if periodo:
                 per_label = periodo
-            elif "dhEmi" in df.columns and df["dhEmi"].notna().any():
-                _meses_v = sorted(df["dhEmi"].dropna().dt.to_period("M").unique())
+            elif ("dhEmi" in df.columns and df["dhEmi"].notna().any()) or (
+                    df.empty and df_nfe_outros is not None and not df_nfe_outros.empty
+                    and "dhEmi" in df_nfe_outros.columns and df_nfe_outros["dhEmi"].notna().any()):
+                _src_dt = df if ("dhEmi" in df.columns and df["dhEmi"].notna().any()) else df_nfe_outros
+                _meses_v = sorted(_src_dt["dhEmi"].dropna().dt.to_period("M").unique())
                 if len(_meses_v) == 1:
                     per_label = f"{_MESES_PT[_meses_v[0].month]} {_meses_v[0].year}"
                 elif len(_meses_v) >= 2:
@@ -9459,6 +9474,23 @@ f"{_col_nfe}{_col_skip}{_col_entrada_rej}"
             f'<p style="margin:6px 0 0;opacity:.75;font-size:14px">{per_label} &nbsp;·&nbsp; {fonte_label}</p>'
             '</div>',
             unsafe_allow_html=True,
+        )
+
+    # ── Aviso: arquivo sem nenhuma venda ─────────────────────────────
+    if (_modo != "Compras" and kpis.get("n_pedidos", 0) == 0 and df_compras.empty
+            and df_nfe_outros is not None and not df_nfe_outros.empty and "chave" in df_nfe_outros.columns):
+        _o_n = df_nfe_outros["chave"].nunique()
+        _o_v = df_nfe_outros.drop_duplicates("chave")["vNF"].sum() if "vNF" in df_nfe_outros.columns else 0
+        _o_tipos = ""
+        if "_tipo_op" in df_nfe_outros.columns:
+            _g = df_nfe_outros.drop_duplicates("chave")["_tipo_op"].astype(str).str.lower().value_counts()
+            _o_tipos = " (" + ", ".join(f"{n} {t}" for t, n in _g.items()) + ")"
+        st.warning(
+            f"**Nenhuma venda encontrada neste arquivo.** As {_o_n} NF-e enviadas{_o_tipos} somam "
+            f"{brl(_o_v)} e **não são vendas** — transferências, devoluções e remessas não entram no "
+            f"faturamento. Se este arquivo é de uma filial ou unidade, envie também as NFC-e/NF-e de "
+            f"venda do período para gerar a análise de vendas. Os detalhes estão na aba "
+            f"**Outras Saídas NF-e**."
         )
 
     # ── Toggle Vendas / Compras (abaixo do header) ───────────────────
@@ -11575,47 +11607,51 @@ Diferenças maiores devem ser investigadas com o contador.
             st.warning("Instale: `pip install python-pptx matplotlib`")
 
     with col_pdf:
-        try:
-            _pdf_narrativo_bytes = gerar_pdf_narrativo(
-                kpis=kpis,
-                df_abc=df_abc,
-                df_pares=df_pares,
-                df_trios=df_trios,
-                df_cesta=df_cesta,
-                df_elev=df_elev,
-                df_redu=df_redu,
-                df_combos=df_combos,
-                df_all=df_all,
-                df_all_dedup=df_all_dedup,
-                df_meios_pag=df_meios_pag,
-                df_canal=df_canal,
-                cliente_nome=cli_label,
-                periodo_label=per_label,
-                fonte_label=fonte_label,
-                df_compras=df_compras if not df_compras.empty else None,
-                df_compras_outros=df_compras_outros if not df_compras_outros.empty else None,
-                vis_flags={k: st.session_state.get(k, True) for k in _vis_keys_cache},
-                df_metas=df_metas,
-                sn_result=sn_result,
-                df_nfe_vendas=df_nfe,
-                df_nfe_outros=df_nfe_outros,
-                df_nfe_rejeitadas=df_nfe_rejeitadas,
-                df_canceladas=df_canceladas,
-                df_solo=df_solo,
-                df_remocao=df_remocao,
-            )
-        except Exception as _e_pdf_narr:
-            _pdf_narrativo_bytes = None
-            st.error(f"Não foi possível gerar o Relatório Estratégico em PDF: {_e_pdf_narr}")
+        _pdf_narrativo_bytes = None
+        if kpis.get("n_pedidos", 0) == 0 and df_compras.empty:
+            st.info("O Relatório Estratégico precisa de vendas ou de planilha de compras — este arquivo não tem nenhuma. Veja o aviso no topo.")
+        else:
+            try:
+                _pdf_narrativo_bytes = gerar_pdf_narrativo(
+                    kpis=kpis,
+                    df_abc=df_abc,
+                    df_pares=df_pares,
+                    df_trios=df_trios,
+                    df_cesta=df_cesta,
+                    df_elev=df_elev,
+                    df_redu=df_redu,
+                    df_combos=df_combos,
+                    df_all=df_all,
+                    df_all_dedup=df_all_dedup,
+                    df_meios_pag=df_meios_pag,
+                    df_canal=df_canal,
+                    cliente_nome=cli_label,
+                    periodo_label=per_label,
+                    fonte_label=fonte_label,
+                    df_compras=df_compras if not df_compras.empty else None,
+                    df_compras_outros=df_compras_outros if not df_compras_outros.empty else None,
+                    vis_flags={k: st.session_state.get(k, True) for k in _vis_keys_cache},
+                    df_metas=df_metas,
+                    sn_result=sn_result,
+                    df_nfe_vendas=df_nfe,
+                    df_nfe_outros=df_nfe_outros,
+                    df_nfe_rejeitadas=df_nfe_rejeitadas,
+                    df_canceladas=df_canceladas,
+                    df_solo=df_solo,
+                    df_remocao=df_remocao,
+                )
+            except Exception as _e_pdf_narr:
+                _pdf_narrativo_bytes = None
+                st.error(f"Não foi possível gerar o Relatório Estratégico em PDF: {_e_pdf_narr}")
 
-        if _pdf_narrativo_bytes:
-            st.download_button(
-                label="Baixar Relatório Estratégico (PDF)",
-                data=_pdf_narrativo_bytes,
-                file_name=f"{_nome_base}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
+            if _pdf_narrativo_bytes:
+                st.download_button(
+                    label="Baixar Relatório Estratégico (PDF)",
+                    data=_pdf_narrativo_bytes,
+                    file_name=f"{_nome_base}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
 
 
 
