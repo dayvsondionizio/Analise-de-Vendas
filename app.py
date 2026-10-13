@@ -148,6 +148,35 @@ CFOPS_COMERCIALIZACAO = {
 }
 
 
+def _zip_entradas(zf):
+    """Todas as entradas de um ZIP como (nome, referência de leitura) — inclusive nomes repetidos.
+
+    zf.read("nome") devolve só a ÚLTIMA entrada com aquele nome: um ZIP com dois "AUTORIZADAS.zip"
+    perdia o primeiro sem aviso. Aqui cada entrada é lida pelo seu próprio ZipInfo; a 2ª, 3ª...
+    ocorrência de um nome ganha sufixo " (2)", " (3)" antes da extensão, para não colidir com a
+    primeira. ZIP sem nome repetido devolve exatamente os mesmos nomes e a mesma ordem de
+    namelist(); qualquer falha cai no comportamento antigo (leitura por nome)."""
+    try:
+        vistos = {}
+        saida = []
+        for zi in zf.infolist():
+            nome = zi.filename
+            if nome.endswith("/"):
+                saida.append((nome, zi))
+                continue
+            vistos[nome] = vistos.get(nome, 0) + 1
+            n = vistos[nome]
+            if n > 1:
+                pasta, sep, base = nome.rpartition("/")
+                raiz, ponto, ext = base.rpartition(".")
+                base = f"{raiz} ({n}).{ext}" if ponto else f"{base} ({n})"
+                nome = f"{pasta}{sep}{base}"
+            saida.append((nome, zi))
+        return saida
+    except Exception:
+        return [(n, n) for n in zf.namelist()]
+
+
 def parse_entradas_xml(arquivos) -> pd.DataFrame:
     """Parseia XMLs de nota fiscal de ENTRADA (compras) e retorna DataFrame
     com os itens, filtrando apenas CFOPs de comercialização."""
@@ -309,9 +338,9 @@ def parse_entradas_xml(arquivos) -> pd.DataFrame:
             name = getattr(arq, "name", "")
             if name.lower().endswith(".zip"):
                 with zipfile.ZipFile(_io.BytesIO(raw)) as zf:
-                    for zi in zf.namelist():
+                    for zi, _ref in _zip_entradas(zf):
                         if zi.lower().endswith(".xml"):
-                            _process_xml_bytes(zf.read(zi), zi)
+                            _process_xml_bytes(zf.read(_ref), zi)
             else:
                 _process_xml_bytes(raw, name)
         except Exception:
@@ -1157,7 +1186,7 @@ def carregar_zip(file_bytes: bytes):
     rows_nfe  = []
     skipped   = 0
     with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
-        xml_names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+        xml_names = [_ref for n, _ref in _zip_entradas(zf) if n.lower().endswith(".xml")]
         for i in range(0, len(xml_names), _BATCH):
             batch_bytes = [zf.read(e) for e in xml_names[i:i + _BATCH]]
             n_workers = min(8, len(batch_bytes))
@@ -1784,8 +1813,8 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         if ext == "zip":
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                    for entry in zf.namelist():
-                        eb = zf.read(entry)
+                    for entry, _ref in _zip_entradas(zf):
+                        eb = zf.read(_ref)
                         resultado.extend(extrair_xml_bytes(eb, entry, excluir))
             except Exception:
                 pass
@@ -2054,32 +2083,32 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             return
         try:
             with zipfile.ZipFile(io.BytesIO(zip_data)) as _zf:
-                _all_e = _zf.namelist()
-                _xml_e = [e for e in _all_e
+                _all_e = _zip_entradas(_zf)   # (nome, referência) — inclui nomes repetidos
+                _xml_e = [(e, r) for e, r in _all_e
                           if e.lower().endswith(".xml") and not _arquivo_excluido(e)]
-                _zip_e = [e for e in _all_e
+                _zip_e = [(e, r) for e, r in _all_e
                           if e.lower().endswith(".zip") and not _arquivo_excluido(e)]
-                _rar7z = [e for e in _all_e
+                _rar7z = [(e, r) for e, r in _all_e
                           if e.lower().rsplit(".", 1)[-1] in ("rar", "7z", "7zip")
                           and not _arquivo_excluido(e)]
 
                 # XMLs diretos (incluindo XMLs em subpastas dentro do ZIP)
                 for _i in range(0, len(_xml_e), _BATCH):
-                    _batch = [_zf.read(e) for e in _xml_e[_i:_i + _BATCH]]
+                    _batch = [_zf.read(r) for _e, r in _xml_e[_i:_i + _BATCH]]
                     _parse_lote(_batch)
                     del _batch
                     _gc.collect()
 
                 # Sub-ZIPs: processa recursivamente em streaming
-                for _sub in _zip_e:
-                    _sub_data = _zf.read(_sub)
+                for _sub, _sub_ref in _zip_e:
+                    _sub_data = _zf.read(_sub_ref)
                     _processar_zip_stream(_sub_data, _sub)
                     del _sub_data
                     _gc.collect()
 
                 # RARs e 7z dentro do ZIP: usa extrair_xml_bytes (lida com RAR nativamente)
-                for _sub in _rar7z:
-                    _sub_data = _zf.read(_sub)
+                for _sub, _sub_ref in _rar7z:
+                    _sub_data = _zf.read(_sub_ref)
                     _xml_list = extrair_xml_bytes(_sub_data, _sub)
                     for _i in range(0, len(_xml_list), _BATCH):
                         _parse_lote(_xml_list[_i:_i + _BATCH])
