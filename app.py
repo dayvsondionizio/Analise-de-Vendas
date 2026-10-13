@@ -1935,8 +1935,8 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 chave_canc = None
                 for el in root.iter():
                     local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
-                    if local == "tpEvento" and el.text == "110111":
-                        # Acha a chave da NF-e cancelada
+                    if local == "tpEvento" and el.text in ("110111", "110112"):
+                        # Acha a chave da NF-e cancelada (110111 = cancelamento; 110112 = por substituição)
                         parent = root
                         for candidate in root.iter():
                             c_local = candidate.tag.split("}")[-1] if "}" in candidate.tag else candidate.tag
@@ -1954,6 +1954,26 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                             break
                     if cstat_aceito:
                         return None, None, 0, chave_canc, 0
+                return None, None, 0, None, 0
+
+            # Consulta de situação com cancelamento homologado (cStat 101 / 151 / 155):
+            # a tag do próprio XML diz que a nota foi cancelada.
+            if root_local in ("procCancNFe", "retCancNFe"):
+                _ch_old, _ok_old = "", False
+                for _e_old in root.iter():
+                    _l_old = _e_old.tag.split("}")[-1] if "}" in _e_old.tag else _e_old.tag
+                    if _l_old == "chNFe" and not _ch_old and len((_e_old.text or "").strip()) == 44:
+                        _ch_old = _e_old.text.strip()
+                    if _l_old == "cStat" and (_e_old.text or "").strip() in ("101", "151", "155", "135"):
+                        _ok_old = True
+                if _ch_old and _ok_old:
+                    return None, None, 0, _ch_old, 0
+                return None, None, 0, None, 0
+
+            if root_local == "retConsSitNFe":
+                _ch_sit = (_gettxt(root, "chNFe") or "").strip()
+                if _gettxt(root, "cStat") in ("101", "151", "155") and len(_ch_sit) == 44:
+                    return None, None, 0, _ch_sit, 0
                 return None, None, 0, None, 0
 
             if root_local not in ("nfeProc", "NFe"):
@@ -2055,10 +2075,11 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
 
     _BATCH = 200
     rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas = [], [], 0, 0
+    rows_canc_extra: list = []   # notas lidas de arquivos "CANCELADAS": nunca entram nas vendas
     chaves_canceladas: set = set()
     n_total_xml = 0
 
-    def _parse_lote(batch_bytes: list):
+    def _parse_lote(batch_bytes: list, canc: bool = False):
         nonlocal rows_nfce, rows_nfe, skipped, n_entrada_rejeitadas, chaves_canceladas, n_total_xml
         if not batch_bytes:
             return
@@ -2066,8 +2087,8 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
         _w = min(8, len(batch_bytes))
         with ThreadPoolExecutor(max_workers=_w) as _pool:
             for r_n, r_e, sk, chave_canc, n_ent in _pool.map(parse_xml, batch_bytes):
-                if r_n: rows_nfce.extend(r_n)
-                if r_e: rows_nfe.extend(r_e)
+                if r_n: (rows_canc_extra if canc else rows_nfce).extend(r_n)
+                if r_e: (rows_canc_extra if canc else rows_nfe).extend(r_e)
                 skipped += sk
                 n_entrada_rejeitadas += n_ent
                 if chave_canc: chaves_canceladas.add(chave_canc)
@@ -2076,18 +2097,25 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     # Para cada ZIP: itera entradas em lotes de 200, liberando memória entre lotes
     # Sub-ZIPs dentro de ZIPs são tratados recursivamente (mesmo comportamento de sempre)
     # RAR / 7z / XML individual: usa extrair_xml_bytes como sempre (geralmente menores)
-    def _processar_zip_stream(zip_data: bytes, zip_nome: str):
+    def _so_cancelada(nome: str) -> bool:
+        """Nome indica arquivo de notas CANCELADAS (e não inutilizadas/denegadas)."""
+        base = nome.replace("\\", "/").split("/")[-1].upper()
+        return "CANCELAD" in base and "INUTILIZAD" not in base and "DENEGAD" not in base
+
+    def _processar_zip_stream(zip_data: bytes, zip_nome: str, em_canceladas: bool = False):
         """Abre o ZIP e processa XMLs em lotes de _BATCH, sem carregar tudo na RAM.
         Suporta: XMLs diretos, XMLs em subpastas, sub-ZIPs, RARs e 7z dentro do ZIP."""
-        if _arquivo_excluido(zip_nome):
+        if _arquivo_excluido(zip_nome) and not _so_cancelada(zip_nome):
             return
+        _canc_aqui = em_canceladas or _so_cancelada(zip_nome)
         try:
             with zipfile.ZipFile(io.BytesIO(zip_data)) as _zf:
                 _all_e = _zip_entradas(_zf)   # (nome, referência) — inclui nomes repetidos
                 _xml_e = [(e, r) for e, r in _all_e
                           if e.lower().endswith(".xml") and not _arquivo_excluido(e)]
                 _zip_e = [(e, r) for e, r in _all_e
-                          if e.lower().endswith(".zip") and not _arquivo_excluido(e)]
+                          if e.lower().endswith(".zip")
+                          and (not _arquivo_excluido(e) or _so_cancelada(e))]
                 _rar7z = [(e, r) for e, r in _all_e
                           if e.lower().rsplit(".", 1)[-1] in ("rar", "7z", "7zip")
                           and not _arquivo_excluido(e)]
@@ -2095,14 +2123,14 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                 # XMLs diretos (incluindo XMLs em subpastas dentro do ZIP)
                 for _i in range(0, len(_xml_e), _BATCH):
                     _batch = [_zf.read(r) for _e, r in _xml_e[_i:_i + _BATCH]]
-                    _parse_lote(_batch)
+                    _parse_lote(_batch, _canc_aqui)
                     del _batch
                     _gc.collect()
 
                 # Sub-ZIPs: processa recursivamente em streaming
                 for _sub, _sub_ref in _zip_e:
                     _sub_data = _zf.read(_sub_ref)
-                    _processar_zip_stream(_sub_data, _sub)
+                    _processar_zip_stream(_sub_data, _sub, _canc_aqui)
                     del _sub_data
                     _gc.collect()
 
@@ -2111,7 +2139,7 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
                     _sub_data = _zf.read(_sub_ref)
                     _xml_list = extrair_xml_bytes(_sub_data, _sub)
                     for _i in range(0, len(_xml_list), _BATCH):
-                        _parse_lote(_xml_list[_i:_i + _BATCH])
+                        _parse_lote(_xml_list[_i:_i + _BATCH], _canc_aqui)
                         _gc.collect()
                     del _sub_data, _xml_list
                     _gc.collect()
@@ -2170,10 +2198,12 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
 
     # Salva linhas canceladas antes de remover (para aba "Notas Canceladas" no Excel)
     rows_canceladas = []
+    chaves_canceladas |= {r["chave"] for r in rows_canc_extra}
     if chaves_canceladas:
         rows_canceladas = [r for r in rows_nfce + rows_nfe if r["chave"] in chaves_canceladas]
         rows_nfce = [r for r in rows_nfce if r["chave"] not in chaves_canceladas]
         rows_nfe  = [r for r in rows_nfe  if r["chave"] not in chaves_canceladas]
+        rows_canceladas = rows_canceladas + rows_canc_extra
         skipped  += len(chaves_canceladas)
 
     def montar_df(rows, fonte):
@@ -2206,6 +2236,16 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
             lambda h: "Manhã" if 5 <= h < 12 else ("Tarde" if 12 <= h < 18 else "Noite")
             if pd.notna(h) else None)
 
+    # Notas que carregam, no próprio protocolo, o status de cancelamento (101/151/155/135):
+    # saem das vendas (como já saíam) e passam a constar na lista de canceladas.
+    _cod_canc = ("cStat:101", "cStat:151", "cStat:155", "cStat:135")
+    _disfarcadas = []
+    for _d_ in (df_nfce, df_nfe):
+        if not _d_.empty and "situacao" in _d_.columns:
+            _m_ = _d_["situacao"].isin(_cod_canc)
+            if _m_.any():
+                _disfarcadas.append(_d_[_m_].copy())
+
     # Conta rejeitadas antes de filtrar (por nota única, não por linha/item)
     n_rejeitadas_nfce = 0
     n_rejeitadas_nfe  = 0
@@ -2218,6 +2258,10 @@ def processar_fontes_universal(arquivos: tuple, pastas: tuple):
     skipped += (n_rejeitadas_nfce + n_rejeitadas_nfe)
 
     df_canceladas = montar_df(rows_canceladas, "Cancelada") if rows_canceladas else pd.DataFrame()
+    if _disfarcadas:
+        _dd_ = pd.concat(_disfarcadas, ignore_index=True)
+        _dd_["fonte"] = "Cancelada"
+        df_canceladas = pd.concat([df_canceladas, _dd_], ignore_index=True) if not df_canceladas.empty else _dd_
     if not df_canceladas.empty:
         df_canceladas = df_canceladas.drop_duplicates(subset=["chave"])
 
